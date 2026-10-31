@@ -473,8 +473,32 @@ func (a *App) AllowOnce(stepID string) error {
 	return nil
 }
 
-// StopStep ends a step's live process.
-func (a *App) StopStep(stepID string) { a.run.Stop(stepID) }
+// StopStep pauses a step: its Claude Code process ends and herd leaves the
+// session alone (no auto-resume) until ResumeStep, e.g. while the user
+// continues it with claude --resume in Zed.
+func (a *App) StopStep(stepID string) error {
+	s, err := a.db.Step(stepID)
+	if err != nil {
+		return err
+	}
+	a.setPaused(stepID, true)
+	a.run.Stop(stepID)
+	a.emitTask(s.TaskID)
+	return nil
+}
+
+func (a *App) paused(stepID string) bool {
+	v, _ := a.db.Get("paused:" + stepID)
+	return v != ""
+}
+
+func (a *App) setPaused(stepID string, on bool) {
+	v := ""
+	if on {
+		v = "1"
+	}
+	_ = a.db.Set("paused:"+stepID, v)
+}
 
 // complete runs the orchestrator's actions the first time a step is done:
 // commit, start automatic agents, push.
@@ -706,6 +730,9 @@ func (a *App) reconcile() {
 		return
 	}
 	for _, s := range steps {
+		if a.paused(s.ID) {
+			continue // the user resumes it
+		}
 		done, verdict := a.artifactDone(s)
 		s2, changed := a.updateStep(s.ID, func(x *store.Step) bool {
 			x.EndedAt = time.Now()

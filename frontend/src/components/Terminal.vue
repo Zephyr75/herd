@@ -6,8 +6,13 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { api, errorText } from '../lib/api'
 import { herd } from '../lib/state'
+import type { Step } from '../lib/types'
+import Icon from './ui/Icon.vue'
 
-const props = defineProps<{ stepId: string }>()
+// A paused step (stopped with Stop) is not reconnected: the user may be
+// running the same session elsewhere, e.g. claude --resume in Zed.
+const props = defineProps<{ step: Step }>()
+const paused = () => props.step.paused && !props.step.live
 
 const el = ref<HTMLDivElement>()
 const ended = ref(false)
@@ -30,7 +35,7 @@ function cssTheme() {
 
 function connect(id: string, resume = false) {
   cleanup?.()
-  if (!el.value) return
+  if (!el.value || (paused() && !resume)) return
   const ap = herd.settings?.config.appearance
   ended.value = false
   exitCode.value = null
@@ -129,9 +134,10 @@ function connect(id: string, resume = false) {
   }
 }
 
-onMounted(() => connect(props.stepId))
-watch(() => props.stepId, (id) => connect(id))
-watch(attempt, () => connect(props.stepId, true))
+onMounted(() => connect(props.step.id))
+watch(() => props.step.id, (id) => connect(id))
+watch(attempt, () => connect(props.step.id, true))
+watch(paused, (p) => (p ? cleanup?.() : connect(props.step.id)))
 onBeforeUnmount(() => cleanup?.())
 
 // Live theme switch.
@@ -147,7 +153,16 @@ watch(
 <template>
   <div class="wrap">
     <div ref="el" class="term"></div>
-    <div v-if="ended" class="ended">
+    <div v-if="paused()" class="paused">
+      <span class="ico"><Icon name="stop" :size="22" :stroke="1.6" /></span>
+      <span class="title">Claude is stopped in herd</span>
+      <span class="text">Continue this session elsewhere, e.g. in a Zed terminal, with the resume command. Resume here when you are done, so only one Claude runs it at a time.</span>
+      <span class="row">
+        <button class="btn" @click="herd.copyResume(step)"><Icon name="copy" :size="12" />Copy claude --resume</button>
+        <button class="btn primary" @click="herd.resumeStep(step)"><Icon name="play" :size="10" />Resume here</button>
+      </span>
+    </div>
+    <div v-else-if="ended" class="ended">
       <span>Session ended{{ exitCode !== null && exitCode !== 0 ? ` (exit ${exitCode})` : '' }}.</span>
       <button class="btn" @click="attempt++">Resume</button>
     </div>
@@ -170,6 +185,36 @@ watch(
 }
 .term :deep(.xterm-viewport) {
   background: var(--bg) !important;
+}
+.paused {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 48px;
+  text-align: center;
+  background: var(--bg);
+}
+.paused .ico {
+  display: flex;
+  color: var(--faint);
+}
+.paused .title {
+  font-size: 14px;
+}
+.paused .text {
+  max-width: 400px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.paused .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 .ended {
   position: absolute;

@@ -25,6 +25,7 @@ type StepView struct {
 	Artifact string `json:"artifact"`
 	Preview  string `json:"preview"`
 	Commits  bool   `json:"commits"`
+	Paused   bool   `json:"paused"` // stopped by the user until Resume
 }
 
 // Option is one next-step button.
@@ -129,7 +130,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		_, live := a.run.Get(s.ID)
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
-			Artifact: ag.ArtifactName(s.N), Preview: ag.PreviewName(s.N), Commits: ag.Commit,
+			Artifact: ag.ArtifactName(s.N), Preview: ag.PreviewName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID),
 		})
 	}
 	if v.Steps == nil {
@@ -165,6 +166,11 @@ func statusOf(t store.Task, steps []StepView) Status {
 	}
 	if len(steps) == 0 {
 		return Status{"idle", "Not started", "not started"}
+	}
+	for _, s := range steps {
+		if s.Paused && s.State != store.Done && s.State != store.Failed {
+			return Status{"idle", "Paused · " + s.Name, "paused"}
+		}
 	}
 	for _, s := range steps {
 		if s.State == store.Approval {

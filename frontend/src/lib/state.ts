@@ -5,6 +5,7 @@
 import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
+import { copyText } from './window'
 import type { Option, Settings, Step, TabRef, Task } from './types'
 
 export type Overlay = 'none' | 'palette' | 'scope' | 'new'
@@ -331,6 +332,22 @@ class Herd {
     if (!t || !step) return
     const lines = await this.attempt('Could not open the diff', () => api.OpenInZed(t.id, step.sha ? step.id : ''))
     if (lines) this.toast(step.sha ? 'Opening step diff in Zed' : 'Opening worktree in Zed', lines.join('\n'))
+  }
+
+  // ---- a step's Claude Code session, e.g. to continue it in Zed ----
+
+  async copyResume(step: Step) {
+    const cmd = `claude --resume ${step.session}`
+    if (await copyText(cmd)) this.toast('Copied', cmd)
+    else this.toast('Could not copy', cmd, true)
+  }
+
+  stopStep(step: Step) {
+    return this.attempt('Could not stop Claude', () => api.StopStep(step.id))
+  }
+
+  resumeStep(step: Step) {
+    return this.attempt('Could not resume', () => api.ResumeStep(step.id))
   }
 
   // ---- overlays and commands ----

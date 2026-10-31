@@ -402,6 +402,9 @@ func (a *App) CheckPrerequisites() []Check {
 func (a *App) TerminalURL(stepID string) (string, error) {
 	if _, ok := a.run.Get(stepID); !ok {
 		if _, ended := a.run.Ended(stepID); !ended {
+			if a.paused(stepID) {
+				return "", errors.New("this session is paused: press Resume")
+			}
 			if err := a.resume(stepID); err != nil {
 				return "", err
 			}
@@ -410,9 +413,10 @@ func (a *App) TerminalURL(stepID string) (string, error) {
 	return a.termURL(stepID), nil
 }
 
-// ResumeStep reopens a step's Claude Code conversation (the terminal's
-// Resume button) and returns its socket URL.
+// ResumeStep reopens a step's Claude Code conversation (the Resume buttons)
+// and returns its socket URL.
 func (a *App) ResumeStep(stepID string) (string, error) {
+	a.setPaused(stepID, false)
 	if _, ok := a.run.Get(stepID); !ok {
 		if err := a.resume(stepID); err != nil {
 			return "", err

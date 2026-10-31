@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
-import { copyText } from '../lib/window'
 import Icon from './ui/Icon.vue'
 import Terminal from './Terminal.vue'
 import Toasts from './Toasts.vue'
@@ -21,21 +20,13 @@ const model = (m: string) => (m ? m[0].toUpperCase() + m.slice(1) : '')
 const chip = computed(() => {
   const s = step.value
   if (!s) return null
+  if (s.paused && !s.live) return { cls: 's-idle', text: 'Paused' }
   if (s.state === 'approval') return { cls: 's-approval', text: 'Live · waiting for approval' }
   if (s.state === 'running' || s.state === 'idle') return { cls: 's-running', text: s.state === 'idle' ? 'Live · waiting for you' : 'Live' }
   if (s.state === 'failed') return { cls: 's-waiting', text: s.live ? 'Resumed · step failed' : 'Failed' }
   return { cls: 's-idle', text: s.live ? 'Resumed' : 'Resumed on click' }
 })
-const finished = computed(() => !!step.value && (step.value.state === 'done' || step.value.state === 'failed'))
 
-// One click copies the full resume command (the label shows a short id).
-async function copyResume() {
-  const s = step.value
-  if (!s) return
-  const cmd = `claude --resume ${s.session}`
-  if (await copyText(cmd)) herd.toast('Copied', cmd)
-  else herd.toast('Could not copy', cmd, true)
-}
 </script>
 
 <template>
@@ -58,9 +49,11 @@ async function copyResume() {
         <span class="muted small">{{ agent?.name ?? step.agent }} agent · {{ model(step.model) }}</span>
         <span v-if="step.guidance" class="guide" :title="step.guidance">“{{ step.guidance }}”</span>
         <span class="grow"></span>
-        <button class="session" title="Copy claude --resume command" @click="copyResume">{{ finished ? 'claude --resume ' : 'session ' }}{{ step.session.slice(0, 8) }}</button>
+        <button class="tb mono" title="Copy the full claude --resume command" @click="herd.copyResume(step)"><Icon name="copy" :size="12" />claude --resume {{ step.session.slice(0, 8) }}</button>
+        <button v-if="step.live" class="tb" title="Stop Claude in herd, e.g. to continue this session in Zed" @click="herd.stopStep(step)"><Icon name="stop" :size="11" />Stop</button>
+        <button v-else-if="step.paused" class="tb" title="Resume this session in herd" @click="herd.resumeStep(step)"><Icon name="play" :size="10" />Resume</button>
       </div>
-      <Terminal :key="step.id" :step-id="step.id" />
+      <Terminal :key="step.id" :step="step" />
     </template>
     <div v-else-if="t" class="empty">
       <span class="ico"><Icon name="terminal" :size="26" :stroke="1.6" /></span>
@@ -195,21 +188,30 @@ section {
   text-overflow: ellipsis;
   min-width: 0;
 }
-.session {
+.tb {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   height: 22px;
-  padding: 0 6px;
-  margin-right: -6px;
-  border: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: transparent;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--muted);
+  color: var(--text);
+  font-size: 12px;
   white-space: nowrap;
 }
-.session:hover {
+.tb.mono {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.tb:hover {
   background: var(--hover);
   color: var(--text);
+}
+.tb + .tb {
+  margin-left: -4px;
 }
 .empty {
   flex: 1;

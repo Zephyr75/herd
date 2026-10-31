@@ -11,6 +11,7 @@ import type { Step } from '../lib/types'
 const t = computed(() => herd.selTask)
 
 function meta(s: Step): { text: string; cls: string } {
+  if (s.paused && s.state !== 'done' && s.state !== 'failed') return { text: 'paused', cls: '' }
   if (s.state === 'running') return { text: 'running', cls: 'c-running' }
   if (s.state === 'approval') return { text: 'needs approval', cls: 'c-approval' }
   if (s.state === 'idle') return { text: 'waiting for you', cls: 'c-waiting' }
@@ -20,7 +21,7 @@ function meta(s: Step): { text: string; cls: string } {
   if (task && s.state === 'done' && task.pr && herd.settings?.agents.find((a) => a.id === s.agent)?.push) return { text: 'PR #' + task.pr, cls: '' }
   return { text: '', cls: '' }
 }
-const dotCls = (s: Step) => (s.state === 'done' ? 'd-done' : s.state === 'running' || s.state === 'idle' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-approval')
+const dotCls = (s: Step) => (s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' || s.state === 'idle' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-approval')
 
 async function archive() {
   const task = t.value
@@ -210,6 +211,7 @@ async function archive() {
     margin-top: 4px;
   }
   .d-done { background: var(--done-dot); }
+  .d-paused { background: var(--faint); }
   .d-running { background: var(--running-dot); }
   .d-approval,
   .d-failed { background: var(--approval-dot); }

@@ -64,3 +64,7 @@ Hooks (`SessionStart`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `Stop`
 step state; a step is done when `Stop` fires and its artifact's front matter matches the agent's
 done rule (or the user clicks Mark done). Then herd commits (Implement), starts automatic agents
 (Review after Implement), or pushes and opens the PR (Push) and waits for the Copilot review.
+
+To continue a session in Zed: Open worktree in Zed, press Stop in the terminal toolbar (herd's
+claude ends, so only one process uses the session), copy the `claude --resume` command into a Zed
+terminal, and press Resume in herd when you are done.

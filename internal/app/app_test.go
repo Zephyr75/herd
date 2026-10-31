@@ -278,3 +278,34 @@ func TestPermissionMode(t *testing.T) {
 		t.Fatal("permission modes")
 	}
 }
+
+func TestPauseAndResume(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "pause me", true)
+	id := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "plan done", func() bool { return stepState(a, id) == store.Done })
+	step, _ := a.db.Step(id)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
+	os.MkdirAll(proj, 0o755)
+	os.WriteFile(filepath.Join(proj, step.SessionID+".jsonl"), []byte("{}\n"), 0o644)
+
+	if err := a.StopStep(id); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "stopped", func() bool { _, live := a.run.Get(id); return !live })
+	if v, _ := a.GetTask(tv.ID); !v.Steps[0].Paused {
+		t.Fatal("step not paused")
+	}
+	if _, err := a.TerminalURL(id); err != nil {
+		t.Fatal(err) // replays the stopped output
+	}
+	if _, live := a.run.Get(id); live {
+		t.Fatal("TerminalURL resumed a paused session")
+	}
+	if _, err := a.ResumeStep(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, live := a.run.Get(id); !live || a.paused(id) {
+		t.Fatal("not resumed")
+	}
+}

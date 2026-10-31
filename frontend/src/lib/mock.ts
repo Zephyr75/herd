@@ -154,11 +154,13 @@ const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { mont
 
 function stepView(t: MockTask, s: MockStep, i: number): Step {
   const a = agent(s.agent)
+  const paused = new URLSearchParams(location.search).get('paused') === `${t.id}/${s.key}` // ?paused=<step id>
   return {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
-    name: displayName(a, s.n), live: s.state !== 'done', auto: !!a.trigger.startsWith('after:'),
+    name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), preview: (a.preview || a.writes).replace('{n}', String(s.n)), commits: a.commit,
+    paused,
   }
 }
 

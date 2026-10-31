@@ -87,6 +87,7 @@ export interface Step {
   artifact: string
   preview: string
   commits: boolean
+  paused: boolean // stopped by the user until Resume
 }
 
 export interface Option {

@@ -26,16 +26,16 @@ const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the bat
 const agents: Agent[] = [
   { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'PLAN.md', preview: '', done: 'status: done', permissions: 'readonly', commit: false, push: false,
     allowed: ['Read', 'Grep', 'Glob', 'Bash(gh issue view:*)', 'Edit(/{run}/**)', 'Write(/{run}/**)'], denied: ['Edit(/{worktree}/**)'],
-    instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
+    instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.', rules: '' },
   { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', preview: '', done: 'status: done', permissions: 'acceptEdits', commit: true, push: false,
     allowed: ['Read', 'Edit', 'Write', 'Bash(go test:*)', 'Bash(pnpm test:*)', 'Bash(terraform validate)'], denied: ['Bash(git commit:*)', 'Bash(git push:*)'],
-    instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits when you finish.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
+    instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits when you finish.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.', rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.' },
   { id: 'review', name: 'Review', command: '/herd:review {task} {sha}', model: 'sonnet', trigger: 'after:impl', writes: 'REVIEW-{n}.md', preview: '', done: 'verdict: approve | changes', permissions: 'readonly', commit: false, push: false,
     allowed: ['Read', 'Grep', 'Bash(git show:*)', 'Edit(/{run}/**)'], denied: ['Edit(/{worktree}/**)'],
-    instructions: 'Review commit {sha} against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code.' },
+    instructions: 'Review commit {sha} against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code.', rules: '' },
   { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', preview: 'FEEDBACK.md', done: 'status: done', permissions: 'readonly', commit: false, push: true,
     allowed: ['Read', 'Edit(/{run}/**)'], denied: ['Bash(git push:*)'],
-    instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
+    instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.', rules: '' },
 ]
 
 const context: Record<string, Context> = {

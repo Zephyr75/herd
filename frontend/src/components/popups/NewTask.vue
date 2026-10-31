@@ -104,8 +104,6 @@ function key(e: KeyboardEvent) {
   <div class="box popup" role="dialog" aria-label="New task" tabindex="-1" @keydown="key">
     <div class="head">
       <span class="title">New task</span>
-      <span class="grow"></span>
-      <span class="kbd">Esc</span>
     </div>
     <div class="body">
       <div class="group">
@@ -118,7 +116,7 @@ function key(e: KeyboardEvent) {
       <div class="group">
         <label for="nfissue" class="lbl">GitHub issue <span class="faint">optional</span></label>
         <div class="issue-row">
-          <div class="issue" :class="{ filled: nIssue }">
+          <div class="issue">
             <span class="muted mono">#</span>
             <input id="nfissue" ref="issueInput" :value="issue" placeholder="1190" inputmode="numeric" autocomplete="off" @input="onIssue" @blur="fetchTitle" />
           </div>
@@ -129,7 +127,7 @@ function key(e: KeyboardEvent) {
       </div>
       <div class="group">
         <label for="nfdesc" class="lbl">Description <span class="faint">optional</span></label>
-        <textarea id="nfdesc" v-model="desc" rows="4" :class="{ filled: nDesc }" placeholder="What should Claude do? Added on top of the issue, or used alone for a LOCAL task."></textarea>
+        <textarea id="nfdesc" v-model="desc" rows="4" placeholder="What should Claude do? Added on top of the issue, or used alone for a LOCAL task."></textarea>
       </div>
       <div class="mode">
         <div class="mode-row">
@@ -150,7 +148,7 @@ function key(e: KeyboardEvent) {
       <button class="btn ghost" @click="herd.overlay = 'none'">Cancel</button>
       <button class="btn" :disabled="!valid" @click="create(false)">Create</button>
       <button class="btn primary run" :disabled="!valid" @click="create(true)">
-        <Icon name="play" :size="10" />Create and run {{ first }}<span class="run-kbd">{{ isMac() ? '⌘⏎' : 'Ctrl+⏎' }}</span>
+        <Icon name="play" :size="10" />Create and run {{ first }}
       </button>
     </div>
   </div>
@@ -221,12 +219,6 @@ function key(e: KeyboardEvent) {
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg);
-  }
-  .issue.filled,
-  textarea.filled,
-  .issue:focus-within,
-  textarea:focus {
-    border-color: var(--focus);
   }
   .issue input {
     flex: 1;
@@ -311,14 +303,6 @@ function key(e: KeyboardEvent) {
     height: 28px;
   }
   .run {
-    padding: 0 6px 0 12px;
     gap: 7px;
-  }
-  .run-kbd {
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 0 5px;
-    border-radius: 4px;
-    background: var(--button-kbd);
   }
 </style>

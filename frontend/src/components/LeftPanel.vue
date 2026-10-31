@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { herd } from '../lib/state'
 import Icon from './ui/Icon.vue'
-import Kbd from './ui/Kbd.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
 import NextStep from './NextStep.vue'
@@ -29,10 +28,10 @@ function addProject() {
   <aside :style="{ width: herd.leftWidth + 'px' }">
     <Splitter side="left" />
     <div class="head">
-      <button class="tab" :class="{ on: herd.left === 'tasks' }" @click="herd.left = 'tasks'">Tasks <span class="muted">{{ counts.active }}</span></button>
-      <button class="tab" :class="{ on: herd.left === 'archive' }" @click="herd.left = 'archive'">Archive <span class="muted">{{ counts.archived }}</span></button>
-      <span class="grow"></span>
-      <Kbd action="toggleArchive" />
+      <div class="pill" role="tablist">
+        <button role="tab" :aria-selected="herd.left === 'tasks'" :class="{ on: herd.left === 'tasks' }" @click="herd.left = 'tasks'">Tasks <span class="count">{{ counts.active }}</span></button>
+        <button role="tab" :aria-selected="herd.left === 'archive'" :class="{ on: herd.left === 'archive' }" @click="herd.left = 'archive'">Archive <span class="count">{{ counts.archived }}</span></button>
+      </div>
     </div>
 
     <div class="list">
@@ -77,29 +76,19 @@ aside {
 .head {
   display: flex;
   align-items: center;
-  gap: 2px;
   flex: none;
   height: 34px;
-  padding: 0 6px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--border);
 }
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-}
-.tab.on {
-  color: var(--text);
-  background: var(--hover);
-}
-.grow {
+.head .pill {
   flex: 1;
+}
+.count {
+  color: var(--faint);
+}
+.pill .on .count {
+  color: var(--muted);
 }
 .list {
   flex: 1;
@@ -151,7 +140,6 @@ aside {
   background: var(--hover);
 }
 .card.on {
-  border-color: var(--focus);
   background: var(--sel);
 }
 .row {

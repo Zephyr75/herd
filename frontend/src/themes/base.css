@@ -45,8 +45,7 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
+  outline: none;
 }
 
 .mono {
@@ -144,8 +143,42 @@ button:disabled {
   white-space: nowrap;
 }
 .seg.on {
-  border-color: var(--focus);
   background: var(--sel);
+}
+
+/* Zed-style toggle group: one bordered pill split into equal segments */
+.pill {
+  display: flex;
+  align-items: stretch;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.pill > button {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.pill > button + button {
+  border-left: 1px solid var(--border);
+}
+.pill > button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.pill > button.on {
+  background: var(--sel);
+  color: var(--text);
 }
 
 .btn {
@@ -205,7 +238,6 @@ button:disabled {
 .input:focus,
 .area:focus {
   outline: none;
-  border-color: var(--focus);
 }
 
 .area {

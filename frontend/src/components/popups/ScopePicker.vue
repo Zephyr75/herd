@@ -3,7 +3,7 @@
 // tasks of one project, labelled by the clicked attribute.
 import { computed, onMounted, ref, watch } from 'vue'
 import { herd, type ScopeMode } from '../../lib/state'
-import { isMac, keyLabel } from '../../lib/keymap'
+import { isMac } from '../../lib/keymap'
 
 const project = ref(herd.selTask?.project ?? herd.projects[0]?.id ?? '')
 const filter = ref('')
@@ -48,7 +48,9 @@ function key(e: KeyboardEvent) {
   <button class="scrim" aria-label="Close picker" @click="herd.overlay = 'none'"></button>
   <div class="box popup" :class="{ mac: herd.os === 'darwin' }" role="dialog" aria-label="Scope picker">
     <div class="modes">
-      <button v-for="[m, label] in modes" :key="m" class="seg mode" :class="{ on: herd.scope === m }" @click="herd.scope = m">{{ label }}</button>
+      <div class="pill" role="tablist">
+        <button v-for="[m, label] in modes" :key="m" role="tab" :aria-selected="herd.scope === m" :class="{ on: herd.scope === m }" @click="herd.scope = m">{{ label }}</button>
+      </div>
     </div>
     <div v-if="herd.scope === 'project'" class="chips">
       <button v-for="p in herd.projects" :key="p.id" class="seg" :class="{ on: p.id === project }" @click="project = p.id">{{ p.name }} {{ openCount(p.id) }}</button>
@@ -66,12 +68,6 @@ function key(e: KeyboardEvent) {
       </button>
       <span v-if="!rows.length" class="none">Nothing in this scope.</span>
     </div>
-    <div class="foot">
-      <span><span class="kbd">⏎</span> open task</span>
-      <span><span class="kbd">{{ isMac() ? '⌘⏎' : 'Ctrl+⏎' }}</span> open in Zed</span>
-      <span class="grow"></span>
-      <span><span class="kbd">{{ keyLabel(herd.settings?.keymap, 'scope') }}</span> this picker</span>
-    </div>
   </div>
 </template>
 
@@ -79,7 +75,7 @@ function key(e: KeyboardEvent) {
   .box {
     position: absolute;
     z-index: 21;
-    top: 42px;
+    top: 38px;
     left: 110px;
     width: 500px;
     max-width: calc(100% - 32px);
@@ -91,13 +87,7 @@ function key(e: KeyboardEvent) {
     left: 184px;
   }
   .modes {
-    display: flex;
-    gap: 2px;
-    padding: 6px;
-    border-bottom: 1px solid var(--border);
-  }
-  .mode:not(.on) {
-    border-color: transparent;
+    padding: 8px 8px 0;
   }
   .chips {
     display: flex;
@@ -111,7 +101,7 @@ function key(e: KeyboardEvent) {
     margin: 8px;
     padding: 0 10px;
     height: 30px;
-    border: 1px solid var(--focus);
+    border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg);
   }
@@ -147,7 +137,6 @@ function key(e: KeyboardEvent) {
   }
   .row.hi {
     background: var(--sel);
-    box-shadow: inset 2px 0 0 var(--focus);
   }
   .primary {
     flex: none;
@@ -175,16 +164,5 @@ function key(e: KeyboardEvent) {
   .none {
     padding: 12px;
     color: var(--muted);
-  }
-  .foot {
-    display: flex;
-    gap: 14px;
-    padding: 7px 12px;
-    border-top: 1px solid var(--border);
-    font-size: 11.5px;
-    color: var(--muted);
-  }
-  .grow {
-    flex: 1;
   }
 </style>

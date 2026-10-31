@@ -6,7 +6,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { herd } from '../lib/state'
 import { isMaximised, minimise, quit, toggleMaximise } from '../lib/window'
 import Icon from './ui/Icon.vue'
-import Kbd from './ui/Kbd.vue'
 
 const t = computed(() => herd.selTask)
 const scopeOpen = (m: string) => herd.overlay === 'scope' && herd.scope === m
@@ -30,8 +29,8 @@ function dblclick(e: MouseEvent) {
 
 <template>
   <header :class="{ mac: herd.os === 'darwin' }" @dblclick="dblclick">
-    <button class="gear" :class="{ on: herd.view === 'settings' }" aria-label="Settings" title="Settings" @click="herd.command('settings')">
-      <Icon name="gear" :size="15" />
+    <button class="menu" :class="{ on: herd.view === 'settings' }" aria-label="Settings" title="Settings" @click="herd.command('settings')">
+      <Icon name="menu" :size="15" />
     </button>
     <template v-if="herd.view === 'board' && t">
       <button class="crumb project" :class="{ on: scopeOpen('project') }" @click="herd.openOverlay('scope', 'project')">
@@ -49,10 +48,10 @@ function dblclick(e: MouseEvent) {
     <span v-else-if="herd.view === 'settings'" class="muted label">Settings</span>
     <span class="grow"></span>
     <button class="search" @click="herd.openOverlay('palette')">
-      <Icon name="search" /><span class="grow">Search tasks</span><Kbd action="palette" />
+      <Icon name="search" /><span class="grow">Search tasks</span>
     </button>
     <button class="new" @click="herd.openOverlay('new')">
-      <Icon name="plus" :size="12" :stroke="2.2" />New task<Kbd action="newTask" />
+      <Icon name="plus" :size="12" :stroke="2.2" />New task
     </button>
     <div v-if="controls" class="win" aria-label="Window">
       <button class="wc" aria-label="Minimise" title="Minimise" @click="minimise()">
@@ -76,8 +75,8 @@ header {
   align-items: center;
   gap: 2px;
   flex: none;
-  height: 38px;
-  padding: 0 8px;
+  height: 34px;
+  padding: 0 6px;
   background: var(--chrome);
   border-bottom: 1px solid var(--border);
   user-select: none;
@@ -95,7 +94,7 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 24px;
   padding: 0 8px;
   border-radius: 6px;
   border: 0;
@@ -126,9 +125,9 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 26px;
+  height: 24px;
   min-width: 220px;
-  padding: 0 6px 0 10px;
+  padding: 0 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -139,17 +138,17 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 6px 0 10px;
+  height: 24px;
+  padding: 0 10px;
   margin-left: 6px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
 }
-.gear {
+.menu {
   width: 28px;
-  height: 26px;
+  height: 24px;
   margin-right: 6px;
   display: flex;
   align-items: center;
@@ -159,8 +158,8 @@ button {
   background: transparent;
   color: var(--muted);
 }
-.gear.on,
-.gear:hover {
+.menu.on,
+.menu:hover {
   color: var(--text);
   background: var(--hover);
 }
@@ -175,7 +174,7 @@ button {
 }
 .wc {
   width: 30px;
-  height: 26px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -70,6 +70,7 @@ type Agent struct {
 	Commit       bool     `toml:"commit,omitempty" json:"commit"`
 	Push         bool     `toml:"push,omitempty" json:"push"`
 	Instructions string   `toml:"instructions" json:"instructions"`
+	Rules        string   `toml:"rules,omitempty" json:"rules"` // always appended to the system prompt
 }
 
 type agentsFile struct {

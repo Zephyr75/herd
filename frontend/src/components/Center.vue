@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
+import { copyText } from '../lib/window'
 import Icon from './ui/Icon.vue'
 import Terminal from './Terminal.vue'
 import Toasts from './Toasts.vue'
@@ -26,6 +27,15 @@ const chip = computed(() => {
   return { cls: 's-idle', text: s.live ? 'Resumed' : 'Resumed on click' }
 })
 const finished = computed(() => !!step.value && (step.value.state === 'done' || step.value.state === 'failed'))
+
+// One click copies the full resume command (the label shows a short id).
+async function copyResume() {
+  const s = step.value
+  if (!s) return
+  const cmd = `claude --resume ${s.session}`
+  if (await copyText(cmd)) herd.toast('Copied', cmd)
+  else herd.toast('Could not copy', cmd, true)
+}
 </script>
 
 <template>
@@ -48,7 +58,7 @@ const finished = computed(() => !!step.value && (step.value.state === 'done' || 
         <span class="muted small">{{ agent?.name ?? step.agent }} agent · {{ model(step.model) }}</span>
         <span v-if="step.guidance" class="guide" :title="step.guidance">“{{ step.guidance }}”</span>
         <span class="grow"></span>
-        <span class="session">{{ finished ? 'claude --resume ' : 'session ' }}{{ step.session.slice(0, 8) }}</span>
+        <button class="session" title="Copy claude --resume command" @click="copyResume">{{ finished ? 'claude --resume ' : 'session ' }}{{ step.session.slice(0, 8) }}</button>
       </div>
       <Terminal :key="step.id" :step-id="step.id" />
     </template>
@@ -186,10 +196,20 @@ section {
   min-width: 0;
 }
 .session {
+  height: 22px;
+  padding: 0 6px;
+  margin-right: -6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   font-family: var(--mono);
   font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
+}
+.session:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .empty {
   flex: 1;

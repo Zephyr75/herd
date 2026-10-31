@@ -70,7 +70,7 @@ function addAgent() {
   s.agents.push({
     id, name: 'Agent ' + n, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
     preview: '', done: 'status: done', permissions: 'readonly', allowed: ['Read', 'Grep', 'Glob', 'Edit(/{run}/**)'], denied: [], commit: false, push: false,
-    instructions: 'Describe what this agent does and what it writes.',
+    instructions: 'Describe what this agent does and what it writes.', rules: '',
   })
   selId.value = id
   changed()
@@ -173,6 +173,7 @@ function pick(id: string) {
         <label><input type="checkbox" :checked="A.push" @change="set('push', checked($event))" /> Push and open the PR when done</label>
       </div>
       <label class="field">Instructions (the agent's skill)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
+      <label class="field">Rules (always followed, added to the system prompt)<textarea class="area mono" rows="4" :value="A.rules ?? ''" placeholder="e.g. Never touch migrations/&#10;Run go vet before finishing" @input="set('rules', val($event))"></textarea></label>
       <div class="actions">
         <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue}' }}; in tools {{ '{run} {worktree}' }}</span>
         <span class="grow"></span>
@@ -203,7 +204,6 @@ function pick(id: string) {
     background: var(--bg);
   }
   .pp.auto {
-    border-color: var(--focus);
     background: var(--sel);
   }
   .grow {

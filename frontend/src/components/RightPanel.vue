@@ -188,10 +188,8 @@ async function archive() {
     align-items: flex-start;
     padding: 6px 8px 0;
     border-radius: 6px;
-    border-left: 2px solid transparent;
   }
   .row.on {
-    border-left-color: var(--focus);
     background: var(--sel);
   }
   .row.ghost {

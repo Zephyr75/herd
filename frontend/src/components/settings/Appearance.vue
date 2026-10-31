@@ -125,7 +125,6 @@ function setZed(e: Event) {
     background: transparent;
   }
   .tcard.on {
-    border-color: var(--focus);
     background: var(--sel);
   }
   .shot {
@@ -187,7 +186,7 @@ function setZed(e: Event) {
     border: 1px solid var(--muted);
   }
   .radio.on {
-    border: 4px solid var(--focus);
+    border: 4px solid var(--text);
   }
   .name {
     font-weight: 600;
@@ -225,6 +224,5 @@ function setZed(e: Event) {
   }
   .val:focus {
     outline: none;
-    border-color: var(--focus);
   }
 </style>

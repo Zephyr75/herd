@@ -68,10 +68,6 @@ export function label(binding: string | undefined): string {
 }
 
 /** first returns the label of an action's first binding. */
-export function keyLabel(km: Keymap | undefined, action: string): string {
-  return label(km?.[action]?.[0])
-}
-
 export const actions: { id: string; action: string; where: string }[] = [
   { id: 'palette', action: 'Go to task (all projects)', where: 'anywhere' },
   { id: 'scope', action: 'Switch task in this project, worktree or branch', where: 'board' },

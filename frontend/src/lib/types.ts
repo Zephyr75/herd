@@ -28,6 +28,7 @@ export interface Agent {
   commit: boolean
   push: boolean
   instructions: string
+  rules: string
 }
 
 export interface Context {

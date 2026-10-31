@@ -90,9 +90,7 @@ function key(e: KeyboardEvent) {
 .splitter:hover::after,
 .splitter:focus-visible::after,
 .splitter.dragging::after {
-  background: var(--focus);
-  width: 2px;
-  left: 2.5px;
+  background: var(--faint);
 }
 .splitter:focus-visible {
   outline: none;

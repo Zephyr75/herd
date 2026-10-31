@@ -44,9 +44,8 @@ function key(e: KeyboardEvent) {
       <span class="muted ico"><Icon name="search" :size="14" /></span>
       <label for="pq" class="sr-only">Search tasks</label>
       <input id="pq" ref="input" v-model="query" placeholder="Search tasks in all projects…" autocomplete="off" spellcheck="false" @keydown="key" />
-      <span class="kbd">Esc</span>
     </div>
-    <span class="heading">{{ query.trim() ? `${matches.length} task${matches.length === 1 ? '' : 's'} match` : 'Recent tasks · all projects' }}</span>
+    <span class="heading">{{ query.trim() ? `${matches.length} task${matches.length === 1 ? '' : 's'} match` : 'Recent tasks · all projects' }} · archived included</span>
     <div ref="list" class="rows">
       <button v-for="(t, i) in matches" :key="t.id" class="row" :class="{ hi: i === hi }" @click="herd.pickTask(t.id)" @mousemove="hi = i">
         <TaskRef :issue="t.issue" width="46px" />
@@ -55,13 +54,6 @@ function key(e: KeyboardEvent) {
         <span :class="['badge', `s-${t.status.kind}`]"><span class="dot"></span>{{ t.status.short }}</span>
       </button>
       <span v-if="!matches.length" class="none">No tasks match “{{ query }}”.</span>
-    </div>
-    <div class="foot">
-      <span><span class="kbd">↑↓</span> move</span>
-      <span><span class="kbd">⏎</span> open last step</span>
-      <span><span class="kbd">{{ isMac() ? '⌘⏎' : 'Ctrl+⏎' }}</span> open worktree in Zed</span>
-      <span class="grow"></span>
-      <span>Archived tasks included</span>
     </div>
   </div>
 </template>
@@ -127,7 +119,6 @@ function key(e: KeyboardEvent) {
   }
   .row.hi {
     background: var(--sel);
-    box-shadow: inset 2px 0 0 var(--focus);
   }
   .title {
     flex: 1;
@@ -151,17 +142,5 @@ function key(e: KeyboardEvent) {
   .none {
     padding: 14px 12px;
     color: var(--muted);
-  }
-  .foot {
-    display: flex;
-    gap: 14px;
-    padding: 7px 12px;
-    border-top: 1px solid var(--border);
-    font-size: 11.5px;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .grow {
-    flex: 1;
   }
 </style>

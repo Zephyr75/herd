@@ -81,6 +81,9 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	if l.task.PortBase > 0 {
 		fmt.Fprintf(&b, "- dev servers: use ports from %d ($HERD_PORT_BASE)\n", l.task.PortBase)
 	}
+	if rules := strings.TrimSpace(l.agent.Rules); rules != "" {
+		fmt.Fprintf(&b, "\n# Rules for the %s agent\nAlways follow these rules:\n%s\n", l.agent.Name, rules)
+	}
 	return b.String()
 }
 

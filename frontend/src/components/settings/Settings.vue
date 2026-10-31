@@ -20,7 +20,7 @@ const file = computed(
     <button v-for="[id, label] in nav" :key="id" class="item" :class="{ on: herd.settingsTab === id }" @click="herd.settingsTab = id">{{ label }}</button>
     <span class="grow"></span>
     <span class="path">{{ herd.settings?.dir ?? '~/.herd' }}/{{ file }}</span>
-    <button class="back" @click="herd.view = 'board'">Back to board <span class="kbd">Esc</span></button>
+    <button class="back" @click="herd.view = 'board'">Back to board</button>
   </aside>
 
   <section>
@@ -65,7 +65,6 @@ const file = computed(
     background: var(--hover);
   }
   .item.on {
-    border-color: var(--focus);
     background: var(--sel);
   }
   .grow {
@@ -136,7 +135,6 @@ const file = computed(
     background: var(--hover);
   }
   .col :deep(.list-btn.on) {
-    border-color: var(--focus);
     background: var(--sel);
   }
   .col :deep(.list-btn .sub) {

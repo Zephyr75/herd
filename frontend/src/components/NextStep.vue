@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
 import Icon from './ui/Icon.vue'
-import Kbd from './ui/Kbd.vue'
 
 const t = computed(() => herd.selTask)
 const nx = computed(() => t.value?.next)
@@ -43,8 +42,6 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
         <button v-for="(o, i) in nx.options" :key="o.agent + o.n" class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)">
           <Icon name="play" :size="10" />{{ o.label }}
         </button>
-        <span class="grow"></span>
-        <Kbd action="runPrimary" />
       </div>
     </template>
 
@@ -99,7 +96,6 @@ textarea {
 }
 textarea:focus {
   outline: none;
-  border-color: var(--focus);
 }
 .opts,
 .row {

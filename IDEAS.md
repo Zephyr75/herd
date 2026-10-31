@@ -1,0 +1,8 @@
+- When opening zed to see the changes, automatically open a new thread in zen in terminal mode where claude is launched with teh same session id, and the herd cluade code instance is temporarily killed to avoid desync
+- Replace gear icon with the 3 lines like in zed to represent the settings
+- Make the top bar a bit thinner vertically to match the height of the one in zed
+- Remove the mentions to the shortcuts, i prefer to see them only in settings
+- Remove the blue outlines where you added some, zed does not use any
+- Make the claude --resume field clickable to copy it in one click
+- Instead of the three buttons project, worktree, branch, use a pill like button split in 3 like for branches/stash in zed, also do the same for tasks/archives
+- Add a rule field to the agents settings to define rules to follow for each agent 

@@ -42,11 +42,11 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 0x18, G: 0x19, B: 0x1b, A: 0xff},
 		// herd's top bar is the titlebar: it drags the window and holds the
 		// window controls. macOS keeps its traffic lights (TitleBarHiddenInset).
-		Frameless: runtime.GOOS != "darwin",
-		AssetServer:      &assetserver.Options{Assets: assets},
-		OnStartup:        shell.startup,
-		OnShutdown:       shell.shutdown,
-		Bind:             []interface{}{svc},
+		Frameless:   runtime.GOOS != "darwin",
+		AssetServer: &assetserver.Options{Assets: assets},
+		OnStartup:   shell.startup,
+		OnShutdown:  shell.shutdown,
+		Bind:        []interface{}{svc},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHiddenInset(),
 			WebviewIsTransparent: false,
@@ -58,6 +58,9 @@ func main() {
 	// handles every shortcut and the window has no menu bar.
 	if runtime.GOOS == "darwin" {
 		opts.Menu = appMenu(shell)
+	}
+	if opts.Frameless {
+		useClientSideTitlebar()
 	}
 	if err := wails.Run(opts); err != nil {
 		log.Fatal(err)

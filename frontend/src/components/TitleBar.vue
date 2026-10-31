@@ -33,7 +33,6 @@ function dblclick(e: MouseEvent) {
     <button class="gear" :class="{ on: herd.view === 'settings' }" aria-label="Settings" title="Settings" @click="herd.command('settings')">
       <Icon name="gear" :size="15" />
     </button>
-    <span class="mark">herd</span>
     <template v-if="herd.view === 'board' && t">
       <button class="crumb project" :class="{ on: scopeOpen('project') }" @click="herd.openOverlay('scope', 'project')">
         {{ t.projectName }}<Icon name="chevron" :size="10" :stroke="2.4" />
@@ -91,10 +90,6 @@ header:not(.mac) {
 }
 button {
   --wails-draggable: no-drag;
-}
-.mark {
-  padding: 0 10px 0 6px;
-  font-weight: 600;
 }
 .crumb {
   display: flex;
@@ -155,6 +150,7 @@ button {
 .gear {
   width: 28px;
   height: 26px;
+  margin-right: 6px;
   display: flex;
   align-items: center;
   justify-content: center;

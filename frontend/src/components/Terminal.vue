@@ -11,6 +11,7 @@ const props = defineProps<{ stepId: string }>()
 
 const el = ref<HTMLDivElement>()
 const ended = ref(false)
+const exitCode = ref<number | null>(null)
 const attempt = ref(0)
 let term: Terminal | null = null
 let cleanup: (() => void) | null = null
@@ -27,11 +28,12 @@ function cssTheme() {
   }
 }
 
-function connect(id: string) {
+function connect(id: string, resume = false) {
   cleanup?.()
   if (!el.value) return
   const ap = herd.settings?.config.appearance
   ended.value = false
+  exitCode.value = null
   const t = new Terminal({
     fontFamily: `'${ap?.termFont ?? 'IBM Plex Mono'}', 'IBM Plex Mono', monospace`,
     fontSize: ap?.termFontSize ?? 12.5,
@@ -61,8 +63,9 @@ function connect(id: string) {
   }
   requestAnimationFrame(refit)
 
-  api
-    .TerminalURL(id)
+  // TerminalURL attaches to the live session, or replays one that just ended;
+  // Resume explicitly reopens the Claude Code conversation.
+  ;(resume ? api.ResumeStep(id) : api.TerminalURL(id))
     .then(async (url) => {
       if (disposed) return
       if (url.startsWith('mock:')) {
@@ -81,7 +84,11 @@ function connect(id: string) {
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
           try {
-            if (JSON.parse(ev.data).type === 'exit') ended.value = true
+            const m = JSON.parse(ev.data)
+            if (m.type === 'exit') {
+              ended.value = true
+              exitCode.value = typeof m.code === 'number' ? m.code : null
+            }
           } catch {
             /* ignore */
           }
@@ -123,7 +130,8 @@ function connect(id: string) {
 }
 
 onMounted(() => connect(props.stepId))
-watch([() => props.stepId, attempt], () => connect(props.stepId))
+watch(() => props.stepId, (id) => connect(id))
+watch(attempt, () => connect(props.stepId, true))
 onBeforeUnmount(() => cleanup?.())
 
 // Live theme switch.
@@ -140,7 +148,7 @@ watch(
   <div class="wrap">
     <div ref="el" class="term"></div>
     <div v-if="ended" class="ended">
-      <span>Session ended.</span>
+      <span>Session ended{{ exitCode !== null && exitCode !== 0 ? ` (exit ${exitCode})` : '' }}.</span>
       <button class="btn" @click="attempt++">Resume</button>
     </div>
   </div>

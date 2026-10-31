@@ -22,7 +22,7 @@ const chip = computed(() => {
   if (!s) return null
   if (s.state === 'approval') return { cls: 's-approval', text: 'Live · waiting for approval' }
   if (s.state === 'running' || s.state === 'idle') return { cls: 's-running', text: s.state === 'idle' ? 'Live · waiting for you' : 'Live' }
-  if (s.state === 'failed') return { cls: 's-waiting', text: s.live ? 'Resumed · step failed' : 'Failed · resumes on click' }
+  if (s.state === 'failed') return { cls: 's-waiting', text: s.live ? 'Resumed · step failed' : 'Failed' }
   return { cls: 's-idle', text: s.live ? 'Resumed' : 'Resumed on click' }
 })
 const finished = computed(() => !!step.value && (step.value.state === 'done' || step.value.state === 'failed'))

@@ -132,7 +132,37 @@ func (a *App) spec(l launch, resume bool) runner.Spec {
 	if l.task.PortBase > 0 {
 		env = append(env, fmt.Sprintf("HERD_PORT_BASE=%d", l.task.PortBase))
 	}
-	return runner.Spec{StepID: l.step.ID, Dir: wt, Env: env, Bin: bin[0], Args: args}
+	return runner.Spec{StepID: l.step.ID, Dir: wt, Env: env, Unset: inheritedSessionVars, Bin: bin[0], Args: args}
+}
+
+// inheritedSessionVars are set by Claude Code for processes it spawns. When
+// herd itself was started from a Claude Code session (e.g. "! make dev"),
+// passing them on makes every step a "child session": Claude Code then turns
+// off transcript saving and --resume finds nothing.
+var inheritedSessionVars = []string{
+	"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED",
+	"CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+	"CLAUDE_PID", "CLAUDE_EFFORT",
+}
+
+// claudeDir is Claude Code's config directory.
+func claudeDir() string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude")
+}
+
+// sessionSaved reports whether Claude Code has a transcript for a session.
+// It answers true when it cannot tell (no projects folder).
+func sessionSaved(id string) bool {
+	projects := filepath.Join(claudeDir(), "projects")
+	if _, err := os.Stat(projects); err != nil {
+		return true
+	}
+	m, _ := filepath.Glob(filepath.Join(projects, "*", id+".jsonl"))
+	return len(m) > 0
 }
 
 // latestSHA returns the sha of the last Implement-like commit before seq.
@@ -258,6 +288,10 @@ func (a *App) resume(stepID string) error {
 	}
 	if t.Archived {
 		return errors.New("this task is archived: restore it to reopen its Claude Code sessions")
+	}
+	if !sessionSaved(s.SessionID) {
+		ag := agentFor(a.settings.Agents(), s.Agent)
+		return fmt.Errorf("Claude Code never saved this %s session: its process ended before the first prompt was recorded, so there is nothing to resume. Use Retry %s to run the step again", ag.DisplayName(s.N), ag.DisplayName(s.N))
 	}
 	p := a.projectOf(t)
 	ag := agentFor(a.settings.Agents(), s.Agent)

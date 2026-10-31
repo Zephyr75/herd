@@ -69,8 +69,29 @@ func (a *App) runDir(p settings.Project, t store.Task) string {
 	return filepath.Join(a.Home, "runs", p.Name, t.Slug)
 }
 
+// worktreesRoot is the folder holding a project's task worktrees: inside the
+// repo by default (.worktrees), or anywhere else when the setting is an
+// absolute path, ~/…, or ../….
+func worktreesRoot(p settings.Project) string {
+	d := expandHome(p.WorktreesDir)
+	if filepath.IsAbs(d) {
+		return filepath.Clean(d)
+	}
+	return filepath.Join(p.Path, d)
+}
+
 func worktreePath(p settings.Project, t store.Task) string {
-	return filepath.Join(p.Path, p.WorktreesDir, t.Slug)
+	return filepath.Join(worktreesRoot(p), t.Slug)
+}
+
+// excludePattern is the .git/info/exclude line for the worktrees folder, or
+// "" when the folder is outside the repository.
+func excludePattern(p settings.Project) string {
+	rel, err := filepath.Rel(p.Path, worktreesRoot(p))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.ToSlash(rel) + "/"
 }
 
 func branchName(t store.Task) string { return "agent/" + t.Slug }

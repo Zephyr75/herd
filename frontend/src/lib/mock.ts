@@ -349,6 +349,7 @@ export const api: Api = {
   OpenProjectInZed: () => ok(undefined),
   ReadArtifact: (sid) => ok(mockArtifact(sid)),
   TerminalURL: (sid) => ok('mock:' + sid),
+  ResumeStep: (sid) => ok('mock:' + sid),
   GetSettings: () => ok(settings),
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },
   SaveContext: (c) => { settings.context[c.id] = c; emit('settings:changed', settings); return ok(undefined) },

@@ -20,6 +20,13 @@ make ui       # the UI alone in a browser, on mock data (no Go needed)
 make test     # Go tests, including a full Plan → Implement → Review run with a fake claude
 ```
 
+**Using herd on its own repo during `make dev`:** `wails dev` rebuilds and restarts the app
+whenever a `.go` file appears anywhere under this folder, including in a new task worktree under
+`.worktrees/`. The restart kills the step that just started. Either run the built app
+(`make build && ./build/bin/herd`) for tasks on herd itself, or set the herd project's
+Worktrees folder in Settings > Projects to a path outside the repo, such as `../herd.worktrees`
+(absolute and `~/` paths work too).
+
 In `make ui`, URL params open any screen of the preview, e.g.
 `?sel=core:4349&left=archive`, `?overlay=palette&q=unlock`, `?overlay=new&new=local`,
 `?overlay=scope&scope=branch&sel=rider:1188`, `?view=settings&tab=appearance&theme=light`.

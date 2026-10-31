@@ -13,6 +13,7 @@ if [ -n "$resume" ]; then
   read -r line
   exit 0
 fi
+if [ -n "$CLAUDE_CODE_CHILD_SESSION$CLAUDECODE" ]; then echo "inherited Claude Code session markers" >&2; exit 3; fi
 post SessionStart '{"source":"startup"}'
 post UserPromptSubmit '{}'
 echo "fake claude: ${@: -1}"

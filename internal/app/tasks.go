@@ -151,8 +151,10 @@ func (a *App) CreateTask(projectID, issue, description string, runPlan bool) (Ta
 		ID: p.ID + ":" + slug, Project: p.ID, Slug: slug, Issue: issue, Title: title, Description: description,
 		PortBase: portBase(p.PortRange, len(taken)), CreatedAt: time.Now(),
 	}
-	if _, err := a.git.EnsureExcluded(a.ctx, p.Path, strings.TrimSuffix(p.WorktreesDir, "/")+"/"); err != nil {
-		return TaskView{}, err
+	if pat := excludePattern(p); pat != "" {
+		if _, err := a.git.EnsureExcluded(a.ctx, p.Path, pat); err != nil {
+			return TaskView{}, err
+		}
 	}
 	if err := a.git.AddWorktree(a.ctx, p.Path, worktreePath(p, t), branchName(t), p.BaseBranch); err != nil {
 		return TaskView{}, err

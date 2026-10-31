@@ -265,7 +265,9 @@ func (a *App) SaveProject(p settings.Project) error {
 	if err := a.settings.SaveProject(p); err != nil {
 		return err
 	}
-	_, _ = a.git.EnsureExcluded(a.ctx, p.Path, strings.TrimSuffix(p.WorktreesDir, "/")+"/")
+	if pat := excludePattern(p); pat != "" {
+		_, _ = a.git.EnsureExcluded(a.ctx, p.Path, pat)
+	}
 	a.emit(EvSettings, a.settings.Snapshot())
 	return nil
 }
@@ -370,18 +372,21 @@ func (a *App) CheckPrerequisites() []Check {
 	ghOK, ghMsg := a.gh.Available(a.ctx)
 	out = append(out, Check{OK: ghOK, Label: "GitHub CLI", Detail: orStr(ghMsg, "gh authenticated")})
 	for _, p := range cfg.Projects {
-		pat := strings.TrimSuffix(p.WorktreesDir, "/") + "/"
 		if !a.git.IsRepo(a.ctx, p.Path) {
 			out = append(out, Check{Project: p.ID, OK: false, Label: "Repository", Detail: p.Path + " is not a git repository"})
 			continue
 		}
-		if !a.git.IsExcluded(a.ctx, p.Path, pat) {
+		if pat := excludePattern(p); pat == "" {
+			out = append(out, Check{Project: p.ID, OK: true, Label: "Worktrees", Detail: worktreesRoot(p) + " (outside the repository)"})
+		} else if !a.git.IsExcluded(a.ctx, p.Path, pat) {
 			if _, err := a.git.EnsureExcluded(a.ctx, p.Path, pat); err != nil {
 				out = append(out, Check{Project: p.ID, OK: false, Label: "Worktrees excluded", Detail: err.Error()})
 				continue
 			}
+			out = append(out, Check{Project: p.ID, OK: true, Label: "Worktrees excluded", Detail: pat + " in .git/info/exclude"})
+		} else {
+			out = append(out, Check{Project: p.ID, OK: true, Label: "Worktrees excluded", Detail: pat + " in .git/info/exclude"})
 		}
-		out = append(out, Check{Project: p.ID, OK: true, Label: "Worktrees excluded", Detail: pat + " in .git/info/exclude"})
 		if p.Repo != "" && ghOK {
 			ok := a.gh.CanAccess(a.ctx, p.Repo)
 			out = append(out, Check{Project: p.ID, OK: ok, Label: "GitHub access", Detail: p.Repo})
@@ -390,15 +395,34 @@ func (a *App) CheckPrerequisites() []Check {
 	return out
 }
 
-// TerminalURL returns the socket URL for a step's terminal, resuming the
-// Claude Code session first when its process has ended.
+// TerminalURL returns the socket URL for a step's terminal. A live session
+// is attached; a session that ended during this run replays its output so
+// the user sees why it exited; otherwise (after a restart) the Claude Code
+// conversation is resumed.
 func (a *App) TerminalURL(stepID string) (string, error) {
+	if _, ok := a.run.Get(stepID); !ok {
+		if _, ended := a.run.Ended(stepID); !ended {
+			if err := a.resume(stepID); err != nil {
+				return "", err
+			}
+		}
+	}
+	return a.termURL(stepID), nil
+}
+
+// ResumeStep reopens a step's Claude Code conversation (the terminal's
+// Resume button) and returns its socket URL.
+func (a *App) ResumeStep(stepID string) (string, error) {
 	if _, ok := a.run.Get(stepID); !ok {
 		if err := a.resume(stepID); err != nil {
 			return "", err
 		}
 	}
-	return fmt.Sprintf("ws://127.0.0.1:%d/term/%s?token=%s", a.port, url.PathEscape(stepID), a.token), nil
+	return a.termURL(stepID), nil
+}
+
+func (a *App) termURL(stepID string) string {
+	return fmt.Sprintf("ws://127.0.0.1:%d/term/%s?token=%s", a.port, url.PathEscape(stepID), a.token)
 }
 
 func orStr(s, d string) string {

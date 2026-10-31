@@ -2,7 +2,8 @@
 //
 // Protocol: GET /term/<step id>?token=<token>. Server to client: binary
 // frames with raw PTY output, and text frames with JSON control messages
-// ({"type":"exit"}). Client to server: binary frames with input, and text
+// ({"type":"exit","code":N}). A session that already ended replays its
+// output, then sends exit. Client to server: binary frames with input, and text
 // frames with {"type":"resize","cols":N,"rows":N}.
 package termws
 
@@ -41,7 +42,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stepID := strings.TrimPrefix(r.URL.Path, "/term/")
 	sess, ok := h.Runner.Get(stepID)
 	if !ok {
-		http.Error(w, "no live session", http.StatusNotFound)
+		// A session that ended during this run: replay its output, then exit.
+		sess, ok = h.Runner.Ended(stepID)
+	}
+	if !ok {
+		http.Error(w, "no session", http.StatusNotFound)
 		return
 	}
 	// The webview's origin is wails://, so the origin check is replaced by the
@@ -92,7 +97,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		case b, ok := <-viewer.C:
 			if !ok {
-				msg, _ := json.Marshal(map[string]string{"type": "exit"})
+				msg, _ := json.Marshal(map[string]any{"type": "exit", "code": sess.ExitCode()})
 				_ = c.Write(ctx, websocket.MessageText, msg)
 				c.Close(websocket.StatusNormalClosure, "session ended")
 				return

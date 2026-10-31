@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ type Spec struct {
 	StepID string
 	Dir    string
 	Env    []string // added to os.Environ()
+	Unset  []string // variables removed from os.Environ() before Env is added
 	Bin    string
 	Args   []string
 }
@@ -52,16 +54,56 @@ type Viewer struct {
 	closeMu sync.Once
 }
 
-// Runner tracks every live session.
+// Runner tracks every live session, and the last output of sessions that
+// ended during this run so a viewer can still see why a process exited.
 type Runner struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
+	ended    map[string]*Session
+	order    []string // ended, oldest first
 	onExit   ExitFunc
 }
 
+const keepEnded = 32
+
 // New creates a runner; onExit is called after each process ends.
 func New(onExit ExitFunc) *Runner {
-	return &Runner{sessions: map[string]*Session{}, onExit: onExit}
+	return &Runner{sessions: map[string]*Session{}, ended: map[string]*Session{}, onExit: onExit}
+}
+
+// Ended returns the most recent session of a step that exited during this
+// run; Attach on it replays its output and reports the exit.
+func (r *Runner) Ended(stepID string) (*Session, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.ended[stepID]
+	return s, ok
+}
+
+func (r *Runner) remember(s *Session) {
+	if _, ok := r.ended[s.StepID]; !ok {
+		r.order = append(r.order, s.StepID)
+	}
+	r.ended[s.StepID] = s
+	for len(r.order) > keepEnded {
+		delete(r.ended, r.order[0])
+		r.order = r.order[1:]
+	}
+}
+
+func environ(unset []string) []string {
+	drop := map[string]bool{}
+	for _, k := range unset {
+		drop[k] = true
+	}
+	var out []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if !drop[k] {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // ErrRunning is returned by Start when the step already has a live session.
@@ -78,7 +120,7 @@ func (r *Runner) Start(spec Spec) (*Session, error) {
 
 	cmd := exec.Command(spec.Bin, spec.Args...)
 	cmd.Dir = spec.Dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	cmd.Env = append(environ(spec.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
 	cmd.Env = append(cmd.Env, spec.Env...)
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})
 	if err != nil {
@@ -112,6 +154,7 @@ func (r *Runner) Start(spec Spec) (*Session, error) {
 		if r.sessions[spec.StepID] == s {
 			delete(r.sessions, spec.StepID)
 		}
+		r.remember(s)
 		r.mu.Unlock()
 		if r.onExit != nil {
 			r.onExit(spec.StepID, code, killed)
@@ -299,6 +342,13 @@ func (s *Session) Resize(cols, rows int) error {
 		return nil
 	}
 	return pty.Setsize(s.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+}
+
+// ExitCode is the process's exit code once it has ended.
+func (s *Session) ExitCode() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.exitCode
 }
 
 // Exited reports whether the process has ended.

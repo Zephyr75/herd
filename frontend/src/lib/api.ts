@@ -21,6 +21,7 @@ export interface Api {
   OpenProjectInZed(project: string): Promise<void>
   ReadArtifact(step: string): Promise<Artifact>
   TerminalURL(step: string): Promise<string>
+  ResumeStep(step: string): Promise<string>
   GetSettings(): Promise<Settings>
   SaveAgents(agents: Agent[]): Promise<void>
   SaveContext(c: Context): Promise<void>

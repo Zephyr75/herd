@@ -53,6 +53,11 @@ func newTestApp(t *testing.T) (*App, string) {
 	run(t, repo, "git", "commit", "-q", "-m", "init")
 
 	home := filepath.Join(root, "herd")
+	// Claude Code's transcripts, for the resume checks.
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "claude"))
+	os.MkdirAll(filepath.Join(root, "claude", "projects"), 0o755)
+	// herd started from inside a Claude Code session must not pass that on.
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	fake, _ := filepath.Abs("testdata/fake-claude.sh")
 	a := New(home, nil)
 	if err := Start(a, context.Background(), &fakePlatform{}); err != nil {
@@ -206,8 +211,27 @@ func TestExitWithoutArtifactFails(t *testing.T) {
 	if len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Retry Plan" || v.Next.MarkDone != id {
 		t.Fatalf("%+v", v.Next)
 	}
-	// Opening the failed step resumes its conversation.
+	// Opening the failed step shows the output of the run that just ended
+	// instead of resuming it.
 	if _, err := a.TerminalURL(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := a.run.Get(id); ok {
+		t.Fatal("TerminalURL resumed a session that ended during this run")
+	}
+	if s, ok := a.run.Ended(id); !ok || s.Exited() == false {
+		t.Fatal("ended session output not kept")
+	}
+	// Resume refuses a conversation Claude Code never saved...
+	if _, err := a.ResumeStep(id); err == nil || !strings.Contains(err.Error(), "never saved") {
+		t.Fatalf("want a never-saved error, got %v", err)
+	}
+	// ...and resumes one it did.
+	step, _ := a.db.Step(id)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
+	os.MkdirAll(proj, 0o755)
+	os.WriteFile(filepath.Join(proj, step.SessionID+".jsonl"), []byte("{}\n"), 0o644)
+	if _, err := a.ResumeStep(id); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := a.run.Get(id); !ok {
@@ -218,6 +242,22 @@ func TestExitWithoutArtifactFails(t *testing.T) {
 	}
 	if stepState(a, id) != store.Done {
 		t.Fatal("not done")
+	}
+}
+
+func TestWorktreesOutsideRepo(t *testing.T) {
+	in := settings.Project{Path: "/code/herd", WorktreesDir: ".worktrees"}
+	out := settings.Project{Path: "/code/herd", WorktreesDir: "../herd.worktrees"}
+	abs := settings.Project{Path: "/code/herd", WorktreesDir: "/tmp/wt"}
+	task := store.Task{Slug: "local-x"}
+	if excludePattern(in) != ".worktrees/" || worktreePath(in, task) != "/code/herd/.worktrees/local-x" {
+		t.Fatal(excludePattern(in), worktreePath(in, task))
+	}
+	if excludePattern(out) != "" || worktreePath(out, task) != "/code/herd.worktrees/local-x" {
+		t.Fatal(excludePattern(out), worktreePath(out, task))
+	}
+	if excludePattern(abs) != "" || worktreePath(abs, task) != "/tmp/wt/local-x" {
+		t.Fatal(excludePattern(abs), worktreePath(abs, task))
 	}
 }
 

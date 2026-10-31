@@ -75,8 +75,8 @@ const finished = computed(() => !!step.value && (step.value.state === 'done' || 
 
 <style scoped>
 section {
-  flex: 999 1 520px;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
   background: var(--bg);

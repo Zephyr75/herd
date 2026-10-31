@@ -6,8 +6,7 @@ withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), { 
 <template>
   <svg v-if="name === 'play'" :width="size" :height="size" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z" /></svg>
   <svg v-else :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="stroke" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <template v-if="name === 'logo'"><path d="M4 6h10" /><path d="M4 12h16" /><path d="M4 18h7" /><circle cx="17" cy="6" r="2" /><circle cx="14" cy="18" r="2" /></template>
-    <path v-else-if="name === 'chevron'" d="M6 9l6 6 6-6" />
+    <path v-if="name === 'chevron'" d="M6 9l6 6 6-6" />
     <path v-else-if="name === 'chevron-right'" d="M9 6l6 6-6 6" />
     <path v-else-if="name === 'folder'" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     <template v-else-if="name === 'branch'"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="7" r="2" /><path d="M6 7v10" /><path d="M18 9c0 5-6 4-12 8" /></template>

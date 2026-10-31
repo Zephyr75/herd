@@ -5,6 +5,7 @@ import { herd } from '../lib/state'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import Preview from './Preview.vue'
+import Splitter from './ui/Splitter.vue'
 import type { Step } from '../lib/types'
 
 const t = computed(() => herd.selTask)
@@ -28,7 +29,8 @@ async function archive() {
 </script>
 
 <template>
-  <aside>
+  <aside :style="{ width: herd.rightWidth + 'px' }">
+    <Splitter side="right" />
     <template v-if="t">
       <div class="head">
         <div class="title-row">
@@ -79,9 +81,8 @@ async function archive() {
 <style scoped>
 
   aside {
-    flex: 1 1 360px;
-    max-width: 450px;
-    min-width: 300px;
+    position: relative;
+    flex: none;
     background: var(--bg);
     border-left: 1px solid var(--border);
     display: flex;

@@ -6,6 +6,7 @@ import Kbd from './ui/Kbd.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
 import NextStep from './NextStep.vue'
+import Splitter from './ui/Splitter.vue'
 
 const counts = computed(() => ({
   active: herd.tasks.filter((t) => !t.archived).length,
@@ -25,7 +26,8 @@ function addProject() {
 </script>
 
 <template>
-  <aside>
+  <aside :style="{ width: herd.leftWidth + 'px' }">
+    <Splitter side="left" />
     <div class="head">
       <button class="tab" :class="{ on: herd.left === 'tasks' }" @click="herd.left = 'tasks'">Tasks <span class="muted">{{ counts.active }}</span></button>
       <button class="tab" :class="{ on: herd.left === 'archive' }" @click="herd.left = 'archive'">Archive <span class="muted">{{ counts.archived }}</span></button>
@@ -64,9 +66,8 @@ function addProject() {
 
 <style scoped>
 aside {
-  flex: 1 1 280px;
-  max-width: 330px;
-  min-width: 260px;
+  position: relative;
+  flex: none;
   display: flex;
   flex-direction: column;
   background: var(--bg);

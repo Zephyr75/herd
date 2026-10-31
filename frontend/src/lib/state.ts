@@ -20,6 +20,23 @@ export interface Toast {
 
 let toastSeq = 0
 
+/** Panel widths: defaults, limits, and the per-viewer saved value. */
+export const PANELS = {
+  left: { def: 300, min: 220, max: 560 },
+  right: { def: 400, min: 300, max: 760 },
+} as const
+export type PanelSide = keyof typeof PANELS
+
+function savedWidth(side: PanelSide): number {
+  try {
+    const v = Number(localStorage.getItem('herd.panel.' + side))
+    if (v >= PANELS[side].min && v <= PANELS[side].max) return v
+  } catch {
+    /* storage unavailable */
+  }
+  return PANELS[side].def
+}
+
 class Herd {
   ready = false
   failed = ''
@@ -40,6 +57,8 @@ class Herd {
   systemLight = false
   artifactRev = 0
   confirmRemove = ''
+  leftWidth = savedWidth('left')
+  rightWidth = savedWidth('right')
 
   get projects() {
     return this.settings?.config.projects ?? []
@@ -171,6 +190,22 @@ class Herd {
     } catch (e) {
       this.toast(title, errorText(e), true)
       return undefined
+    }
+  }
+
+  /** setPanelWidth resizes a side panel (clamped) and remembers it. */
+  setPanelWidth(side: PanelSide, w: number) {
+    const { min, max } = PANELS[side]
+    // Keep at least 360px for the terminal between the panels.
+    const other = side === 'left' ? this.rightWidth : this.leftWidth
+    const room = window.innerWidth - other - 360
+    const v = Math.round(Math.max(min, Math.min(max, room, w)))
+    if (side === 'left') this.leftWidth = v
+    else this.rightWidth = v
+    try {
+      localStorage.setItem('herd.panel.' + side, String(v))
+    } catch {
+      /* storage unavailable */
     }
   }
 

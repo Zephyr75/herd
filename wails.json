@@ -1,0 +1,15 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "herd",
+  "outputfilename": "herd",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": { "name": "Antoine" },
+  "info": {
+    "productName": "herd",
+    "productVersion": "0.1.0",
+    "comments": "Claude Code agents, one worktree per task"
+  }
+}

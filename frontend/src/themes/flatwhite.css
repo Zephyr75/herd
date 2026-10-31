@@ -1,0 +1,60 @@
+/* Flatwhite, from the Flatwhite palette (doom-flatwhite-theme), with muted
+   text darkened to pass 4.5:1. */
+[data-theme='flatwhite'] {
+  color-scheme: light;
+  --bg: #f7f3ee;
+  --chrome: #f1ece4;
+  --surface: #fdfbf8;
+  --elev: #fdfbf8;
+  --border: #dcd3c6;
+  --text: #605a52;
+  --muted: #776b5b;
+  --faint: #b9a992;
+  --focus: #6a4dff;
+  --sel: rgba(106, 77, 255, 0.09);
+  --hover: #e9e2d7;
+  --button: #6a4dff;
+  --button-text: #ffffff;
+  --button-kbd: rgba(255, 255, 255, 0.22);
+  --overlay: rgba(96, 90, 82, 0.22);
+  --shadow: 0 16px 40px rgba(96, 90, 82, 0.22);
+  --accent: #6a4dff;
+  --code-kw: #465953;
+  --decision: #957f5f;
+
+  --running: #4c5361;
+  --running-dot: #75a3ff;
+  --running-bg: #dde4f2;
+  --waiting: #5b5143;
+  --waiting-dot: #f08c00;
+  --waiting-bg: #f7e0c3;
+  --approval: #5b4343;
+  --approval-dot: #f00000;
+  --approval-bg: #f6cfcb;
+  --idle: #605a52;
+  --idle-dot: #b9a992;
+  --idle-bg: #e4ddd2;
+  --done: #525643;
+  --done-dot: #84bd00;
+  --done-bg: #e2e9c1;
+
+  --local: #614c61;
+  --local-bg: #f1ddf1;
+  --local-border: #e0c3e0;
+
+  --add: #525643;
+  --add-bg: #e2e9c1;
+  --del: #5b4343;
+  --del-bg: #f6cfcb;
+
+  --ansi-black: #605a52;
+  --ansi-red: #b24c4c;
+  --ansi-green: #525643;
+  --ansi-yellow: #8a6a2e;
+  --ansi-blue: #4c5d99;
+  --ansi-magenta: #614c61;
+  --ansi-cyan: #465953;
+  --ansi-white: #f7f3ee;
+  --ansi-bright-black: #8e8475;
+  --ansi-selection: rgba(106, 77, 255, 0.2);
+}

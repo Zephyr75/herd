@@ -1,0 +1,60 @@
+/* Fleet Dark, from zed-fleet-themes (github.com/skarline/zed-fleet-themes). */
+[data-theme='fleet-dark'] {
+  color-scheme: dark;
+  --bg: #18191b;
+  --chrome: #090909;
+  --surface: #252629;
+  --elev: #202124;
+  --border: #3e4147;
+  --text: #e0e1e4;
+  --muted: #898e94;
+  --faint: #6e747b;
+  --focus: #2a7deb;
+  --sel: rgba(8, 112, 228, 0.16);
+  --hover: #2d2f33;
+  --button: #0870e4;
+  --button-text: #ffffff;
+  --button-kbd: rgba(255, 255, 255, 0.18);
+  --overlay: rgba(0, 0, 0, 0.5);
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --accent: #4b8dec;
+  --code-kw: #82d2ce;
+  --decision: #fad075;
+
+  --running: #4b8dec;
+  --running-dot: #4b8dec;
+  --running-bg: #223045;
+  --waiting: #fad075;
+  --waiting-dot: #fad075;
+  --waiting-bg: #362b16;
+  --approval: #f87c88;
+  --approval-dot: #f87c88;
+  --approval-bg: #402228;
+  --idle: #898e94;
+  --idle-dot: #898e94;
+  --idle-bg: #292b2e;
+  --done: #69b090;
+  --done-dot: #69b090;
+  --done-bg: #18312a;
+
+  --local: #af9cff;
+  --local-bg: rgba(175, 156, 255, 0.14);
+  --local-border: rgba(175, 156, 255, 0.4);
+
+  --add: #69b090;
+  --add-bg: #283732;
+  --del: #f87c88;
+  --del-bg: #452d31;
+
+  /* terminal ANSI palette */
+  --ansi-black: #18191b;
+  --ansi-red: #f87c88;
+  --ansi-green: #69b090;
+  --ansi-yellow: #fad075;
+  --ansi-blue: #4b8dec;
+  --ansi-magenta: #af9cff;
+  --ansi-cyan: #82d2ce;
+  --ansi-white: #e0e1e4;
+  --ansi-bright-black: #6e747b;
+  --ansi-selection: rgba(42, 125, 235, 0.35);
+}

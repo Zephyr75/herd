@@ -84,6 +84,10 @@ Projects (`ar-` by default). Push first asks for the PR title, `type(scope): des
 Every session runs in Claude Code's auto mode. The Rules in Settings > Context go in every agent's
 system prompt (say there what agents may not do), except agents set to "Ignore the common rules"
 (Push, by default); the context and knowledge base folders there apply to every session.
+Sessions skip your own `~/.claude/CLAUDE.md` and `~/.claude/rules/` (`claudeMdExcludes` in
+`~/.herd/hooks.json`); the repo's CLAUDE.md still loads.
+Override in Settings > Context writes the General context, Rules and knowledge base folders into
+`~/.claude/CLAUDE.md` (after a backup) to keep your other Claude sessions in sync.
 Each claude runs inside a small `herd hold` process, so quitting herd leaves steps that are still
 working running: the next herd reattaches them with their output, and their hooks reach it
 through `~/.herd/endpoint`. Finished and paused steps end when herd quits.

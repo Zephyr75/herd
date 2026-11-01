@@ -41,6 +41,8 @@ const context: Record<string, Context> = {
   infra: { id: 'infra', text: '# pony-infra\n- Terraform 1.9, azurerm provider.\n- Never run terraform apply; validate and plan only.\n- Tag every resource with team = mobility.\n', claudeMd: false, knowledge: '' },
 }
 
+let mockSynced = false
+
 const settings: Settings = {
   config: {
     appearance: { theme: 'dark', uiFont: 'IBM Plex Sans', uiFontSize: 13, termFont: 'IBM Plex Mono', termFontSize: 12.5 },
@@ -409,6 +411,8 @@ export const api: Api = {
   SetNotifications: (on) => { settings.config.notifications = on; return ok(undefined) },
   SetMaxTabs: (n) => { settings.config.maxTabs = n; emit('settings:changed', settings); return ok(undefined) },
   SetRules: (r) => { settings.config.rules = r; return ok(undefined) },
+  SystemClaudeMd: () => ok({ path: '~/.claude/CLAUDE.md', exists: true, synced: mockSynced }),
+  OverrideSystemClaudeMd: () => { mockSynced = true; return ok('~/.claude/CLAUDE.md.bak-20261102-101500') },
   ChooseFolder: () => ok('~/notes/pony-kb'),
   GetSettings: () => ok(settings),
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },

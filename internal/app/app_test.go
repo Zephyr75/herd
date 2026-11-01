@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -672,5 +674,56 @@ func TestPRTitle(t *testing.T) {
 	}
 	if got := defaultPRDesc("agent/local-fix-it", "ar-"); got != "local fix it" {
 		t.Fatalf("old branch desc %q", got)
+	}
+}
+
+func TestSessionsSkipUserClaudeMd(t *testing.T) {
+	a, _ := newTestApp(t)
+	b, err := os.ReadFile(a.hooksPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Excludes []string `json:"claudeMdExcludes"`
+		Hooks    map[string]any
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "CLAUDE.md")
+	if !slices.Contains(s.Excludes, want) || len(s.Hooks) == 0 {
+		t.Fatalf("settings: %s", b)
+	}
+}
+
+func TestOverrideSystemClaudeMd(t *testing.T) {
+	a, _ := newTestApp(t)
+	path := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "CLAUDE.md")
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, []byte("# mine\n"), 0o644)
+	a.SetRules("Never push to main")
+	kb := t.TempDir()
+	c, _ := a.settings.Context("general")
+	c.Knowledge = kb
+	a.SaveContext(c)
+	if m := a.SystemClaudeMd(); !m.Exists || m.Synced {
+		t.Fatalf("before: %+v", m)
+	}
+	backup, err := a.OverrideSystemClaudeMd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(backup); string(b) != "# mine\n" {
+		t.Fatalf("backup %q holds %q", backup, b)
+	}
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), "General context") || !strings.Contains(string(b), "# Rules") || !strings.Contains(string(b), "Never push to main") || !strings.Contains(string(b), "# Knowledge base") || !strings.Contains(string(b), "- "+kb) {
+		t.Fatalf("CLAUDE.md: %s", b)
+	}
+	if m := a.SystemClaudeMd(); !m.Synced {
+		t.Fatal("not in sync after override")
+	}
+	if again, _ := a.OverrideSystemClaudeMd(); again != "" {
+		t.Fatal("backed up a file that was already in sync")
 	}
 }

@@ -56,6 +56,13 @@ export interface Changes {
   files: FileChange[]
 }
 
+/** The user's ~/.claude/CLAUDE.md compared with General context + Rules. */
+export interface SystemMemory {
+  path: string
+  exists: boolean
+  synced: boolean
+}
+
 /** A process outside herd running a session. */
 export interface Proc {
   pid: number

@@ -115,7 +115,7 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 		return err
 	}
 	a.token = hex.EncodeToString(tok)
-	if err := hooks.WriteSettings(a.hooksPath()); err != nil {
+	if err := hooks.WriteSettings(a.hooksPath(), userMemory()); err != nil {
 		return err
 	}
 	if err := a.writePlugin(); err != nil {
@@ -177,6 +177,98 @@ func Stop(a *App) {
 	if a.db != nil {
 		_ = a.db.Close()
 	}
+}
+
+// userMemory is the user's own CLAUDE.md and rules: herd sessions skip them,
+// so agents follow only herd's Rules, context and the repo's CLAUDE.md.
+func userMemory() []string {
+	d := claudeDir()
+	return []string{filepath.Join(d, "CLAUDE.md"), filepath.Join(d, "rules", "**")}
+}
+
+// SystemMemory is the state of the user's own ~/.claude/CLAUDE.md compared
+// with herd's General context and Rules (Settings > Context).
+type SystemMemory struct {
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+	Synced bool   `json:"synced"` // it holds exactly what Override would write
+}
+
+// systemClaudeMd is what Override writes: the General context, the Rules,
+// then the knowledge base folders (General, and each project's for its repo).
+func (a *App) systemClaudeMd() string {
+	var b strings.Builder
+	b.WriteString("<!-- Written by herd from Settings > Context: General context, Rules and knowledge base folders. -->\n\n")
+	if c, ok := a.settings.Context("general"); ok && strings.TrimSpace(c.Text) != "" {
+		b.WriteString(strings.TrimSpace(c.Text))
+		b.WriteString("\n")
+	}
+	if r := strings.TrimSpace(a.settings.Config().Rules); r != "" {
+		b.WriteString("\n# Rules\n\nAlways follow these rules:\n\n")
+		b.WriteString(r)
+		b.WriteString("\n")
+	}
+	var kb []string
+	if c, ok := a.settings.Context("general"); ok && isDir(c.Knowledge) {
+		kb = append(kb, "- "+expandHome(c.Knowledge))
+	}
+	for _, p := range a.settings.Config().Projects {
+		if c, ok := a.settings.Context(p.ID); ok && isDir(c.Knowledge) {
+			kb = append(kb, fmt.Sprintf("- %s (when working in %s)", expandHome(c.Knowledge), p.Path))
+		}
+	}
+	if len(kb) > 0 {
+		b.WriteString("\n# Knowledge base\n\nReference folders you can read (never edit them). Search them for background on the domain, conventions and past decisions:\n\n")
+		b.WriteString(strings.Join(kb, "\n"))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func isDir(p string) bool {
+	if p == "" {
+		return false
+	}
+	fi, err := os.Stat(expandHome(p))
+	return err == nil && fi.IsDir()
+}
+
+// SystemClaudeMd reports whether ~/.claude/CLAUDE.md matches herd's context.
+func (a *App) SystemClaudeMd() SystemMemory {
+	m := SystemMemory{Path: filepath.Join(claudeDir(), "CLAUDE.md")}
+	if b, err := os.ReadFile(m.Path); err == nil {
+		m.Exists, m.Synced = true, string(b) == a.systemClaudeMd()
+	}
+	return m
+}
+
+// OverrideSystemClaudeMd replaces ~/.claude/CLAUDE.md with the General
+// context and the Rules. A different existing file is first copied to
+// CLAUDE.md.bak-<time> next to it; that path is returned.
+func (a *App) OverrideSystemClaudeMd() (string, error) {
+	m := a.SystemClaudeMd()
+	if m.Synced {
+		return "", nil
+	}
+	backup := ""
+	if m.Exists {
+		old, err := os.ReadFile(m.Path)
+		if err != nil {
+			return "", err
+		}
+		backup = m.Path + ".bak-" + time.Now().Format("20060102-150405")
+		if err := os.WriteFile(backup, old, 0o644); err != nil {
+			return "", fmt.Errorf("could not back up %s: %w", m.Path, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(m.Path), 0o755); err != nil {
+		return backup, err
+	}
+	tmp := m.Path + ".herd-tmp"
+	if err := os.WriteFile(tmp, []byte(a.systemClaudeMd()), 0o644); err != nil {
+		return backup, err
+	}
+	return backup, os.Rename(tmp, m.Path)
 }
 
 func (a *App) hooksPath() string    { return filepath.Join(a.Home, "hooks.json") }

@@ -72,8 +72,9 @@ func Command(event string) string {
 	return `[ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT"; [ -n "$HERD_URL" ] && curl -s -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1; exit 0`
 }
 
-// Settings returns the Claude Code settings JSON with herd's hooks.
-func Settings() ([]byte, error) {
+// Settings returns the Claude Code settings every herd session gets: herd's
+// hooks, and claudeMdExcludes (CLAUDE.md files the sessions must not load).
+func Settings(excludes []string) ([]byte, error) {
 	type hook struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -85,12 +86,12 @@ func Settings() ([]byte, error) {
 	for _, e := range Events {
 		all[e] = []matcher{{Hooks: []hook{{Type: "command", Command: Command(e)}}}}
 	}
-	return json.MarshalIndent(map[string]any{"hooks": all}, "", "  ")
+	return json.MarshalIndent(map[string]any{"hooks": all, "claudeMdExcludes": excludes}, "", "  ")
 }
 
-// WriteSettings writes the hooks file (~/.herd/hooks.json).
-func WriteSettings(path string) error {
-	b, err := Settings()
+// WriteSettings writes the settings file (~/.herd/hooks.json).
+func WriteSettings(path string, excludes []string) error {
+	b, err := Settings(excludes)
 	if err != nil {
 		return err
 	}

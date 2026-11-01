@@ -379,6 +379,18 @@ func (a *App) SetMaxTabs(n int) error {
 	return a.updateConfig(func(c *settings.Config) { c.MaxTabs = n })
 }
 
+// SetBranchPrefix sets the prefix every new task's branch starts with.
+func (a *App) SetBranchPrefix(prefix string) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return errors.New("the branch prefix cannot be empty")
+	}
+	if _, err := a.git.Run(a.ctx, a.Home, "check-ref-format", "--branch", prefix+"x"); err != nil {
+		return fmt.Errorf("%q cannot start a branch name", prefix)
+	}
+	return a.updateConfig(func(c *settings.Config) { c.BranchPrefix = prefix })
+}
+
 // SetRules saves the rules every agent follows.
 func (a *App) SetRules(rules string) error {
 	return a.updateConfig(func(c *settings.Config) { c.Rules = rules })

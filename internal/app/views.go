@@ -24,7 +24,6 @@ type StepView struct {
 	Live     bool        `json:"live"`
 	Auto     bool        `json:"auto"`
 	Artifact string      `json:"artifact"`
-	Preview  string      `json:"preview"`
 	Commits  bool        `json:"commits"`
 	Paused   bool        `json:"paused"` // stopped by the user until Resume
 	Manual   bool        `json:"manual"` // created without running: the user drives its session
@@ -71,7 +70,8 @@ type TaskView struct {
 	Status      Status      `json:"status"`
 	Steps       []StepView  `json:"steps"`
 	Next        Next        `json:"next"`
-	Usage       usage.Usage `json:"usage"` // every step's session
+	Usage       usage.Usage `json:"usage"`   // every step's session
+	PRTitle     *PRTitle    `json:"prTitle"` // chosen at the last Push
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -103,7 +103,14 @@ func excludePattern(p settings.Project) string {
 	return filepath.ToSlash(rel) + "/"
 }
 
-func branchName(t store.Task) string { return "agent/" + t.Slug }
+// branchName is the task's git branch: the one chosen in New task, or
+// agent/<slug> for tasks made before branches were named.
+func branchName(t store.Task) string {
+	if t.Branch != "" {
+		return t.Branch
+	}
+	return "agent/" + t.Slug
+}
 
 func (a *App) projectOf(t store.Task) settings.Project {
 	if p, ok := a.settings.Project(t.Project); ok {
@@ -138,7 +145,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		_, live := a.run.Get(s.ID)
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
-			Artifact: ag.ArtifactName(s.N), Preview: ag.PreviewName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID), Manual: a.manual(s.ID),
+			Artifact: ag.ArtifactName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID), Manual: a.manual(s.ID),
 			Usage: a.usage.Session(s.SessionID),
 		})
 		if sv := &v.Steps[len(v.Steps)-1]; sv.Manual && sv.State != store.Done {
@@ -148,6 +155,9 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	}
 	if v.Steps == nil {
 		v.Steps = []StepView{}
+	}
+	if pt, ok := a.prTitle(t.ID); ok {
+		v.PRTitle = &pt
 	}
 	v.Status = statusOf(t, v.Steps)
 	v.Next = nextOf(t, v.Steps, agents)

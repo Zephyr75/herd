@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import type { Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind, Usage } from './types'
+import type { PRTitle, Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind, Usage } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -24,13 +24,13 @@ const projects: Project[] = [
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
 const agents: Agent[] = [
-  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', preview: '', done: 'status: done', commit: false, push: false,
+  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', done: 'status: done', commit: false, push: false,
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
-  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', preview: '', done: 'status: done', commit: false, push: false,
+  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', done: 'status: done', commit: false, push: false,
     instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', preview: '', done: 'verdict: approve | changes', commit: true, push: false,
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', done: 'verdict: approve | changes', commit: true, push: false,
     instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code: herd commits the reviewed changes when you finish.' },
-  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', preview: 'FEEDBACK.md', done: 'status: done', commit: false, push: true,
+  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', done: 'status: done', commit: false, push: true,
     instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
@@ -44,7 +44,7 @@ const context: Record<string, Context> = {
 const settings: Settings = {
   config: {
     appearance: { theme: 'dark', uiFont: 'IBM Plex Sans', uiFontSize: 13, termFont: 'IBM Plex Mono', termFontSize: 12.5 },
-    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, copilotTimeoutMinutes: 30, notifications: true, maxTabs: 5,
+    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, copilotTimeoutMinutes: 30, notifications: true, maxTabs: 5, branchPrefix: 'ar-',
     rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.', projects,
   },
   agents, context,
@@ -63,7 +63,7 @@ interface Fx {
   diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]
 }
 interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
-interface MockTask { id: string; project: string; issue: string; slug: string; title: string; description: string; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
+interface MockTask { id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
 
 const T: MockTask[] = [
   { id: 'core:4356', project: 'core', issue: '4356', slug: '4356', title: 'Retry BLE unlock on flaky connections', description: '',
@@ -168,7 +168,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
-    artifact: a.writes.replace('{n}', String(s.n)), preview: (a.preview || a.writes).replace('{n}', String(s.n)), commits: a.commit,
+    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit,
     paused, manual: !!s.manual, fresh: !!s.manual && open, usage: mockUsage(s.session, s.state !== 'done'),
   }
 }
@@ -224,7 +224,7 @@ function derive(t: MockTask): Task {
     id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, createdAt: '',
     archived: !!t.archived, archivedAt: t.archivedOn ?? '', pr: t.pr ?? 0, prUrl: '', prState: t.prState ?? '', worktreeRemoved: !!t.removed,
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
-    branch: 'agent/' + t.slug, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
+    branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
     status, steps, next, usage: steps.reduce((u, s) => addUsage(u, s.usage), noUsage),
   }
@@ -289,7 +289,7 @@ export function mockTerminal(stepId: string): string {
 function mockArtifact(stepId: string): Artifact {
   const [tid, key] = [stepId.slice(0, stepId.lastIndexOf('/')), stepId.slice(stepId.lastIndexOf('/') + 1)]
   const t = find(tid), s = t.steps.find((x) => x.key === key)!, a = agent(s.agent), fx = t.fx
-  const file = (a.preview || a.writes).replace('{n}', String(s.n))
+  const file = a.writes.replace('{n}', String(s.n))
   const base = { path: `~/.herd/runs/${proj(t.project).name}/${t.slug}/${file}`, file }
   if (s.state !== 'done') return { ...base, exists: false, front: null, body: '' }
   const list = (x: string[]) => x.map((i) => '- ' + i).join('\n')
@@ -318,12 +318,14 @@ export const api: Api = {
   SaveTabs: () => ok(undefined),
   ListTasks: () => ok(T.map(derive)),
   IssueTitle: (_p, issue) => (ISSUE_TITLES[issue] ? ok(ISSUE_TITLES[issue]) : Promise.reject('issue not found')),
-  CreateTask: (project, issue, description, runPlan) => {
+  CreateTask: (project, issue, description, branch, runPlan) => {
     if (!issue && !description) return Promise.reject('add a GitHub issue number, a description, or both')
+    const prefix = settings.config.branchPrefix
+    if (branch && (!branch.startsWith(prefix) || branch === prefix)) return Promise.reject(`the branch must start with "${prefix}" and name the task`)
     let slug = issue || 'local-' + description.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 3).join('-')
     if (T.some((t) => t.project === project && t.slug === slug)) { if (issue) return Promise.reject(`a task for #${issue} already exists`); slug += '-2' }
     const title = issue ? ISSUE_TITLES[issue] ?? 'Issue #' + issue : description.split('\n')[0].replace(/\.$/, '').slice(0, 80)
-    const t: MockTask = { id: `${project}:${slug}`, project, issue, slug, title, description, steps: [], fx: { goal: description || title } }
+    const t: MockTask = { id: `${project}:${slug}`, project, issue, slug, title, description, branch: branch || prefix + slug, steps: [], fx: { goal: description || title } }
     T.push(t)
     changed(t)
     if (runPlan) api.StartStep(t.id, 'plan', '', 0)
@@ -350,6 +352,12 @@ export const api: Api = {
     })
     return ok(derive(t).steps.find((x) => x.key === key)!)
   },
+  StartPush: (tid, agentId, guidance, n, title) => {
+    if (!title.scope.trim()) return Promise.reject('name the part of the code the PR changes, e.g. vehicles')
+    find(tid).prTitle = title
+    return api.StartStep(tid, agentId, guidance, n)
+  },
+  SetBranchPrefix: (prefix) => { settings.config.branchPrefix = prefix; emit('settings:changed', settings); return ok(undefined) },
   StartManualStep: (tid, agentId, guidance, n) => {
     const t = find(tid)
     if (!n) n = Math.max(0, ...t.steps.filter((s) => s.agent === agentId).map((s) => s.n)) + 1

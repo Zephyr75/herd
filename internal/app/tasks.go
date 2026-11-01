@@ -12,6 +12,7 @@ import (
 
 	"herd/internal/artifacts"
 	"herd/internal/gitops"
+	"herd/internal/settings"
 	"herd/internal/store"
 	"herd/internal/zed"
 )
@@ -86,6 +87,25 @@ func LocalSlug(desc string) string {
 	return "local-" + strings.Join(words, "-")
 }
 
+// checkBranch validates a new task's branch name.
+func (a *App) checkBranch(p settings.Project, tasks []store.Task, prefix, branch string) error {
+	if !strings.HasPrefix(branch, prefix) || len(branch) == len(prefix) {
+		return fmt.Errorf("the branch must start with %q and name the task, e.g. %sfix-unlock-retry", prefix, prefix)
+	}
+	if _, err := a.git.Run(a.ctx, p.Path, "check-ref-format", "--branch", branch); err != nil {
+		return fmt.Errorf("%q is not a valid branch name", branch)
+	}
+	for _, t := range tasks {
+		if t.Project == p.ID && branchName(t) == branch {
+			return fmt.Errorf("task %q already uses the branch %s", t.Title, branch)
+		}
+	}
+	if _, err := a.git.Run(a.ctx, p.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		return fmt.Errorf("the branch %s already exists in %s", branch, p.Name)
+	}
+	return nil
+}
+
 func titleFromDescription(desc string) string {
 	line := strings.TrimSpace(strings.SplitN(strings.TrimSpace(desc), "\n", 2)[0])
 	line = strings.TrimRight(line, ".")
@@ -98,10 +118,12 @@ func titleFromDescription(desc string) string {
 var digits = regexp.MustCompile(`^[0-9]+$`)
 
 // CreateTask creates a task, its branch and worktree, and optionally starts
-// the first agent.
-func (a *App) CreateTask(projectID, issue, description string, runPlan bool) (TaskView, error) {
+// the first agent. branch must start with the prefix in Settings; "" picks
+// prefix + the task's slug.
+func (a *App) CreateTask(projectID, issue, description, branch string, runPlan bool) (TaskView, error) {
 	issue = strings.TrimPrefix(strings.TrimSpace(issue), "#")
 	description = strings.TrimSpace(description)
+	branch = strings.TrimSpace(branch)
 	if issue == "" && description == "" {
 		return TaskView{}, errors.New("add a GitHub issue number, a description, or both")
 	}
@@ -148,9 +170,17 @@ func (a *App) CreateTask(projectID, issue, description string, runPlan bool) (Ta
 		title = titleFromDescription(description)
 	}
 
+	prefix := a.settings.Config().BranchPrefix
+	if branch == "" {
+		branch = prefix + slug
+	}
+	if err := a.checkBranch(p, all, prefix, branch); err != nil {
+		return TaskView{}, err
+	}
+
 	t := store.Task{
 		ID: p.ID + ":" + slug, Project: p.ID, Slug: slug, Issue: issue, Title: title, Description: description,
-		CreatedAt: time.Now(),
+		Branch: branch, CreatedAt: time.Now(),
 	}
 	if pat := excludePattern(p); pat != "" {
 		if _, err := a.git.EnsureExcluded(a.ctx, p.Path, pat); err != nil {
@@ -293,7 +323,7 @@ func (a *App) OpenProjectInZed(projectID string) error {
 	return zed.Open(a.settings.Config().ZedCommand, p.Path)
 }
 
-// ReadArtifact returns the parsed artifact the step's Preview shows.
+// ReadArtifact returns the step's parsed artifact, shown in its Preview tab.
 func (a *App) ReadArtifact(stepID string) (artifacts.Artifact, error) {
 	s, err := a.db.Step(stepID)
 	if err != nil {
@@ -305,11 +335,7 @@ func (a *App) ReadArtifact(stepID string) (artifacts.Artifact, error) {
 	}
 	ag := agentFor(a.settings.Agents(), s.Agent)
 	dir := a.runDir(a.projectOf(t), t)
-	art, err := artifacts.Read(filepath.Join(dir, ag.PreviewName(s.N)))
-	if err == nil && !art.Exists && ag.Preview != "" {
-		art, err = artifacts.Read(filepath.Join(dir, ag.ArtifactName(s.N)))
-	}
-	return art, err
+	return artifacts.Read(filepath.Join(dir, ag.ArtifactName(s.N)))
 }
 
 // onArtifact tells the frontend an artifact changed so the Preview reloads.

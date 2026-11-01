@@ -50,25 +50,25 @@ type Config struct {
 	MaxLiveSessions int                    `toml:"max_live_sessions" json:"maxLiveSessions"`
 	CopilotTimeout  int                    `toml:"copilot_timeout_minutes" json:"copilotTimeoutMinutes"`
 	Notifications   bool                   `toml:"notifications" json:"notifications"` // desktop notifications while herd is in the background
-	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`             // open terminal tabs; the oldest closes first
-	Rules           string                 `toml:"rules" json:"rules"`                  // always followed by every agent
+	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`            // open terminal tabs; the oldest closes first
+	Rules           string                 `toml:"rules" json:"rules"`                 // always followed by every agent
+	BranchPrefix    string                 `toml:"branch_prefix" json:"branchPrefix"`  // every new task's branch starts with it
 	Projects        []Project              `toml:"project" json:"projects"`
 	Context         map[string]ContextMeta `toml:"context" json:"contextMeta"`
 }
 
 // Agent is one step type, from agents.toml. The order of agents is the pipeline.
 type Agent struct {
-	ID           string   `toml:"id" json:"id"`
-	Name         string   `toml:"name" json:"name"`
-	Command      string   `toml:"command" json:"command"`
-	Model        string   `toml:"model" json:"model"`
-	Trigger      string   `toml:"trigger" json:"trigger"` // manual | after:<agent id>
-	Writes       string   `toml:"writes" json:"writes"`
-	Preview      string   `toml:"preview,omitempty" json:"preview"`
-	Done         string   `toml:"done" json:"done"`
-	Commit       bool     `toml:"commit,omitempty" json:"commit"`
-	Push         bool     `toml:"push,omitempty" json:"push"`
-	Instructions string   `toml:"instructions" json:"instructions"`
+	ID           string `toml:"id" json:"id"`
+	Name         string `toml:"name" json:"name"`
+	Command      string `toml:"command" json:"command"`
+	Model        string `toml:"model" json:"model"`
+	Trigger      string `toml:"trigger" json:"trigger"` // manual | after:<agent id>
+	Writes       string `toml:"writes" json:"writes"`
+	Done         string `toml:"done" json:"done"`
+	Commit       bool   `toml:"commit,omitempty" json:"commit"`
+	Push         bool   `toml:"push,omitempty" json:"push"`
+	Instructions string `toml:"instructions" json:"instructions"`
 }
 
 type agentsFile struct {
@@ -228,6 +228,9 @@ func fillConfig(c *Config) {
 	if c.MaxTabs <= 0 {
 		c.MaxTabs = d.MaxTabs
 	}
+	if c.BranchPrefix == "" {
+		c.BranchPrefix = d.BranchPrefix
+	}
 	if c.Context == nil {
 		c.Context = map[string]ContextMeta{}
 	}
@@ -317,12 +320,41 @@ func (s *Store) SaveAgents(agents []Agent) error {
 		}
 		seen[a.ID] = true
 	}
+	if err := checkTriggers(agents); err != nil {
+		return err
+	}
 	if err := writeTOML(s.path("agents.toml"), agentsFile{Agent: agents}); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	s.ags = append([]Agent(nil), agents...)
 	s.mu.Unlock()
+	return nil
+}
+
+// checkTriggers refuses "after:" triggers on a missing agent, on the agent
+// itself, or in a loop (A after B after A), which would run forever.
+func checkTriggers(agents []Agent) error {
+	after := map[string]string{}
+	names := map[string]string{}
+	for _, a := range agents {
+		names[a.ID] = a.Name
+		if t := a.AfterAgent(); t != "" {
+			after[a.ID] = t
+		} else if a.Trigger != "manual" && a.Trigger != "" {
+			return fmt.Errorf("%s: unknown trigger %q (manual or after:<agent id>)", a.Name, a.Trigger)
+		}
+	}
+	for id, t := range after {
+		if _, ok := names[t]; !ok {
+			return fmt.Errorf("%s starts after %q, which is not an agent", names[id], t)
+		}
+		for cur, n := t, 0; cur != ""; cur, n = after[cur], n+1 {
+			if cur == id || n > len(agents) {
+				return fmt.Errorf("%s would start itself again: its automatic triggers form a loop", names[id])
+			}
+		}
+	}
 	return nil
 }
 
@@ -439,14 +471,6 @@ func (a Agent) Numbered() bool { return strings.Contains(a.Writes, "{n}") }
 // ArtifactName is the file this agent writes for run n.
 func (a Agent) ArtifactName(n int) string {
 	return strings.ReplaceAll(a.Writes, "{n}", fmt.Sprint(n))
-}
-
-// PreviewName is the file the Preview tab shows for run n.
-func (a Agent) PreviewName(n int) string {
-	if a.Preview != "" {
-		return strings.ReplaceAll(a.Preview, "{n}", fmt.Sprint(n))
-	}
-	return a.ArtifactName(n)
 }
 
 // AfterAgent returns the agent id this one starts after, or "".

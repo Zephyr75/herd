@@ -59,6 +59,12 @@ async function remove(p: Project) {
   confirmRemove.value = ''
   await herd.attempt('Could not remove the project', () => api.RemoveProject(p.id))
 }
+function setPrefix(e: Event) {
+  const v = (e.target as HTMLInputElement).value.trim()
+  if (!v || !herd.settings) return
+  herd.settings.config.branchPrefix = v
+  void herd.attempt('Could not save the branch prefix', () => api.SetBranchPrefix(v))
+}
 const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.OpenProjectInZed(id))
 </script>
 
@@ -77,6 +83,11 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
       <span class="label">{{ c.label }}</span>
       <span class="detail">{{ c.detail }}</span>
     </div>
+    <label class="check">
+      <span class="label">Branch prefix</span>
+      <span class="detail grow">every new task's branch starts with it</span>
+      <input class="input mono prefix" :value="herd.settings?.config.branchPrefix" placeholder="ar-" spellcheck="false" @change="setPrefix" />
+    </label>
     <div class="check">
       <span class="grow muted small">{{ checking ? 'Checking…' : 'zed, gh and each repository are checked when this page opens.' }}</span>
       <button class="btn ghost" @click="runChecks">Check again</button>
@@ -186,5 +197,9 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
     align-items: flex-end;
     gap: 8px;
     max-width: 560px;
+  }
+  .prefix {
+    width: 120px;
+    height: 26px;
   }
 </style>

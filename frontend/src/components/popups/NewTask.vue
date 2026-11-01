@@ -36,6 +36,22 @@ const slug = computed(() => {
   const words = nDesc.value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean).slice(0, 3)
   return 'local-' + (words.join('-') || 'task')
 })
+// The branch: the prefix from Settings, then words from the issue title or
+// the description, until the user edits it.
+const prefix = computed(() => herd.settings?.config.branchPrefix ?? 'ar-')
+const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 7).join('-')
+const branchEdited = ref(false)
+const branchInput = ref('')
+const suggested = computed(() => prefix.value + (words(issueTitle.value) || words(nDesc.value) || nIssue.value || 'task'))
+const branch = computed({
+  get: () => (branchEdited.value ? branchInput.value : suggested.value),
+  set: (v: string) => {
+    branchEdited.value = true
+    branchInput.value = v.replace(/\s+/g, '-')
+  },
+})
+const branchOk = computed(() => branch.value.startsWith(prefix.value) && branch.value.length > prefix.value.length && /^[A-Za-z0-9._/-]+$/.test(branch.value))
+
 const info = computed(
   () =>
     ({
@@ -46,7 +62,7 @@ const info = computed(
     })[mode.value],
 )
 const first = computed(() => herd.settings?.agents[0]?.name ?? 'Plan')
-const valid = computed(() => mode.value !== 'none' && !!p.value && !busy.value)
+const valid = computed(() => mode.value !== 'none' && !!p.value && !busy.value && branchOk.value)
 
 function onIssue(e: Event) {
   const el = e.target as HTMLInputElement
@@ -78,7 +94,7 @@ async function create(run: boolean) {
   busy.value = true
   error.value = ''
   try {
-    const t = await api.CreateTask(project.value, nIssue.value, nDesc.value, run)
+    const t = await api.CreateTask(project.value, nIssue.value, nDesc.value, branch.value, run)
     herd.overlay = 'none'
     // The task:changed event may arrive after the call returns.
     if (!herd.task(t.id)) herd.tasks.push(t)
@@ -129,6 +145,11 @@ function key(e: KeyboardEvent) {
         <label for="nfdesc" class="lbl">Description <span class="faint">optional</span></label>
         <textarea id="nfdesc" v-model="desc" rows="4" placeholder="What should Claude do? Added on top of the issue, or used alone for a LOCAL task."></textarea>
       </div>
+      <div class="group">
+        <label for="nfbranch" class="lbl">Branch <span class="faint">starts with {{ prefix }}</span></label>
+        <input id="nfbranch" v-model="branch" class="input mono branch" autocomplete="off" spellcheck="false" />
+        <span v-if="mode !== 'none' && !branchOk" class="err">Start with {{ prefix }}, then name the task: letters, digits, . _ / -</span>
+      </div>
       <div class="mode">
         <div class="mode-row">
           <span :class="['mode-chip', info.cls]">{{ info.label }}</span>
@@ -136,7 +157,7 @@ function key(e: KeyboardEvent) {
         </div>
         <div v-if="mode !== 'none'" class="preview">
           <span v-if="mode === 'local'" class="local-chip">LOCAL</span>
-          <span>branch agent/{{ slug }}</span>
+          <span>branch {{ branch }}</span>
           <span>worktree {{ p?.worktreesDir ?? '.worktrees' }}/{{ slug }}</span>
         </div>
       </div>
@@ -237,6 +258,9 @@ function key(e: KeyboardEvent) {
   }
   .fetched {
     font-size: 12px;
+  }
+  .branch {
+    height: 30px;
   }
   .err {
     margin: 0;

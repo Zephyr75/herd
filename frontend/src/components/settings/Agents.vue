@@ -15,6 +15,7 @@ const confirmDelete = ref(false)
 const models: [string, string][] = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]
 const modelLabel = (m: string) => models.find((x) => x[0] === m)?.[1] ?? m
 const isAuto = (a: Agent) => a.trigger.startsWith('after:')
+const vFocus = { mounted: (el: HTMLElement) => el.focus() }
 
 const save = debounce(() => {
   const s = herd.settings
@@ -33,17 +34,21 @@ function set<K extends keyof Agent>(k: K, v: Agent[K]) {
 const val = (e: Event) => (e.target as HTMLInputElement).value
 const checked = (e: Event) => (e.target as HTMLInputElement).checked
 
-const prevAgent = computed(() => {
-  const i = agents.value.findIndex((a) => a.id === A.value?.id)
-  return i > 0 ? agents.value[i - 1] : null
-})
 const afterName = (a: Agent) => agents.value.find((x) => 'after:' + x.id === a.trigger)?.name ?? a.trigger.slice(6)
-const triggers = computed<[string, string][]>(() => {
-  const out: [string, string][] = [['manual', 'Manually, with play']]
-  const prev = prevAgent.value
-  if (prev) out.push(['after:' + prev.id, 'Automatically after ' + prev.name])
+// "Starts after X" would loop when X (or what X waits for) starts after this agent.
+function loops(a: Agent, target: string) {
+  for (let cur = target, n = 0; cur && n <= agents.value.length; n++) {
+    if (cur === a.id) return true
+    cur = agents.value.find((x) => x.id === cur)?.trigger.replace(/^after:/, '').replace(/^manual$/, '') ?? ''
+  }
+  return false
+}
+const triggers = computed(() => {
   const a = A.value
-  if (a && isAuto(a) && a.trigger !== 'after:' + prev?.id) out.push([a.trigger, 'Automatically after ' + afterName(a)])
+  const out = [{ value: 'manual', label: 'Manually, with play', loop: false }]
+  for (const x of agents.value) {
+    if (a && x.id !== a.id) out.push({ value: 'after:' + x.id, label: 'Automatically after ' + x.name, loop: loops(a, x.id) })
+  }
   return out
 })
 
@@ -57,18 +62,29 @@ function setRules(e: Event) {
   saveRules(c.rules)
 }
 
+// A new agent is named first: its id (used by triggers and step names) comes
+// from the name and never changes, so nothing that points at it breaks.
+const adding = ref(false)
+const newName = ref('')
+const idFor = (name: string) => {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent'
+  let id = base
+  for (let i = 2; agents.value.some((a) => a.id === id); i++) id = `${base}-${i}`
+  return id
+}
 function addAgent() {
   const s = herd.settings
-  if (!s) return
-  let n = s.agents.length + 1
-  while (s.agents.some((a) => a.id === 'agent' + n)) n++
-  const id = 'agent' + n
+  const name = newName.value.trim()
+  if (!s || !name) return
+  const id = idFor(name)
   s.agents.push({
-    id, name: 'Agent ' + n, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
-    preview: '', done: 'status: done', commit: false, push: false,
+    id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
+    done: 'status: done', commit: false, push: false,
     instructions: 'Describe what this agent does and what it writes.',
   })
   selId.value = id
+  adding.value = false
+  newName.value = ''
   changed()
 }
 function move(delta: number) {
@@ -89,6 +105,7 @@ function remove() {
   }
   const id = A.value.id
   s.agents = s.agents.filter((a) => a.id !== id)
+  for (const a of s.agents) if (a.trigger === 'after:' + id) a.trigger = 'manual' // nothing to wait for any more
   selId.value = s.agents[0]?.id ?? ''
   confirmDelete.value = false
   changed()
@@ -125,10 +142,21 @@ function pick(id: string) {
         <span class="name">{{ a.name }}</span>
         <span class="sub">{{ modelLabel(a.model) }} · {{ isAuto(a) ? 'automatic after ' + afterName(a) : 'manual' }}</span>
       </button>
-      <button class="add" @click="addAgent">+ Add agent</button>
+      <input
+        v-if="adding"
+        v-model="newName"
+        v-focus
+        class="input new-name"
+        placeholder="Name, then Enter"
+        @keydown.enter="addAgent"
+        @blur="adding = false"
+      />
+      <button v-else class="add" @click="adding = true">+ Add agent</button>
+      <span v-if="adding && newName.trim()" class="muted small new-id">id <span class="mono">{{ idFor(newName) }}</span></span>
     </div>
 
     <div v-if="A" class="editor card">
+      <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
       <div class="grid2">
         <label class="field">Name<input class="input" :value="A.name" @input="set('name', val($event))" /></label>
         <label class="field">Writes artifact<input class="input mono" :value="A.writes" @input="set('writes', val($event))" /></label>
@@ -142,9 +170,9 @@ function pick(id: string) {
       </div>
       <div class="field">
         <span>Starts</span>
-        <div class="segs">
-          <button v-for="[v, l] in triggers" :key="v" class="seg" :class="{ on: A.trigger === v }" @click="set('trigger', v)">{{ l }}</button>
-        </div>
+        <select class="input starts" :value="A.trigger" @change="set('trigger', val($event))">
+          <option v-for="o in triggers" :key="o.value" :value="o.value" :disabled="o.loop">{{ o.label }}{{ o.loop ? ' (would loop)' : '' }}</option>
+        </select>
       </div>
       <label class="field">Done when<input class="input mono" :value="A.done" @input="set('done', val($event))" /></label>
       <div class="checks">
@@ -259,5 +287,16 @@ function pick(id: string) {
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
+  }
+  .starts {
+    height: 30px;
+    max-width: 340px;
+  }
+  .new-name {
+    margin-top: 6px;
+    height: 28px;
+  }
+  .new-id {
+    padding: 2px 4px;
   }
 </style>

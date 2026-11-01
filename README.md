@@ -78,6 +78,10 @@ unpushed), so hand edits stay in the same cycle; start the next Implement for a 
 `claude --session-id <id>` for use outside herd, Resume here starts it in herd, and the Review
 after it waits for you to Start it.
 
+New tasks get the branch you name in New task; it must start with the prefix in Settings >
+Projects (`ar-` by default). Push first asks for the PR title, `type(scope): description - #issue`
+(type feat, fix, perf or test; the description defaults to the branch without its prefix).
+
 Every session runs in Claude Code's auto mode. The Rules in Settings > Agents apply to every agent
 (say there what agents may not do); the context and knowledge base folders in Settings > Context
 apply to every session.

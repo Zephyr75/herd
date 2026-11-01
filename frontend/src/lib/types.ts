@@ -19,7 +19,6 @@ export interface Agent {
   model: string
   trigger: string // manual | after:<id>
   writes: string
-  preview: string
   done: string
   commit: boolean
   push: boolean
@@ -79,6 +78,7 @@ export interface Config {
   notifications: boolean
   maxTabs: number
   rules: string // followed by every agent
+  branchPrefix: string // every new task's branch starts with it
   projects: Project[] | null
 }
 
@@ -112,7 +112,6 @@ export interface Step {
   live: boolean
   auto: boolean
   artifact: string
-  preview: string
   commits: boolean
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
@@ -160,6 +159,16 @@ export interface Task {
   steps: Step[]
   next: Next
   usage: Usage
+  prTitle: PRTitle | null // chosen at the last Push
+}
+
+export type PRKind = 'feat' | 'fix' | 'perf' | 'test'
+
+/** The pull request title chosen in the Push popup. */
+export interface PRTitle {
+  kind: PRKind
+  scope: string
+  desc: string
 }
 
 export interface Field {

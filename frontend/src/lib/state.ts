@@ -6,9 +6,9 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import type { Option, Proc, Settings, Step, TabRef, Task } from './types'
+import type { Option, PRTitle, Proc, Settings, Step, TabRef, Task } from './types'
 
-export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity'
+export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
 export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts'
 
@@ -175,6 +175,10 @@ class Herd {
     if (scope === 'project' || scope === 'worktree' || scope === 'branch') this.scope = scope
     const overlay = q.get('overlay')
     if (overlay === 'palette' || overlay === 'scope' || overlay === 'new' || overlay === 'activity') this.overlay = overlay
+    if (overlay === 'push') {
+      const o = this.selTask?.next.options.find((x) => this.isPush(x.agent))
+      if (o) this.askPush(o)
+    }
     if (q.get('right') === 'changes') this.rightTab = 'changes'
     this.previewQuery = q.get('q') ?? ''
     this.previewNew = q.get('new') ?? ''
@@ -383,7 +387,36 @@ class Herd {
     this.openStep(step.taskId, step.id)
   }
 
+  /** The push step waiting for its PR title (the Push popup). */
+  pushOpt: (Option & { task: string }) | null = null
+
+  isPush(agent: string) {
+    return !!this.settings?.agents.find((a) => a.id === agent)?.push
+  }
+
+  askPush(opt: Option, taskId = this.sel) {
+    this.pushOpt = { ...opt, task: taskId }
+    this.overlay = 'push'
+  }
+
+  /** startPush runs the push step with the title chosen in the popup. */
+  async startPush(title: PRTitle): Promise<string> {
+    const o = this.pushOpt
+    if (!o) return ''
+    try {
+      const step = await api.StartPush(o.task, o.agent, this.guidance, o.n, title)
+      this.guidance = ''
+      this.pushOpt = null
+      this.overlay = 'none'
+      this.openStep(o.task, step.id)
+      return ''
+    } catch (e) {
+      return errorText(e)
+    }
+  }
+
   async run(opt: Option, taskId = this.sel) {
+    if (this.isPush(opt.agent)) return this.askPush(opt, taskId) // the PR title comes first
     const guidance = this.guidance
     const step = await this.attempt('Could not start ' + opt.label, () => api.StartStep(taskId, opt.agent, guidance, opt.n))
     if (!step) return

@@ -72,6 +72,9 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	if l.prevSHA != "" {
 		fmt.Fprintf(&b, "- {sha} = %s (the latest commit herd made)\n", l.prevSHA)
 	}
+	if pt, ok := a.prTitle(l.task.ID); ok && l.agent.Push {
+		fmt.Fprintf(&b, "- pull request title (chosen by the user; herd uses it): %s\n", pt.Format(l.task.Issue))
+	}
 	if l.mode == modeRerun {
 		b.WriteString("- rerun: you already ran this step in this conversation. The user changed the worktree since; do the step again on the current state and rewrite your artifact\n")
 	}
@@ -716,6 +719,9 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 		return
 	}
 	title, body := splitTitle(art.Body)
+	if pt, ok := a.prTitle(t.ID); ok {
+		title = pt.Format(t.Issue) // chosen in the Push popup
+	}
 	if title == "" {
 		title = t.Title
 	}

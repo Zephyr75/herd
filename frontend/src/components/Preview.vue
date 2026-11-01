@@ -78,7 +78,7 @@ watch(
   { immediate: true },
 )
 
-const file = computed(() => art.value?.file || step.value?.preview || '')
+const file = computed(() => art.value?.file || step.value?.artifact || '')
 const vcls = (v: string) => (v === 'changes' ? 'c-waiting' : v === 'approve' || v === 'done' ? 'c-done' : 'c-text')
 </script>
 

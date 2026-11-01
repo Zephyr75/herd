@@ -16,6 +16,7 @@ func DefaultConfig() Config {
 		CopilotTimeout:  30,
 		Notifications:   true,
 		MaxTabs:         5,
+		BranchPrefix:    "ar-",
 		Context:         map[string]ContextMeta{},
 	}
 }
@@ -57,7 +58,7 @@ Never edit code: herd commits the reviewed changes when you finish.`,
 		},
 		{
 			ID: "push", Name: "Push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
-			Writes: "PR.md", Preview: "FEEDBACK.md", Done: "status: done", Push: true,
+			Writes: "PR.md", Done: "status: done", Push: true,
 			Instructions: `Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.
 Add Closes #{issue} when the task has an issue.
 Do not push: herd pushes, opens the PR and collects the Copilot review.`,

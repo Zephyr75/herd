@@ -2,18 +2,20 @@
 // at window.runtime. In a plain browser (npm run dev) a mock built from the
 // UI preview's fixtures stands in, so the UI can be worked on without Go.
 
-import type { Agent, Artifact, Bootstrap, Changes, Check, Context, Proc, Project, Settings, Step, Task, Appearance } from './types'
+import type { PRTitle, Agent, Artifact, Bootstrap, Changes, Check, Context, Proc, Project, Settings, Step, Task, Appearance } from './types'
 
 export interface Api {
   Bootstrap(): Promise<Bootstrap>
   SaveTabs(json: string): Promise<void>
   ListTasks(): Promise<Task[]>
   IssueTitle(project: string, issue: string): Promise<string>
-  CreateTask(project: string, issue: string, description: string, runPlan: boolean): Promise<Task>
+  CreateTask(project: string, issue: string, description: string, branch: string, runPlan: boolean): Promise<Task>
   StartStep(task: string, agent: string, guidance: string, n: number): Promise<Step>
   AllowOnce(step: string): Promise<void>
   MarkDone(step: string): Promise<void>
   StopStep(step: string): Promise<void>
+  StartPush(task: string, agent: string, guidance: string, n: number, title: PRTitle): Promise<Step>
+  SetBranchPrefix(prefix: string): Promise<void>
   StartManualStep(task: string, agent: string, guidance: string, n: number): Promise<Step>
   RerunStep(step: string): Promise<void>
   ArchiveTask(task: string): Promise<void>

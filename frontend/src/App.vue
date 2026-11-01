@@ -11,6 +11,7 @@ import Palette from './components/popups/Palette.vue'
 import ScopePicker from './components/popups/ScopePicker.vue'
 import NewTask from './components/popups/NewTask.vue'
 import Activity from './components/popups/Activity.vue'
+import PushTitle from './components/popups/PushTitle.vue'
 
 watchEffect(() => {
   document.documentElement.dataset.theme = herd.theme
@@ -46,6 +47,7 @@ watchEffect(() => {
     <ScopePicker v-if="herd.overlay === 'scope'" />
     <NewTask v-if="herd.overlay === 'new'" />
     <Activity v-if="herd.overlay === 'activity'" />
+    <PushTitle v-if="herd.overlay === 'push' && herd.pushOpt" />
   </div>
 </template>
 

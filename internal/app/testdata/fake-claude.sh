@@ -7,8 +7,8 @@ post() {
     -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" --data-binary @- >/dev/null
 }
 resume=""
-for a in "$@"; do [ "$prev" = "--resume" ] && resume="$a"; prev="$a"; done
-if [ -n "$resume" ]; then
+for a in "$@"; do [ "$prev" = "--resume" ] && resume="$a"; [ "$a" = "--" ] && prompted=1; prev="$a"; done
+if [ -n "$resume" ] && [ -z "$prompted" ]; then
   post SessionStart "{\"session_id\":\"$resume\",\"source\":\"resume\"}"
   echo "resumed $resume"
   read -r line

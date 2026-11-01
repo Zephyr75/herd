@@ -62,7 +62,7 @@ interface Fx {
   goal?: string; files?: string[]; grep?: string; test?: string; testOut?: string; flow?: string[]
   diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]
 }
-interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string }
+interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
 interface MockTask { id: string; project: string; issue: string; slug: string; title: string; description: string; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
 
 const T: MockTask[] = [
@@ -162,13 +162,14 @@ const noUsage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 
 function stepView(t: MockTask, s: MockStep, i: number): Step {
   const a = agent(s.agent)
-  const paused = new URLSearchParams(location.search).get('paused') === `${t.id}/${s.key}` // ?paused=<step id>
+  const open = s.state !== 'done' && s.state !== 'failed'
+  const paused = new URLSearchParams(location.search).get('paused') === `${t.id}/${s.key}` || (!!s.manual && open) // ?paused=<step id>
   return {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), preview: (a.preview || a.writes).replace('{n}', String(s.n)), commits: a.commit,
-    paused, usage: mockUsage(s.session, s.state !== 'done'),
+    paused, manual: !!s.manual, fresh: !!s.manual && open, usage: mockUsage(s.session, s.state !== 'done'),
   }
 }
 
@@ -181,6 +182,7 @@ function derive(t: MockTask): Task {
   const st = (kind: StatusKind, label: string, short: string) => ({ kind, label, short })
   if (t.archived) status = t.pr ? st(t.prState === 'merged' ? 'done' : 'idle', `PR #${t.pr} ${t.prState} · ${day}`, t.prState!) : st('idle', `Archived · ${day}`, 'archived')
   else if (!steps.length) status = st('idle', 'Not started', 'not started')
+  else if (last.manual && last.paused) status = st('waiting', 'Manual · ' + last.name, 'manual')
   else if (steps.some((s) => s.state === 'approval')) status = st('approval', 'Needs approval · ' + steps.find((s) => s.state === 'approval')!.name, 'approval')
   else if (steps.some((s) => s.state === 'running')) status = st('running', 'Running · ' + steps.find((s) => s.state === 'running')!.name, 'running')
   else if (last.state === 'idle') status = st('waiting', 'Waiting for input · ' + last.name, 'waiting')
@@ -188,7 +190,7 @@ function derive(t: MockTask): Task {
   else if (t.pr && t.prState === 'open') status = st('done', `PR #${t.pr} open`, 'PR open')
   else status = st('waiting', 'Waiting for input · after ' + last.name, 'waiting')
 
-  const next: Next = { options: [], text: '', approval: '', markDone: '', ghost: null }
+  const next: Next = { options: [], text: '', approval: '', markDone: '', ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
   if (t.archived) {
@@ -197,11 +199,14 @@ function derive(t: MockTask): Task {
   else {
     const la = agent(last.agent)
     const autoNext = agents.find((a) => a.trigger === 'after:' + last.agent)
-    if (autoNext && last.state !== 'done') next.ghost = { name: displayName(autoNext, count(autoNext.id) + 1), after: last.name }
+    if (autoNext && last.state !== 'done') next.ghost = { name: displayName(autoNext, count(autoNext.id) + 1), after: last.name, manual: false, start: null }
+    const manualNext = autoNext && last.manual && last.state !== 'failed' ? opt(autoNext, count(autoNext.id) + 1) : undefined
+    if (manualNext) next.ghost = { name: manualNext.label, after: last.name, manual: true, start: manualNext }
     const appr = steps.find((s) => s.state === 'approval')
     const run = steps.find((s) => s.state === 'running')
     if (appr) { next.approval = appr.id; next.text = 'Claude Code wants to run a command. Answer in the terminal, or allow it once here.' }
     else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically when it finishes.` : 'You will be asked for the next step when it finishes.')
+    else if (manualNext) { next.options.push(manualNext); next.text = `${last.name} is yours: use its session outside herd (copy the claude command in its toolbar) or Resume it here. Start ${manualNext.label} when you are done.` }
     else if (last.state === 'idle') { next.text = `Claude is waiting for you in the ${last.name} terminal. Mark it done if ${last.artifact} is complete.`; next.markDone = last.id }
     else if (last.state === 'failed') { next.text = `${last.name} ended before ${last.artifact} was done.`; next.options.push(opt(la, last.n, 'Retry ')); next.markDone = last.id }
     else if (la.push) next.text = `PR #${t.pr} is open. The task moves to Archive when the PR is merged or closed.`
@@ -216,7 +221,7 @@ function derive(t: MockTask): Task {
     }
   }
   return {
-    id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, portBase: 0, createdAt: '',
+    id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, createdAt: '',
     archived: !!t.archived, archivedAt: t.archivedOn ?? '', pr: t.pr ?? 0, prUrl: '', prState: t.prState ?? '', worktreeRemoved: !!t.removed,
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: 'agent/' + t.slug, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
@@ -327,6 +332,7 @@ export const api: Api = {
   StartStep: (tid, agentId, guidance, n) => {
     const t = find(tid)
     if (!n) n = Math.max(0, ...t.steps.filter((s) => s.agent === agentId).map((s) => s.n)) + 1
+    for (const x of t.steps) if (x.manual && x.state !== 'done') x.state = 'done'
     let key = `${agentId}-${n}`
     if (t.steps.some((s) => s.key === key)) key += '-' + (t.steps.length + 1)
     const s: MockStep = { key, agent: agentId, n, state: 'running', guide: guidance, session: Math.random().toString(16).slice(2, 10) }
@@ -343,6 +349,23 @@ export const api: Api = {
       if (auto) api.StartStep(t.id, auto.id, '', 0)
     })
     return ok(derive(t).steps.find((x) => x.key === key)!)
+  },
+  StartManualStep: (tid, agentId, guidance, n) => {
+    const t = find(tid)
+    if (!n) n = Math.max(0, ...t.steps.filter((s) => s.agent === agentId).map((s) => s.n)) + 1
+    for (const x of t.steps) if (x.manual && x.state !== 'done') x.state = 'done'
+    const s: MockStep = { key: `${agentId}-${n}`, agent: agentId, n, state: 'idle', guide: guidance, session: crypto.randomUUID(), manual: true }
+    t.steps.push(s)
+    changed(t)
+    return ok(derive(t).steps.find((x) => x.key === s.key)!)
+  },
+  RerunStep: (sid) => {
+    const t = find(sid.slice(0, sid.lastIndexOf('/'))), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
+    if (!s) return Promise.reject('no such step')
+    s.state = 'running'
+    changed(t)
+    later(3000, () => { s.state = 'done'; s.sha = Math.random().toString(16).slice(2, 9); changed(t) })
+    return ok(undefined)
   },
   AllowOnce: (sid) => { const t = find(sid.slice(0, sid.lastIndexOf('/'))); t.steps.forEach((s) => { if (s.state === 'approval') s.state = 'running' }); changed(t); return ok(undefined) },
   MarkDone: (sid) => { const t = find(sid.slice(0, sid.lastIndexOf('/'))); const s = t.steps.find((x) => `${t.id}/${x.key}` === sid); if (s) s.state = 'done'; changed(t); return ok(undefined) },

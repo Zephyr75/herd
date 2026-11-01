@@ -532,7 +532,7 @@ func TestRulesAndKnowledge(t *testing.T) {
 	task, _ := a.db.Task(tv.ID)
 	p, _ := a.settings.Project("core")
 	for _, ag := range a.settings.Agents() {
-		args := strings.Join(a.spec(launch{task: task, proj: p, agent: ag, step: store.Step{N: 1, SessionID: "s"}}, false).Args, "\x00")
+		args := strings.Join(a.spec(launch{task: task, proj: p, agent: ag, step: store.Step{N: 1, SessionID: "s"}}).Args, "\x00")
 		if !strings.Contains(args, "Never touch migrations/") || !strings.Contains(args, "--add-dir\x00"+kb) || strings.Contains(args, "allowedTools") {
 			t.Fatalf("%s args: %q", ag.ID, args)
 		}
@@ -542,5 +542,91 @@ func TestRulesAndKnowledge(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "CONTEXT.md")); !strings.Contains(string(b), kb) {
 		t.Fatalf("CONTEXT.md: %s", b)
+	}
+}
+
+func TestManualStep(t *testing.T) {
+	a, _ := newTestApp(t)
+	os.MkdirAll(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects"), 0o755) // transcripts are tracked
+	tv, _ := a.CreateTask("core", "", "implement it myself", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	sv, err := a.StartManualStep(tv.ID, "impl", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, live := a.run.Get(sv.ID); live || !sv.Manual || !sv.Paused || !sv.Fresh || sv.State != store.Idle {
+		t.Fatalf("manual step: live=%v %+v", live, sv)
+	}
+	v, _ := a.GetTask(tv.ID)
+	if v.Next.Ghost == nil || !v.Next.Ghost.Manual || v.Next.Ghost.Start == nil || v.Next.Ghost.Start.Agent != "review" {
+		t.Fatalf("ghost: %+v", v.Next.Ghost)
+	}
+	if len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Review 1" {
+		t.Fatalf("options: %+v", v.Next.Options)
+	}
+	// Resume in herd starts its session there, without a prompt.
+	if _, err := a.ResumeStep(sv.ID); err != nil {
+		t.Fatal(err)
+	}
+	sess, ok := a.run.Get(sv.ID)
+	if !ok {
+		t.Fatal("not resumed")
+	}
+	waitFor(t, "blank session", func() bool { _, b := sess.Attach(); return strings.Contains(string(b), "fake claude: "+sv.SessionID) })
+	waitFor(t, "impl done", func() bool { return stepState(a, sv.ID) == store.Done })
+	time.Sleep(300 * time.Millisecond)
+	if steps, _ := a.db.Steps(tv.ID); len(steps) != 2 {
+		t.Fatalf("Review started by itself after a manual step: %d steps", len(steps))
+	}
+	sess.Write([]byte("bye\r"))
+	waitFor(t, "impl exited", func() bool { _, live := a.run.Get(sv.ID); return !live })
+	if _, err := a.StartStep(tv.ID, "review", "", 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManualStepClosedByNextStep(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "manual then review", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	sv, _ := a.StartManualStep(tv.ID, "impl", "", 0)
+	if _, err := a.StartStep(tv.ID, "review", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := a.db.Step(sv.ID); s.State != store.Done || a.paused(sv.ID) {
+		t.Fatalf("manual step left open: %+v", s)
+	}
+}
+
+func TestRerunAmendsTheReviewCommit(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "rerun the review", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	rev := store.StepID(tv.ID, "review-1")
+	waitFor(t, "review commit", func() bool { s, _ := a.db.Step(rev); return s.SHA != "" })
+	waitFor(t, "review done", func() bool { return stepState(a, rev) == store.Done })
+	first, _ := a.db.Step(rev)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
+	os.MkdirAll(proj, 0o755)
+	os.WriteFile(filepath.Join(proj, first.SessionID+".jsonl"), []byte("{}\n"), 0o644)
+	wt := filepath.Join(repo, ".worktrees", tv.Slug)
+	os.WriteFile(filepath.Join(wt, "edited-by-hand.txt"), []byte("x\n"), 0o644)
+
+	if err := a.RerunStep(rev); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "rerun amended", func() bool { s, _ := a.db.Step(rev); return s.State == store.Done && s.SHA != first.SHA })
+	s, _ := a.db.Step(rev)
+	if n := run(t, wt, "git", "rev-list", "--count", "main..HEAD"); n != "1" {
+		t.Fatalf("want the review commit amended, got %s commits", n)
+	}
+	if files := run(t, wt, "git", "show", "--format=", "--name-only", s.SHA); files != "edited-by-hand.txt\nfile-1.txt" {
+		t.Fatalf("amended commit has %q", files)
+	}
+	if err := a.RerunStep(store.StepID(tv.ID, "impl-1")); err == nil {
+		t.Fatal("rerun of a step that is not the latest")
 	}
 }

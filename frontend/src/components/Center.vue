@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { herd } from '../lib/state'
+import { herd, resumeCommand } from '../lib/state'
 import Icon from './ui/Icon.vue'
 import Terminal from './Terminal.vue'
 import Toasts from './Toasts.vue'
@@ -20,6 +20,7 @@ const model = (m: string) => (m ? m[0].toUpperCase() + m.slice(1) : '')
 const chip = computed(() => {
   const s = step.value
   if (!s) return null
+  if (s.manual && s.paused && !s.live) return { cls: 's-idle', text: 'Manual · not running in herd' }
   if (s.paused && !s.live) return { cls: 's-idle', text: 'Paused' }
   if (s.state === 'approval') return { cls: 's-approval', text: 'Live · waiting for approval' }
   if (s.state === 'running' || s.state === 'idle') return { cls: 's-running', text: s.state === 'idle' ? 'Live · waiting for you' : 'Live' }
@@ -49,11 +50,11 @@ const chip = computed(() => {
         <span class="muted small">{{ agent?.name ?? step.agent }} agent · {{ model(step.model) }}</span>
         <span v-if="step.guidance" class="guide" :title="step.guidance">“{{ step.guidance }}”</span>
         <span class="grow"></span>
-        <button class="tb mono" title="Copy the full claude --resume command" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />claude --resume {{ step.session.slice(0, 8) }}</button>
+        <button class="tb mono" :title="'Copy ' + resumeCommand(step)" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />{{ step.fresh ? 'claude --session-id' : 'claude --resume' }} {{ step.session.slice(0, 8) }}</button>
         <button v-if="step.live" class="tb" title="Stop Claude in herd, e.g. to continue this session in Zed" @click="herd.stopStep(step)"><Icon name="stop" :size="14" />Stop</button>
         <button v-else-if="step.paused" class="tb" title="Resume this session in herd" @click="herd.resumeStep(step)"><Icon name="play" :size="13" />Resume</button>
       </div>
-      <Terminal :key="step.id" :step="step" />
+      <Terminal :key="step.id + ':' + herd.termRev" :step="step" />
     </template>
     <div v-else-if="t" class="empty">
       <span class="ico"><Icon name="terminal" :size="26" /></span>

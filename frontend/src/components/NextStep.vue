@@ -22,6 +22,9 @@ async function removeWt() {
   const lines = await herd.attempt('Could not remove the worktree', () => api.RemoveWorktree(task.id))
   if (lines) herd.toast('Removed worktree', lines.join('\n'))
 }
+// An agent another one follows (Implement) can also be created manually: no
+// Claude runs, its session is for the user to drive outside herd.
+const manualOk = (agent: string) => !!herd.settings?.agents.some((a) => a.trigger === 'after:' + agent)
 const allow = (id: string) => herd.attempt('Allow once failed', () => api.AllowOnce(id))
 const markDone = (id: string) => herd.attempt('Mark done failed', () => api.MarkDone(id))
 </script>
@@ -39,9 +42,17 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
       <label for="guide" class="sr-only">Guidance for Claude</label>
       <textarea id="guide" v-model="herd.guidance" rows="3" placeholder="Guidance for Claude (optional)"></textarea>
       <div class="opts">
-        <button v-for="(o, i) in nx.options" :key="o.agent + o.n" class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)">
-          <Icon name="play" :size="13" />{{ o.label }}
-        </button>
+        <template v-for="(o, i) in nx.options" :key="o.agent + o.n">
+          <button class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)"><Icon name="play" :size="13" />{{ o.label }}</button>
+          <button
+            v-if="manualOk(o.agent)"
+            class="btn"
+            :title="`Create ${o.label} without running Claude, and copy the command to use its session outside herd`"
+            @click="herd.runManual(o)"
+          >
+            <Icon name="terminal" :size="13" />{{ o.label }} manually
+          </button>
+        </template>
       </div>
     </template>
 

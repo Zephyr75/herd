@@ -115,6 +115,8 @@ export interface Step {
   preview: string
   commits: boolean
   paused: boolean // stopped by the user until Resume
+  manual: boolean // created without running: the user drives its session
+  fresh: boolean // no transcript yet: claude --session-id, not --resume
   usage: Usage
 }
 
@@ -129,7 +131,7 @@ export interface Next {
   text: string
   approval: string
   markDone: string
-  ghost: { name: string; after: string } | null
+  ghost: { name: string; after: string; manual: boolean; start: Option | null } | null
 }
 
 export interface Task {
@@ -139,7 +141,6 @@ export interface Task {
   issue: string
   title: string
   description: string
-  portBase: number
   createdAt: string
   archived: boolean
   archivedAt: string

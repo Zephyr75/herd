@@ -14,6 +14,8 @@ export interface Api {
   AllowOnce(step: string): Promise<void>
   MarkDone(step: string): Promise<void>
   StopStep(step: string): Promise<void>
+  StartManualStep(task: string, agent: string, guidance: string, n: number): Promise<Step>
+  RerunStep(step: string): Promise<void>
   ArchiveTask(task: string): Promise<void>
   RestoreTask(task: string): Promise<void>
   RemoveWorktree(task: string): Promise<string[]>

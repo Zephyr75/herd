@@ -5,7 +5,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { api, errorText } from '../lib/api'
-import { herd } from '../lib/state'
+import { herd, resumeCommand } from '../lib/state'
 import type { Step } from '../lib/types'
 import Icon from './ui/Icon.vue'
 
@@ -183,10 +183,17 @@ watch(
     </div>
     <div v-else-if="paused()" class="paused">
       <span class="ico"><Icon name="stop" :size="22" /></span>
-      <span class="title">Claude is stopped in herd</span>
-      <span class="text">Continue this session elsewhere, e.g. in a Zed terminal, with the resume command. Resume here when you are done, so only one Claude runs it at a time.</span>
+      <template v-if="step.manual">
+        <span class="title">Manual step: Claude is not running in herd</span>
+        <span class="text">Use this session outside herd, e.g. in a Zed terminal, with the command below. herd tracks its usage, and Resume here shows the conversation.</span>
+        <span class="proc mono">{{ resumeCommand(step) }}</span>
+      </template>
+      <template v-else>
+        <span class="title">Claude is stopped in herd</span>
+        <span class="text">Continue this session elsewhere, e.g. in a Zed terminal, with the resume command. Resume here when you are done, so only one Claude runs it at a time.</span>
+      </template>
       <span class="row">
-        <button class="btn" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />Copy claude --resume</button>
+        <button class="btn" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />Copy {{ step.fresh ? 'claude --session-id' : 'claude --resume' }}</button>
         <button class="btn primary" @click="herd.resumeStep(step)"><Icon name="play" :size="13" />Resume here</button>
       </span>
     </div>

@@ -38,6 +38,14 @@ function savedWidth(side: PanelSide): number {
   return PANELS[side].def
 }
 
+function savedNumber(key: string): number {
+  try {
+    return Number(localStorage.getItem(key)) || 0
+  } catch {
+    return 0
+  }
+}
+
 class Herd {
   ready = false
   failed = ''
@@ -63,6 +71,10 @@ class Herd {
   confirmRemove = ''
   leftWidth = savedWidth('left')
   rightWidth = savedWidth('right')
+  /** Height of the steps list in the right panel; 0 lets it size itself. */
+  timelineHeight = savedNumber('herd.panel.timeline')
+  /** Bumped to reconnect the terminal, e.g. after a rerun. */
+  termRev = 0
 
   get projects() {
     return this.settings?.config.projects ?? []
@@ -224,6 +236,15 @@ class Herd {
     }
   }
 
+  setTimelineHeight(h: number) {
+    this.timelineHeight = Math.max(0, Math.round(h))
+    try {
+      localStorage.setItem('herd.panel.timeline', String(this.timelineHeight))
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
   /** edited marks a local settings edit (see settings:changed). */
   lastEdit = 0
   edited() {
@@ -343,6 +364,25 @@ class Herd {
 
   // ---- actions on the selected task ----
 
+  /** runManual creates a step without running it and copies the command
+   *  to use its session outside herd. */
+  async runManual(opt: Option, taskId = this.sel) {
+    const guidance = this.guidance
+    const step = await this.attempt('Could not create ' + opt.label, () => api.StartManualStep(taskId, opt.agent, guidance, opt.n))
+    if (!step) return
+    this.guidance = ''
+    this.openStep(taskId, step.id)
+    await this.copyResume(step)
+  }
+
+  /** rerunStep runs a finished step again in its own session. */
+  async rerunStep(step: Step) {
+    const ok = await this.attempt('Could not rerun ' + step.name, () => api.RerunStep(step.id).then(() => true))
+    if (!ok) return
+    this.termRev++
+    this.openStep(step.taskId, step.id)
+  }
+
   async run(opt: Option, taskId = this.sel) {
     const guidance = this.guidance
     const step = await this.attempt('Could not start ' + opt.label, () => api.StartStep(taskId, opt.agent, guidance, opt.n))
@@ -374,7 +414,7 @@ class Herd {
   // ---- a step's Claude Code session, e.g. to continue it in Zed ----
 
   async copyResume(step: Step) {
-    const cmd = `claude --resume ${step.session}`
+    const cmd = resumeCommand(step)
     if (await copyText(cmd)) this.toast('Copied', cmd)
     else this.toast('Could not copy', cmd, true)
   }
@@ -472,5 +512,9 @@ class Herd {
     this.command(action)
   }
 }
+
+/** resumeCommand continues a step's session elsewhere; a manual step nobody
+ *  used yet has no transcript, so it starts the session with its id. */
+export const resumeCommand = (step: Step) => (step.fresh ? `claude --session-id ${step.session}` : `claude --resume ${step.session}`)
 
 export const herd = reactive(new Herd())

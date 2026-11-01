@@ -69,9 +69,14 @@ Implement), commits (each Review commits the changes it reviewed), or pushes and
 (Push) and waits for the Copilot review. Zed diff on a review opens its commit in Zed's commit
 view, inside the task's worktree; a file in the Changes tab opens as it was in that commit.
 
-To continue a session in Zed: Open worktree in Zed, press Stop in the terminal toolbar (herd's
-claude ends, so only one process uses the session), copy the `claude --resume` command into a Zed
-terminal, and press Resume in herd when you are done.
+To continue a session in Zed: press Edit on the latest Implement (opens the worktree in Zed),
+press Stop in the terminal toolbar (herd's claude ends, so only one process uses the session), copy
+the `claude --resume` command into a Zed terminal, and press Resume in herd when you are done.
+Rerun on a finished latest Review reviews again in the same session and amends its commit (while
+unpushed), so hand edits stay in the same cycle; start the next Implement for a new cycle.
+"Implement N manually" creates the step without running Claude: it copies
+`claude --session-id <id>` for use outside herd, Resume here starts it in herd, and the Review
+after it waits for you to Start it.
 
 Every session runs in Claude Code's auto mode. The Rules in Settings > Agents apply to every agent
 (say there what agents may not do); the context and knowledge base folders in Settings > Context

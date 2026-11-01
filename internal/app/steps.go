@@ -26,7 +26,18 @@ type launch struct {
 	agent   settings.Agent
 	step    store.Step
 	prevSHA string
+	mode    launchMode
 }
+
+// launchMode is how spec starts claude for a step.
+type launchMode int
+
+const (
+	modeNew    launchMode = iota // a new session with the agent's prompt
+	modeResume                   // --resume the step's session
+	modeRerun                    // --resume it and send the agent's prompt again
+	modeBlank                    // a new session with no prompt (a manual step)
+)
 
 func (l launch) placeholders(guidance string) *strings.Replacer {
 	task := l.task.Issue
@@ -61,6 +72,9 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	if l.prevSHA != "" {
 		fmt.Fprintf(&b, "- {sha} = %s (the latest commit herd made)\n", l.prevSHA)
 	}
+	if l.mode == modeRerun {
+		b.WriteString("- rerun: you already ran this step in this conversation. The user changed the worktree since; do the step again on the current state and rewrite your artifact\n")
+	}
 	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s\n", wt, branchName(l.task))
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
@@ -91,9 +105,8 @@ func (a *App) knowledgeDirs(p settings.Project) []string {
 	return out
 }
 
-// spec builds the claude command line for a step. resume selects
-// --resume <session> instead of a new session with the agent's prompt.
-func (a *App) spec(l launch, resume bool) runner.Spec {
+// spec builds the claude command line for a step (see launchMode).
+func (a *App) spec(l launch) runner.Spec {
 	runDir, wt := a.runDir(l.proj, l.task), worktreePath(l.proj, l.task)
 	cfg := a.settings.Config()
 	bin := strings.Fields(cfg.ClaudeCommand)
@@ -111,9 +124,14 @@ func (a *App) spec(l launch, resume bool) runner.Spec {
 	// Every session runs in auto mode; what agents may do is set by the rules.
 	args = append(args, "--permission-mode", "auto")
 	args = append(args, "--append-system-prompt", a.stepBlock(l, runDir, wt))
-	if resume {
+	switch l.mode {
+	case modeResume:
 		args = append(args, "--resume", l.step.SessionID)
-	} else {
+	case modeRerun:
+		args = append(args, "--resume", l.step.SessionID, "--", a.prompt(l))
+	case modeBlank:
+		args = append(args, "--session-id", l.step.SessionID)
+	default:
 		args = append(args, "--session-id", l.step.SessionID, "--", a.prompt(l))
 	}
 	env := []string{
@@ -172,36 +190,85 @@ func latestSHA(steps []store.Step, beforeSeq int) string {
 // StartStep runs an agent on a task. n = 0 picks the next number for that
 // agent; a retry passes the failed step's n.
 func (a *App) StartStep(taskID, agentID, guidance string, n int) (StepView, error) {
-	t, err := a.db.Task(taskID)
+	l, err := a.newStep(taskID, agentID, guidance, n, store.Running)
 	if err != nil {
 		return StepView{}, err
 	}
+	a.reap()
+	if _, err := a.run.Start(a.spec(l)); err != nil {
+		s := l.step
+		s.State, s.EndedAt = store.Failed, time.Now()
+		_ = a.db.SaveStep(s)
+		a.emitTask(taskID)
+		return StepView{}, fmt.Errorf("start %s: %w", l.agent.Name, err)
+	}
+	a.emitTask(taskID)
+	return a.stepView(l.task, l.step.ID), nil
+}
+
+// StartManualStep adds a step without running anything: its session is for
+// the user to drive outside herd (claude --session-id <id>, e.g. in Zed), or
+// to Resume in herd. The agent that follows it then waits to be started.
+func (a *App) StartManualStep(taskID, agentID, guidance string, n int) (StepView, error) {
+	l, err := a.newStep(taskID, agentID, guidance, n, store.Idle)
+	if err != nil {
+		return StepView{}, err
+	}
+	_ = a.db.Set("manual:"+l.step.ID, "1")
+	a.setPaused(l.step.ID, true)
+	a.emitTask(taskID)
+	return a.stepView(l.task, l.step.ID), nil
+}
+
+func (a *App) manual(stepID string) bool {
+	v, _ := a.db.Get("manual:" + stepID)
+	return v != ""
+}
+
+func (a *App) stepView(t store.Task, stepID string) StepView {
+	v, _ := a.view(t)
+	for _, sv := range v.Steps {
+		if sv.ID == stepID {
+			return sv
+		}
+	}
+	s, _ := a.db.Step(stepID)
+	return StepView{Step: s}
+}
+
+// newStep saves a new step in state and writes the run files it reads. A
+// manual step still open is closed (done) by the step that follows it.
+func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (launch, error) {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return launch{}, err
+	}
 	if t.Archived {
-		return StepView{}, errors.New("restore the task before running a step")
+		return launch{}, errors.New("restore the task before running a step")
 	}
 	if t.WorktreeRemoved {
-		return StepView{}, errors.New("the task's worktree was removed")
+		return launch{}, errors.New("the task's worktree was removed")
 	}
 	ag, ok := a.settings.Agent(agentID)
 	if !ok {
-		return StepView{}, fmt.Errorf("unknown agent %q", agentID)
+		return launch{}, fmt.Errorf("unknown agent %q", agentID)
 	}
 	p := a.projectOf(t)
 	if _, err := os.Stat(worktreePath(p, t)); err != nil {
-		return StepView{}, fmt.Errorf("worktree missing: %s", worktreePath(p, t))
+		return launch{}, fmt.Errorf("worktree missing: %s", worktreePath(p, t))
 	}
 
 	a.mu.Lock()
 	steps, err := a.db.Steps(taskID)
 	if err != nil {
 		a.mu.Unlock()
-		return StepView{}, err
+		return launch{}, err
 	}
 	for _, s := range steps {
 		if s.State == store.Running || s.State == store.Approval {
 			if _, live := a.run.Get(s.ID); live {
 				a.mu.Unlock()
-				return StepView{}, fmt.Errorf("%s is still running", agentFor(a.settings.Agents(), s.Agent).DisplayName(s.N))
+				return launch{}, fmt.Errorf("%s is still running", agentFor(a.settings.Agents(), s.Agent).DisplayName(s.N))
 			}
 		}
 	}
@@ -218,7 +285,7 @@ func (a *App) StartStep(taskID, agentID, guidance string, n int) (StepView, erro
 	seq, err := a.db.NextSeq(taskID)
 	if err != nil {
 		a.mu.Unlock()
-		return StepView{}, err
+		return launch{}, err
 	}
 	key := fmt.Sprintf("%s-%d", agentID, n)
 	for _, s := range steps {
@@ -227,37 +294,30 @@ func (a *App) StartStep(taskID, agentID, guidance string, n int) (StepView, erro
 		}
 	}
 	s := store.Step{
-		ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: agentID, N: n, Seq: seq, State: store.Running,
+		ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: agentID, N: n, Seq: seq, State: state,
 		Guidance: strings.TrimSpace(guidance), SessionID: uuid.NewString(), Model: ag.Model, StartedAt: time.Now(),
+	}
+	for _, x := range steps {
+		if x.State != store.Done && x.State != store.Failed && a.manual(x.ID) {
+			x.State, x.EndedAt, x.Completed = store.Done, time.Now(), true
+			_ = a.db.SaveStep(x)
+			a.setPaused(x.ID, false)
+		}
 	}
 	err = a.db.SaveStep(s)
 	a.mu.Unlock()
 	if err != nil {
-		return StepView{}, err
+		return launch{}, err
 	}
 
 	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(append(steps, s), s.Seq)}
 	if err := a.writeTaskFile(p, t); err != nil {
-		return StepView{}, err
+		return launch{}, err
 	}
 	if err := a.writeContextFile(p, t); err != nil {
-		return StepView{}, err
+		return launch{}, err
 	}
-	a.reap()
-	if _, err := a.run.Start(a.spec(l, false)); err != nil {
-		s.State, s.EndedAt = store.Failed, time.Now()
-		_ = a.db.SaveStep(s)
-		a.emitTask(taskID)
-		return StepView{}, fmt.Errorf("start %s: %w", ag.Name, err)
-	}
-	a.emitTask(taskID)
-	v, _ := a.view(t)
-	for _, sv := range v.Steps {
-		if sv.ID == s.ID {
-			return sv, nil
-		}
-	}
-	return StepView{Step: s}, nil
+	return l, nil
 }
 
 // resume reopens a step's Claude Code conversation in a new PTY.
@@ -279,17 +339,21 @@ func (a *App) resume(stepID string) error {
 	if t.Archived {
 		return errors.New("this task is archived: restore it to reopen its Claude Code sessions")
 	}
+	mode := modeResume
 	if !sessionSaved(s.SessionID) {
 		ag := agentFor(a.settings.Agents(), s.Agent)
-		return fmt.Errorf("Claude Code never saved this %s session: its process ended before the first prompt was recorded, so there is nothing to resume. Use Retry %s to run the step again", ag.DisplayName(s.N), ag.DisplayName(s.N))
+		if !a.manual(s.ID) {
+			return fmt.Errorf("Claude Code never saved this %s session: its process ended before the first prompt was recorded, so there is nothing to resume. Use Retry %s to run the step again", ag.DisplayName(s.N), ag.DisplayName(s.N))
+		}
+		mode = modeBlank // a manual step nobody used yet: start its session here
 	}
 	p := a.projectOf(t)
 	ag := agentFor(a.settings.Agents(), s.Agent)
 	steps, _ := a.db.Steps(t.ID)
-	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(steps, s.Seq)}
+	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(steps, s.Seq), mode: mode}
 	_ = a.writeContextFile(p, t)
 	a.reap()
-	if _, err := a.run.Start(a.spec(l, true)); err != nil && !errors.Is(err, runner.ErrRunning) {
+	if _, err := a.run.Start(a.spec(l)); err != nil && !errors.Is(err, runner.ErrRunning) {
 		return err
 	}
 	a.emitTask(t.ID)
@@ -478,6 +542,65 @@ func (a *App) StopStep(stepID string) error {
 	return nil
 }
 
+// RerunStep runs a finished step again in its own Claude Code conversation,
+// e.g. Review after the user edited the worktree. Only the task's latest
+// step can be rerun; a committing step amends its commit (see afterDone).
+func (a *App) RerunStep(stepID string) error {
+	s, err := a.db.Step(stepID)
+	if err != nil {
+		return err
+	}
+	t, err := a.db.Task(s.TaskID)
+	if err != nil {
+		return err
+	}
+	if t.Archived || t.WorktreeRemoved {
+		return errors.New("restore the task and its worktree before rerunning a step")
+	}
+	ag := agentFor(a.settings.Agents(), s.Agent)
+	steps, _ := a.db.Steps(t.ID)
+	if len(steps) == 0 || steps[len(steps)-1].ID != s.ID {
+		return fmt.Errorf("only the latest step can be rerun; start a new %s instead", ag.Name)
+	}
+	if s.State != store.Done && s.State != store.Failed {
+		return fmt.Errorf("%s has not finished", ag.DisplayName(s.N))
+	}
+	if !sessionSaved(s.SessionID) {
+		return fmt.Errorf("Claude Code never saved the %s session", ag.DisplayName(s.N))
+	}
+	if ps := sessionProcs(s.SessionID); len(ps) > 0 {
+		if _, live := a.run.Get(s.ID); !live {
+			return a.elsewhereErr(s.ID)
+		}
+	}
+	if sess, live := a.run.Get(s.ID); live {
+		sess.Kill()
+		for i := 0; i < 50 && !sess.Exited(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !sess.Exited() {
+			return errors.New("the previous session did not exit")
+		}
+	}
+	p := a.projectOf(t)
+	_ = os.Remove(filepath.Join(a.runDir(p, t), ag.ArtifactName(s.N))) // done again only once rewritten
+	s, _ = a.updateStep(s.ID, func(x *store.Step) bool {
+		x.State, x.Completed, x.Verdict, x.EndedAt = store.Running, false, "", time.Time{}
+		return true
+	})
+	a.setPaused(s.ID, false)
+	_ = a.writeContextFile(p, t)
+	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(steps, s.Seq), mode: modeRerun}
+	a.reap()
+	if _, err := a.run.Start(a.spec(l)); err != nil {
+		a.updateStep(s.ID, func(x *store.Step) bool { x.State, x.EndedAt = store.Failed, time.Now(); return true })
+		a.emitTask(t.ID)
+		return err
+	}
+	a.emitTask(t.ID)
+	return nil
+}
+
 func (a *App) paused(stepID string) bool {
 	v, _ := a.db.Get("paused:" + stepID)
 	return v != ""
@@ -522,17 +645,31 @@ func (a *App) afterDone(s store.Step) {
 	}
 
 	if ag.Commit {
+		wt := worktreePath(p, t)
 		msg := fmt.Sprintf("[%s] %s", t.Slug, strings.ToLower(strings.ReplaceAll(ag.DisplayName(s.N), " ", "-")))
-		sha, err := a.git.CommitAll(a.ctx, worktreePath(p, t), msg)
+		// A rerun folds the new changes into the step's own commit while it
+		// is still the unpushed tip, so the step keeps one diff per cycle.
+		amend := s.SHA != "" && a.git.CanAmend(a.ctx, wt, s.SHA)
+		var sha string
+		var err error
+		if amend {
+			sha, err = a.git.AmendAll(a.ctx, wt)
+		} else {
+			sha, err = a.git.CommitAll(a.ctx, wt, msg)
+		}
 		switch {
 		case err != nil:
 			a.toast("Commit failed", err.Error(), true)
 			say("commit failed: " + err.Error())
 		case sha == "":
-			say("nothing to commit")
+			say("nothing new to commit")
 		default:
 			a.updateStep(s.ID, func(x *store.Step) bool { x.SHA = sha; return true })
-			say(fmt.Sprintf("committed %s %q", sha, msg))
+			if amend {
+				say(fmt.Sprintf("amended %s into %s", msg, sha))
+			} else {
+				say(fmt.Sprintf("committed %s %q", sha, msg))
+			}
 			a.emitTask(t.ID)
 		}
 	}
@@ -542,7 +679,7 @@ func (a *App) afterDone(s store.Step) {
 	}
 
 	for _, next := range a.settings.Agents() {
-		if next.AfterAgent() == s.Agent {
+		if next.AfterAgent() == s.Agent && !a.manual(s.ID) { // after a manual step, the user starts it
 			if _, err := a.StartStep(t.ID, next.ID, "", 0); err != nil {
 				a.toast("Could not start "+next.Name, err.Error(), true)
 			} else {

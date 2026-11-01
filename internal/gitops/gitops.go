@@ -203,6 +203,36 @@ func (g Git) CommitAll(ctx context.Context, worktree, message string) (string, e
 	return g.Run(ctx, worktree, "rev-parse", "--short", "HEAD")
 }
 
+// CanAmend reports whether sha is the worktree's HEAD and on no remote
+// branch, so amending it rewrites nothing that was pushed.
+func (g Git) CanAmend(ctx context.Context, worktree, sha string) bool {
+	head, err := g.Run(ctx, worktree, "rev-parse", "HEAD")
+	if err != nil {
+		return false
+	}
+	full, err := g.Run(ctx, worktree, "rev-parse", sha)
+	if err != nil || full != head {
+		return false
+	}
+	remote, err := g.Run(ctx, worktree, "branch", "-r", "--contains", head)
+	return err == nil && remote == ""
+}
+
+// AmendAll stages everything and amends HEAD, keeping its message. It
+// returns the new short sha, or "" when there was nothing to add.
+func (g Git) AmendAll(ctx context.Context, worktree string) (string, error) {
+	if _, err := g.Run(ctx, worktree, "add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := g.Run(ctx, worktree, "diff", "--cached", "--quiet"); err == nil {
+		return "", nil
+	}
+	if _, err := g.Run(ctx, worktree, "commit", "--amend", "--no-edit"); err != nil {
+		return "", err
+	}
+	return g.Run(ctx, worktree, "rev-parse", "--short", "HEAD")
+}
+
 // FileAt returns a file's bytes in commit rev (path relative to the repo root).
 func (g Git) FileAt(ctx context.Context, dir, rev, path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)

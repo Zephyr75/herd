@@ -27,6 +27,8 @@ type StepView struct {
 	Preview  string      `json:"preview"`
 	Commits  bool        `json:"commits"`
 	Paused   bool        `json:"paused"` // stopped by the user until Resume
+	Manual   bool        `json:"manual"` // created without running: the user drives its session
+	Fresh    bool        `json:"fresh"`  // its session has no transcript yet: claude --session-id, not --resume
 	Usage    usage.Usage `json:"usage"`
 }
 
@@ -37,10 +39,13 @@ type Option struct {
 	Label string `json:"label"`
 }
 
-// Ghost is a pending automatic step shown in the timeline.
+// Ghost is the pending step after the latest one, shown in the timeline:
+// automatic, or (after a manual step) waiting for the user to start it.
 type Ghost struct {
-	Name  string `json:"name"`
-	After string `json:"after"`
+	Name   string  `json:"name"`
+	After  string  `json:"after"`
+	Manual bool    `json:"manual"`
+	Start  *Option `json:"start"` // set when the user starts it
 }
 
 // Next is the next-step box for a task.
@@ -133,9 +138,12 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		_, live := a.run.Get(s.ID)
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
-			Artifact: ag.ArtifactName(s.N), Preview: ag.PreviewName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID),
+			Artifact: ag.ArtifactName(s.N), Preview: ag.PreviewName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID), Manual: a.manual(s.ID),
 			Usage: a.usage.Session(s.SessionID),
 		})
+		if sv := &v.Steps[len(v.Steps)-1]; sv.Manual && sv.State != store.Done {
+			sv.Fresh = !sessionSaved(s.SessionID)
+		}
 		v.Usage = v.Usage.Add(v.Steps[len(v.Steps)-1].Usage)
 	}
 	if v.Steps == nil {
@@ -174,6 +182,9 @@ func statusOf(t store.Task, steps []StepView) Status {
 	}
 	for _, s := range steps {
 		if s.Paused && s.State != store.Done && s.State != store.Failed {
+			if s.Manual {
+				return Status{"waiting", "Manual · " + s.Name, "manual"}
+			}
 			return Status{"idle", "Paused · " + s.Name, "paused"}
 		}
 	}
@@ -256,6 +267,16 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	if autoNext != nil && last.State != store.Done {
 		nx.Ghost = &Ghost{Name: autoNext.DisplayName(countAgent(steps, autoNext.ID) + 1), After: last.Name}
 	}
+	// After a manual step the next agent waits for the user, whatever its trigger.
+	if autoNext != nil && last.Manual && last.State != store.Failed {
+		o := option(*autoNext, countAgent(steps, autoNext.ID)+1, "")
+		nx.Ghost = &Ghost{Name: o.Label, After: last.Name, Manual: true, Start: &o}
+		if last.State != store.Running && last.State != store.Approval {
+			nx.Options = append(nx.Options, o)
+			nx.Text = last.Name + " is yours: use its session outside herd (copy the claude command in its toolbar) or Resume it here. Start " + o.Label + " when you are done."
+			return nx
+		}
+	}
 
 	for _, s := range steps {
 		if s.State == store.Approval {
@@ -267,7 +288,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	for _, s := range steps {
 		if s.State == store.Running {
 			nx.Text = s.Name + " is running. "
-			if autoNext != nil && s.ID == last.ID {
+			if autoNext != nil && s.ID == last.ID && !last.Manual {
 				nx.Text += autoNext.DisplayName(countAgent(steps, autoNext.ID)+1) + " starts automatically when it finishes."
 			} else {
 				nx.Text += "You will be asked for the next step when it finishes."

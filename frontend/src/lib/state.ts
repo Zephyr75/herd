@@ -57,7 +57,7 @@ class Herd {
   sel = ''
   left: 'tasks' | 'archive' = 'tasks'
   view: 'board' | 'settings' = 'board'
-  settingsTab: SettingsTab = 'agents'
+  settingsTab: SettingsTab = 'context'
   overlay: Overlay = 'none'
   rightTab: 'preview' | 'changes' = 'preview'
   /** Steps whose session another process still runs (the resume guard). */
@@ -71,6 +71,9 @@ class Herd {
   confirmRemove = ''
   leftWidth = savedWidth('left')
   rightWidth = savedWidth('right')
+  /** Hidden side panels (the toggles in the status bar). */
+  leftHidden = savedNumber('herd.panel.left.hidden') === 1
+  rightHidden = savedNumber('herd.panel.right.hidden') === 1
   /** Height of the steps list in the right panel; 0 lets it size itself. */
   timelineHeight = savedNumber('herd.panel.timeline')
   /** Bumped to reconnect the terminal, e.g. after a rerun. */
@@ -169,7 +172,7 @@ class Herd {
     if (theme && this.settings && (theme === 'dark' || theme === 'light' || theme === 'system')) this.settings.config.appearance.theme = theme
     if (q.get('view') === 'settings') {
       this.view = 'settings'
-      this.settingsTab = (q.get('tab') as SettingsTab) || 'agents'
+      this.settingsTab = (q.get('tab') as SettingsTab) || 'context'
     }
     const scope = q.get('scope')
     if (scope === 'project' || scope === 'worktree' || scope === 'branch') this.scope = scope
@@ -228,13 +231,22 @@ class Herd {
   setPanelWidth(side: PanelSide, w: number) {
     const { min, max } = PANELS[side]
     // Keep at least 360px for the terminal between the panels.
-    const other = side === 'left' ? this.rightWidth : this.leftWidth
+    const other = side === 'left' ? (this.rightHidden ? 0 : this.rightWidth) : this.leftHidden ? 0 : this.leftWidth
     const room = window.innerWidth - other - 360
     const v = Math.round(Math.max(min, Math.min(max, room, w)))
     if (side === 'left') this.leftWidth = v
     else this.rightWidth = v
     try {
       localStorage.setItem('herd.panel.' + side, String(v))
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
+  togglePanel(side: PanelSide) {
+    const hidden = side === 'left' ? (this.leftHidden = !this.leftHidden) : (this.rightHidden = !this.rightHidden)
+    try {
+      localStorage.setItem(`herd.panel.${side}.hidden`, hidden ? '1' : '0')
     } catch {
       /* storage unavailable */
     }
@@ -492,6 +504,10 @@ class Herd {
     switch (action) {
       case 'palette':
         return this.openOverlay(this.overlay === 'palette' ? 'none' : 'palette')
+      case 'toggleLeft':
+        return this.togglePanel('left')
+      case 'toggleRight':
+        return this.togglePanel('right')
       case 'newTask':
         return this.openOverlay('new')
       case 'settings':

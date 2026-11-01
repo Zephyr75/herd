@@ -66,7 +66,8 @@ function addProject() {
 <style scoped>
 aside {
   position: relative;
-  flex: none;
+  flex: 0 1 auto; /* narrow windows: shrink before the terminal is cut */
+  min-width: 200px;
   display: flex;
   flex-direction: column;
   background: var(--bg);

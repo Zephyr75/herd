@@ -38,7 +38,6 @@ main.go, app.go        Wails entry; Shell bridges events and the folder picker
 internal/app           the bound App service: tasks, steps, hooks → state, done, commit, push
 internal/runner        one PTY per live step, scrollback, reaping
 internal/holder        `herd hold`: keeps a step's PTY alive across herd restarts
-internal/usage         tokens and API-price cost per session, from Claude Code transcripts
 internal/termws        PTY ⇄ xterm.js over ws://127.0.0.1 with a per-launch token
 internal/hooks         POST /hook receiver and ~/.herd/hooks.json
 internal/store         SQLite (tasks, steps, open tabs)
@@ -82,9 +81,9 @@ New tasks get the branch you name in New task; it must start with the prefix in 
 Projects (`ar-` by default). Push first asks for the PR title, `type(scope): description - #issue`
 (type feat, fix, perf or test; the description defaults to the branch without its prefix).
 
-Every session runs in Claude Code's auto mode. The Rules in Settings > Agents apply to every agent
-(say there what agents may not do); the context and knowledge base folders in Settings > Context
-apply to every session.
+Every session runs in Claude Code's auto mode. The Rules in Settings > Context go in every agent's
+system prompt (say there what agents may not do), except agents set to "Ignore the common rules"
+(Push, by default); the context and knowledge base folders there apply to every session.
 Each claude runs inside a small `herd hold` process, so quitting herd leaves steps that are still
 working running: the next herd reattaches them with their output, and their hooks reach it
 through `~/.herd/endpoint`. Finished and paused steps end when herd quits.

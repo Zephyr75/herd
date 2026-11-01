@@ -58,6 +58,19 @@ withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), { 
     <path v-else-if="name === 'win-max'" d="M11.5 4.5H4.5V11.5H11.5V4.5Z" stroke-linejoin="miter" />
     <path v-else-if="name === 'win-restore'" d="M9.5 6.5H3.5V12.5H9.5V6.5ZM10 8.5H12.5V3.5H7.5V6" stroke-linecap="butt" stroke-linejoin="miter" />
     <path v-else-if="name === 'win-close'" d="M11.5 4.5L4.5 11.5M4.5 4.5L11.5 11.5" stroke-linecap="square" />
+    <!-- git_worktree -->
+    <path v-else-if="name === 'worktree'" d="M7.78314 8.0003L12.3252 3.45825M9.49899 9.71719L12.3237 12.5419M3.25763 8.00031H7.77134M12.7424 6.47908V3.04047H9.3038M9.30225 12.9595H12.7409V9.52094" />
+    <!-- threads_sidebar_left/right_open/closed: panel toggles -->
+    <template v-else-if="name === 'panel-left' || name === 'panel-left-off'">
+      <rect x="2" y="2" width="5" height="12" rx="2" fill="currentColor" stroke="none" :opacity="name === 'panel-left' ? 0.8 : 0.1" />
+      <path d="M7 2V14" />
+      <rect x="2" y="2" width="12" height="12" rx="1.5" />
+    </template>
+    <template v-else-if="name === 'panel-right' || name === 'panel-right-off'">
+      <rect x="9" y="2" width="5" height="12" rx="2" fill="currentColor" stroke="none" :opacity="name === 'panel-right' ? 0.8 : 0.1" />
+      <path d="M9 2V14" />
+      <rect x="2" y="2" width="12" height="12" rx="1.5" />
+    </template>
     <!-- menu -->
     <path v-else-if="name === 'menu'" d="M2.667 8h10.666M2.667 4h10.666M2.667 12h10.666" />
     <!-- settings -->

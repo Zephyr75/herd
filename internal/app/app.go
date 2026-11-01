@@ -30,7 +30,6 @@ import (
 	"herd/internal/settings"
 	"herd/internal/store"
 	"herd/internal/termws"
-	"herd/internal/usage"
 	"herd/internal/zed"
 )
 
@@ -71,7 +70,6 @@ type App struct {
 	port  int
 	srv   *http.Server
 
-	usage   *usage.Reader
 	focused atomic.Bool // the herd window has focus (no notifications then)
 
 	ctx    context.Context
@@ -110,7 +108,6 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 	}
 	a.run = runner.New(a.onExit)
 	a.run.Hold, a.run.SockDir = a.HoldCmd, filepath.Join(a.Home, "sessions")
-	a.usage = usage.NewReader(claudeDir())
 	a.focused.Store(true)
 
 	tok := make([]byte, 24)

@@ -52,15 +52,6 @@ const triggers = computed(() => {
   return out
 })
 
-// Rules apply to every agent: they are added to each session's system prompt.
-const saveRules = debounce((r: string) => void herd.attempt('Could not save the rules', () => api.SetRules(r)), 500)
-function setRules(e: Event) {
-  const c = herd.settings?.config
-  if (!c) return
-  c.rules = val(e)
-  herd.edited()
-  saveRules(c.rules)
-}
 
 // A new agent is named first: its id (used by triggers and step names) comes
 // from the name and never changes, so nothing that points at it breaks.
@@ -79,7 +70,7 @@ function addAgent() {
   const id = idFor(name)
   s.agents.push({
     id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
-    done: 'status: done', commit: false, push: false,
+    done: 'status: done', commit: false, push: false, ignoreRules: false,
     instructions: 'Describe what this agent does and what it writes.',
   })
   selId.value = id
@@ -122,10 +113,6 @@ function pick(id: string) {
     <p>Each step of a task runs one agent: a Claude Code session started with the agent's command, model and instructions, in Claude Code's auto mode. The order below is the pipeline.</p>
   </div>
 
-  <label class="rules card">
-    <span class="rules-head"><span class="name">Rules</span><span class="muted small">Every agent always follows these, e.g. what it may and may not do</span></span>
-    <textarea class="area mono" rows="5" :value="herd.settings?.config.rules ?? ''" placeholder="e.g. Review never edits code&#10;Never run git commit or git push&#10;Never touch migrations/" @input="setRules"></textarea>
-  </label>
 
   <div class="pipeline">
     <template v-for="(a, i) in agents" :key="a.id">
@@ -178,6 +165,7 @@ function pick(id: string) {
       <div class="checks">
         <label><input type="checkbox" :checked="A.commit" @change="set('commit', checked($event))" /> Commit the worktree when done</label>
         <label><input type="checkbox" :checked="A.push" @change="set('push', checked($event))" /> Push and open the PR when done</label>
+        <label title="The Rules in Settings > Context are not given to this agent"><input type="checkbox" :checked="A.ignoreRules" @change="set('ignoreRules', checked($event))" /> Ignore the common rules</label>
       </div>
       <label class="field">Instructions (the agent's skill)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
       <div class="actions">
@@ -257,18 +245,6 @@ function pick(id: string) {
   .segs {
     display: flex;
     gap: 4px;
-    flex-wrap: wrap;
-  }
-  .rules {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px 18px;
-  }
-  .rules-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
     flex-wrap: wrap;
   }
   .checks {

@@ -38,17 +38,17 @@ function dblclick(e: MouseEvent) {
       </button>
       <span class="sep" aria-hidden="true">/</span>
       <button class="crumb" :class="{ on: scopeOpen('worktree') }" @click="herd.openOverlay('scope', 'worktree')">
-        <Icon name="folder" />{{ t.worktreeRel }}
+        <Icon name="worktree" /><span class="ct">{{ t.worktreeRel }}</span>
       </button>
       <span class="sep" aria-hidden="true">/</span>
       <button class="crumb" :class="{ on: scopeOpen('branch') }" @click="herd.openOverlay('scope', 'branch')">
-        <Icon name="branch" />{{ t.branch }}
+        <Icon name="branch" /><span class="ct">{{ t.branch }}</span>
       </button>
     </template>
     <span v-else-if="herd.view === 'settings'" class="muted label">Settings</span>
     <span class="grow"></span>
     <button class="search" @click="herd.openOverlay('palette')">
-      <Icon name="search" /><span class="grow">Search tasks</span>
+      <Icon name="search" /><span class="grow stext">Search tasks</span>
     </button>
     <button class="new" @click="herd.openOverlay('new')">
       <Icon name="plus" :size="14" />New task
@@ -102,8 +102,20 @@ button {
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap;
+  min-width: 0; /* long worktree and branch names shrink first */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumb > :deep(svg) {
+  flex: none;
+}
+.ct {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .crumb.project {
+  flex: none;
   color: var(--text);
   font-weight: 500;
 }
@@ -114,6 +126,13 @@ button {
 }
 .sep {
   color: var(--faint);
+}
+.stext {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search > :deep(svg) {
+  flex: none;
 }
 .label {
   padding: 0 6px;
@@ -126,7 +145,10 @@ button {
   align-items: center;
   gap: 8px;
   height: 24px;
-  min-width: 220px;
+  flex: 0 1 130px;
+  min-width: 34px; /* the icon alone when space is short */
+  overflow: hidden;
+  white-space: nowrap;
   padding: 0 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -135,6 +157,8 @@ button {
   text-align: left;
 }
 .new {
+  flex: none;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -164,12 +188,11 @@ button {
   background: var(--hover);
 }
 .win {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: 10px;
-  padding-left: 8px;
-  border-left: 1px solid var(--border);
+  margin-left: 6px;
   height: 20px;
 }
 .wc {

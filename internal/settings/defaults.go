@@ -58,7 +58,7 @@ Never edit code: herd commits the reviewed changes when you finish.`,
 		},
 		{
 			ID: "push", Name: "Push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
-			Writes: "PR.md", Done: "status: done", Push: true,
+			Writes: "PR.md", Done: "status: done", Push: true, IgnoreRules: true,
 			Instructions: `Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.
 Add Closes #{issue} when the task has an issue.
 Do not push: herd pushes, opens the PR and collects the Copilot review.`,
@@ -93,6 +93,8 @@ func DefaultKeymap() Keymap {
 		"prevTab":       {"Ctrl+PageUp", "Ctrl+Shift+Tab"},
 		"openWorktree":  {"Mod+Shift+E"},
 		"openDiff":      {"Mod+Shift+D"},
+		"toggleLeft":    {"Mod+Shift+B"}, // Zed's Ctrl+B is Claude Code's "run in background"
+		"toggleRight":   {"Mod+Alt+B"},
 		"settings":      {"Mod+,"},
 		"close":         {"Escape"},
 	}

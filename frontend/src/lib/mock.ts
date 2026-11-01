@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import type { PRTitle, Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind, Usage } from './types'
+import type { PRTitle, Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -24,13 +24,13 @@ const projects: Project[] = [
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
 const agents: Agent[] = [
-  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', done: 'status: done', commit: false, push: false,
+  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', done: 'status: done', commit: false, push: false, ignoreRules: false,
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
-  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', done: 'status: done', commit: false, push: false,
+  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', done: 'status: done', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', done: 'verdict: approve | changes', commit: true, push: false,
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', done: 'verdict: approve | changes', commit: true, push: false, ignoreRules: false,
     instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code: herd commits the reviewed changes when you finish.' },
-  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', done: 'status: done', commit: false, push: true,
+  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', done: 'status: done', commit: false, push: true, ignoreRules: true,
     instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
@@ -53,7 +53,7 @@ const settings: Settings = {
     nextTask: ['Alt+ArrowDown'], prevTask: ['Alt+ArrowUp'], tab1: ['Alt+1'], tab2: ['Alt+2'], tab3: ['Alt+3'], tab4: ['Alt+4'],
     tab5: ['Alt+5'], tab6: ['Alt+6'], tab7: ['Alt+7'], tab8: ['Alt+8'], tab9: ['Alt+9'], closeTab: ['Mod+W'],
     nextTab: ['Ctrl+PageDown', 'Ctrl+Tab'], prevTab: ['Ctrl+PageUp', 'Ctrl+Shift+Tab'],
-    openWorktree: ['Mod+Shift+E'], openDiff: ['Mod+Shift+D'], settings: ['Mod+,'], close: ['Escape'],
+    openWorktree: ['Mod+Shift+E'], openDiff: ['Mod+Shift+D'], toggleLeft: ['Mod+Shift+B'], toggleRight: ['Mod+Alt+B'], settings: ['Mod+,'], close: ['Escape'],
   },
   dir: '~/.herd',
 }
@@ -150,16 +150,6 @@ const agent = (id: string) => agents.find((a) => a.id === id) ?? agents[0]
 const displayName = (a: Agent, n: number) => (a.writes.includes('{n}') ? `${a.name} ${n}` : a.name)
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
-// Plausible token usage, stable per session id.
-function mockUsage(session: string, running: boolean): Usage {
-  const n = parseInt(session.slice(0, 4), 16) || 1
-  const u = { input: 40 + (n % 900), output: 3000 + n * 2, cacheRead: 120000 + n * 60, cacheWrite: 30000 + n * 4 }
-  if (running) u.output = Math.round(u.output / 3)
-  return u
-}
-const addUsage = (a: Usage, b: Usage): Usage => ({ input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite })
-const noUsage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-
 function stepView(t: MockTask, s: MockStep, i: number): Step {
   const a = agent(s.agent)
   const open = s.state !== 'done' && s.state !== 'failed'
@@ -169,7 +159,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit,
-    paused, manual: !!s.manual, fresh: !!s.manual && open, usage: mockUsage(s.session, s.state !== 'done'),
+    paused, manual: !!s.manual, fresh: !!s.manual && open,
   }
 }
 
@@ -226,7 +216,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next, usage: steps.reduce((u, s) => addUsage(u, s.usage), noUsage),
+    status, steps, next,
   }
 }
 

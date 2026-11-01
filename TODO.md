@@ -7,7 +7,7 @@
 - Add an agent setting ro ignore common rules (example for the push agent which is the only one allowed to use git)
 
 Later
-- Make it so the changes preview opens a preview of the actual changes instead of opening them in zed in a read-only view
+- Make sure the herd agents do not use the global system ClAUDE.md, if this is not possible, add a button in the context settings to override the system Claude.md to be the general context appended with the general rules
 
 Later
-- Make sure the herd agents do not use the global system ClAUDE.md, if this is not possible, add a button in the context settings to override the system Claude.md to be the general context appended with the general rules
+- Make it so the changes preview opens a read only preview of the actual changes instead of opening them in zed

@@ -22,6 +22,7 @@ export interface Agent {
   done: string
   commit: boolean
   push: boolean
+  ignoreRules: boolean // the common rules are not given to this agent
   instructions: string
 }
 
@@ -38,14 +39,6 @@ export interface Appearance {
   uiFontSize: number
   termFont: string
   termFontSize: number
-}
-
-/** Tokens used by Claude Code sessions. */
-export interface Usage {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
 }
 
 export interface FileChange {
@@ -116,7 +109,6 @@ export interface Step {
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume
-  usage: Usage
 }
 
 export interface Option {
@@ -158,7 +150,6 @@ export interface Task {
   status: { kind: StatusKind; label: string; short: string }
   steps: Step[]
   next: Next
-  usage: Usage
   prTitle: PRTitle | null // chosen at the last Push
 }
 

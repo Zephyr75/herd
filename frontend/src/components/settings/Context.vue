@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// Settings > Context: general context plus one block per project, each with
-// an optional knowledge base folder. Both apply to every agent.
+// Settings > Context: the Rules every agent follows (unless it ignores them),
+// then general context plus one block per project, each with an optional
+// knowledge base folder.
 import { computed, ref } from 'vue'
 import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
@@ -13,6 +14,17 @@ const proj = computed(() => herd.project(selId.value))
 const C = computed(
   () => herd.settings?.context[selId.value] ?? { id: selId.value, text: '', claudeMd: selId.value !== 'general', knowledge: '' },
 )
+
+// Rules go in each session's system prompt, unlike context (CONTEXT.md).
+const ignoring = computed(() => (herd.settings?.agents ?? []).filter((a) => a.ignoreRules).map((a) => a.name))
+const saveRules = debounce((r: string) => void herd.attempt('Could not save the rules', () => api.SetRules(r)), 500)
+function setRules(e: Event) {
+  const c = herd.settings?.config
+  if (!c) return
+  c.rules = (e.target as HTMLTextAreaElement).value
+  herd.edited()
+  saveRules(c.rules)
+}
 
 const save = debounce((id: string) => {
   const c = herd.settings?.context[id]
@@ -44,17 +56,32 @@ const clearKnowledge = () => update((c) => (c.knowledge = ''))
 <template>
   <div class="intro">
     <h1>Context</h1>
-    <p>Markdown given to every session. General context applies everywhere; project context is added on top for tasks in that project.</p>
+    <p>Rules are always followed by every agent, except those set to ignore them. Context is markdown given to every session: general context applies everywhere, project context is added on top for tasks in that project.</p>
   </div>
 
   <div class="split">
     <div class="list">
+      <button class="list-btn" :class="{ on: selId === 'rules' }" @click="selId = 'rules'">
+        <span class="name">Rules</span>
+        <span class="sub">every agent, always</span>
+      </button>
       <button v-for="k in keys" :key="k" class="list-btn" :class="{ on: selId === k }" @click="selId = k">
         <span class="name">{{ herd.project(k)?.name ?? 'General' }}</span>
         <span class="sub">{{ herd.project(k) ? 'project context' : 'every project' }}</span>
       </button>
     </div>
-    <div class="editor card">
+    <div v-if="selId === 'rules'" class="editor card">
+      <div class="title">
+        <span class="name">Rules</span>
+        <span class="muted small">
+          In every agent's system prompt, e.g. what it may and may not do.
+          {{ ignoring.length ? `Ignored by ${ignoring.join(', ')} (Settings > Agents).` : 'An agent can ignore them in Settings > Agents.' }}
+        </span>
+      </div>
+      <label for="rulestext" class="sr-only">Rules</label>
+      <textarea id="rulestext" class="area mono" rows="12" :value="herd.settings?.config.rules ?? ''" placeholder="e.g. Never run git commit or git push&#10;Never touch migrations/" @input="setRules"></textarea>
+    </div>
+    <div v-else class="editor card">
       <div class="title">
         <span class="name">{{ proj ? proj.name : 'General context' }}</span>
         <span class="muted small">{{ proj ? `Added for tasks in ${proj.name}, after the general context` : 'Given to every agent in every project' }}</span>

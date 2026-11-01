@@ -8,7 +8,7 @@ import Projects from './Projects.vue'
 import Appearance from './Appearance.vue'
 import Shortcuts from './Shortcuts.vue'
 
-const nav: [SettingsTab, string][] = [['agents', 'Agents'], ['context', 'Context'], ['projects', 'Projects'], ['appearance', 'Appearance'], ['shortcuts', 'Shortcuts']]
+const nav: [SettingsTab, string][] = [['context', 'Context'], ['agents', 'Agents'], ['projects', 'Projects'], ['appearance', 'Appearance'], ['shortcuts', 'Shortcuts']]
 const file = computed(
   () => ({ agents: 'agents.toml', context: 'context/', projects: 'config.toml', appearance: 'config.toml', shortcuts: 'keymap.json' })[herd.settingsTab],
 )

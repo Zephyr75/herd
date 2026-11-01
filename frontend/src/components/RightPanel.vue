@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
-import { usageLabel, usageTitle } from '../lib/format'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import Preview from './Preview.vue'
@@ -79,7 +78,7 @@ async function archive() {
           <span class="title">{{ t.title }}</span>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" /></button>
         </div>
-        <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}<span v-if="usageLabel(t.usage)" :title="usageTitle(t.usage)"> · {{ usageLabel(t.usage) }}</span></span>
+        <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
         <p v-if="t.description" class="desc">{{ t.description }}</p>
       </div>
 
@@ -99,7 +98,7 @@ async function archive() {
               <span class="name">{{ s.name }}</span>
               <span v-if="meta(s).text" :class="['meta', meta(s).cls]">{{ meta(s).text }}</span>
             </span>
-            <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}<span v-if="usageLabel(s.usage)" :title="usageTitle(s.usage)"> · {{ usageLabel(s.usage) }}</span></span>
+            <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
           <span class="acts">
             <button v-if="canEdit(s)" class="act" title="Open the worktree in Zed to edit it by hand" @click="herd.openWorktree()"><Icon name="external" :size="13" />Edit</button>
@@ -130,7 +129,8 @@ async function archive() {
 
   aside {
     position: relative;
-    flex: none;
+    flex: 0 1 auto; /* narrow windows: shrink before the terminal is cut */
+    min-width: 240px;
     background: var(--bg);
     border-left: 1px solid var(--border);
     display: flex;

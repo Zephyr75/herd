@@ -185,7 +185,7 @@ watch(
       <span class="ico"><Icon name="stop" :size="22" /></span>
       <template v-if="step.manual">
         <span class="title">Manual step: Claude is not running in herd</span>
-        <span class="text">Use this session outside herd, e.g. in a Zed terminal, with the command below. herd tracks its usage, and Resume here shows the conversation.</span>
+        <span class="text">Use this session outside herd, e.g. in a Zed terminal, with the command below. Resume here shows the conversation in herd.</span>
         <span class="proc mono">{{ resumeCommand(step) }}</span>
       </template>
       <template v-else>

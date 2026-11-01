@@ -68,6 +68,7 @@ type Agent struct {
 	Done         string `toml:"done" json:"done"`
 	Commit       bool   `toml:"commit,omitempty" json:"commit"`
 	Push         bool   `toml:"push,omitempty" json:"push"`
+	IgnoreRules  bool   `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
 	Instructions string `toml:"instructions" json:"instructions"`
 }
 

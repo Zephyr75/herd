@@ -3,7 +3,6 @@
 // you, grouped by what it is doing. A click opens the task.
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { herd } from '../../lib/state'
-import { usageLabel, usageTitle } from '../../lib/format'
 import TaskRef from '../ui/TaskRef.vue'
 import type { Task } from '../../lib/types'
 
@@ -58,7 +57,6 @@ function open(t: Task) {
           </span>
           <span class="meta">
             <span v-if="current(t).since" class="since" title="Time on this step">{{ current(t).since }}</span>
-            <span v-if="usageLabel(t.usage)" :title="usageTitle(t.usage)">{{ usageLabel(t.usage) }}</span>
           </span>
         </button>
       </template>

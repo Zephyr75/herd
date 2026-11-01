@@ -49,10 +49,11 @@ const chip = computed(() => {
         <span v-if="chip" :class="['chip', 'badge', chip.cls]"><span class="dot"></span>{{ chip.text }}</span>
         <span class="muted small">{{ agent?.name ?? step.agent }} agent · {{ model(step.model) }}</span>
         <span v-if="step.guidance" class="guide" :title="step.guidance">“{{ step.guidance }}”</span>
-        <span class="grow"></span>
-        <button class="tb mono" :title="'Copy ' + resumeCommand(step)" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />{{ step.fresh ? 'claude --session-id' : 'claude --resume' }} {{ step.session.slice(0, 8) }}</button>
-        <button v-if="step.live" class="tb" title="Stop Claude in herd, e.g. to continue this session in Zed" @click="herd.stopStep(step)"><Icon name="stop" :size="14" />Stop</button>
-        <button v-else-if="step.paused" class="tb" title="Resume this session in herd" @click="herd.resumeStep(step)"><Icon name="play" :size="13" />Resume</button>
+        <span class="tbs">
+          <button class="tb mono" :title="'Copy ' + resumeCommand(step)" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />{{ step.fresh ? 'claude --session-id' : 'claude --resume' }} {{ step.session.slice(0, 8) }}</button>
+          <button v-if="step.live" class="tb" title="Stop Claude in herd, e.g. to continue this session in Zed" @click="herd.stopStep(step)"><Icon name="stop" :size="14" />Stop</button>
+          <button v-else-if="step.paused" class="tb" title="Resume this session in herd" @click="herd.resumeStep(step)"><Icon name="play" :size="13" />Resume</button>
+        </span>
       </div>
       <Terminal :key="step.id + ':' + herd.termRev" :step="step" />
     </template>
@@ -162,11 +163,12 @@ section {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap; /* narrow windows: the buttons move to a second line instead of being cut */
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   flex: none;
   min-height: 32px;
-  padding: 0 12px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
@@ -180,6 +182,16 @@ section {
 .small {
   font-size: 12px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tbs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 .guide {
   font-size: 12px;
@@ -210,9 +222,6 @@ section {
 .tb:hover {
   background: var(--hover);
   color: var(--text);
-}
-.tb + .tb {
-  margin-left: -4px;
 }
 .empty {
   flex: 1;

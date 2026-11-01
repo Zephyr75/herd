@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
-import { usageLabel, usageTitle } from '../lib/format'
+import { label } from '../lib/keymap'
+import Icon from './ui/Icon.vue'
 
 const counts = computed(() => {
   const c = { running: 0, waiting: 0, approval: 0 }
@@ -22,11 +23,15 @@ const right = computed(() => {
   if (herd.selStep) parts.unshift(modelLabel(herd.selStep.model))
   return parts.filter(Boolean).join(' · ')
 })
+const tip = (what: string, hidden: boolean, action: string) => `${hidden ? 'Show' : 'Hide'} the ${what} (${label(herd.settings?.keymap[action]?.[0])})`
 const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.startsWith('after:')) ?? false)
 </script>
 
 <template>
   <footer>
+    <button class="dock" :class="{ off: herd.leftHidden }" :title="tip('task list', herd.leftHidden, 'toggleLeft')" @click="herd.togglePanel('left')">
+      <Icon :name="herd.leftHidden ? 'panel-left-off' : 'panel-left'" />
+    </button>
     <button v-if="counts.running + counts.waiting + counts.approval" class="activity" :class="{ on: herd.overlay === 'activity' }" title="Show running tasks" @click="herd.openOverlay(herd.overlay === 'activity' ? 'none' : 'activity')">
       <span v-if="counts.running" class="item"><span class="dot s-running"></span>{{ counts.running }} running</span>
       <span v-if="counts.waiting" class="item"><span class="dot s-waiting"></span>{{ counts.waiting }} waiting for input</span>
@@ -35,8 +40,10 @@ const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.st
     </button>
     <span class="grow"></span>
     <span>{{ right }}</span>
-    <span v-if="usageLabel(herd.selTask?.usage)" :title="usageTitle(herd.selTask?.usage)">{{ usageLabel(herd.selTask?.usage) }}</span>
     <span v-if="autoReview">auto-review on</span>
+    <button class="dock" :class="{ off: herd.rightHidden }" :title="tip('steps and preview', herd.rightHidden, 'toggleRight')" @click="herd.togglePanel('right')">
+      <Icon :name="herd.rightHidden ? 'panel-right-off' : 'panel-right'" />
+    </button>
   </footer>
 </template>
 
@@ -83,5 +90,24 @@ footer {
 }
 .grow {
   flex: 1;
+}
+.dock {
+  flex: none;
+  width: 22px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 -6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+}
+.dock.off {
+  color: var(--muted);
+}
+.dock:hover {
+  background: var(--hover);
 }
 </style>

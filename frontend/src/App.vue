@@ -35,9 +35,9 @@ watchEffect(() => {
     <TitleBar />
     <main>
       <template v-if="herd.view === 'board'">
-        <LeftPanel />
+        <LeftPanel v-if="!herd.leftHidden" />
         <Center />
-        <RightPanel />
+        <RightPanel v-if="!herd.rightHidden" />
       </template>
       <Settings v-else />
     </main>

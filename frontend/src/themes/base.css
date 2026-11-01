@@ -177,8 +177,8 @@ button:disabled {
   color: var(--text);
 }
 .pill > button.on {
-  background: var(--sel);
-  color: var(--text);
+  background: var(--toggle-sel);
+  color: var(--toggle-text);
 }
 
 .btn {

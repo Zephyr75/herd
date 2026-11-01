@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"herd/internal/settings"
@@ -49,22 +48,28 @@ func (a *App) writeTaskFile(p settings.Project, t store.Task) error {
 	return os.WriteFile(filepath.Join(dir, "TASK.md"), []byte(b.String()), 0o644)
 }
 
-// writeContextFile writes CONTEXT.md for one agent: general context, then
-// the project's, each only when it applies to the agent.
-func (a *App) writeContextFile(p settings.Project, t store.Task, agentID string) error {
+// writeContextFile writes CONTEXT.md: the general context, then the
+// project's, then the knowledge base folders.
+func (a *App) writeContextFile(p settings.Project, t store.Task) error {
 	var b strings.Builder
 	b.WriteString("<!-- Written by herd before each step. Edit it in Settings > Context. -->\n\n")
-	if c, ok := a.settings.Context("general"); ok && slices.Contains(c.Agents, agentID) && strings.TrimSpace(c.Text) != "" {
+	if c, ok := a.settings.Context("general"); ok && strings.TrimSpace(c.Text) != "" {
 		b.WriteString(strings.TrimSpace(c.Text))
 		b.WriteString("\n\n")
 	}
-	if c, ok := a.settings.Context(p.ID); ok && slices.Contains(c.Agents, agentID) {
+	if c, ok := a.settings.Context(p.ID); ok {
 		if strings.TrimSpace(c.Text) != "" {
 			b.WriteString(strings.TrimSpace(c.Text))
 			b.WriteString("\n\n")
 		}
 		if c.ClaudeMd {
 			b.WriteString("The repository's CLAUDE.md applies to this task; follow it.\n")
+		}
+	}
+	if dirs := a.knowledgeDirs(p); len(dirs) > 0 {
+		b.WriteString("\n## Knowledge base\n\nReference folders you can read (never edit them). Search them for background on the domain, conventions and past decisions:\n\n")
+		for _, d := range dirs {
+			fmt.Fprintf(&b, "- %s\n", d)
 		}
 	}
 	return os.WriteFile(filepath.Join(a.runDir(p, t), "CONTEXT.md"), []byte(b.String()), 0o644)

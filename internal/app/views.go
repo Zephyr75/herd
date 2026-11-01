@@ -7,6 +7,7 @@ import (
 
 	"herd/internal/settings"
 	"herd/internal/store"
+	"herd/internal/usage"
 )
 
 // Status is a task's derived status, shown on its card.
@@ -19,13 +20,14 @@ type Status struct {
 // StepView is a step as the frontend shows it.
 type StepView struct {
 	store.Step
-	Name     string `json:"name"`
-	Live     bool   `json:"live"`
-	Auto     bool   `json:"auto"`
-	Artifact string `json:"artifact"`
-	Preview  string `json:"preview"`
-	Commits  bool   `json:"commits"`
-	Paused   bool   `json:"paused"` // stopped by the user until Resume
+	Name     string      `json:"name"`
+	Live     bool        `json:"live"`
+	Auto     bool        `json:"auto"`
+	Artifact string      `json:"artifact"`
+	Preview  string      `json:"preview"`
+	Commits  bool        `json:"commits"`
+	Paused   bool        `json:"paused"` // stopped by the user until Resume
+	Usage    usage.Usage `json:"usage"`
 }
 
 // Option is one next-step button.
@@ -53,17 +55,18 @@ type Next struct {
 // TaskView is a task with its steps and derived state.
 type TaskView struct {
 	store.Task
-	ProjectName string     `json:"projectName"`
-	Repo        string     `json:"repo"`
-	BaseBranch  string     `json:"baseBranch"`
-	Worktree    string     `json:"worktree"`
-	WorktreeRel string     `json:"worktreeRel"`
-	Branch      string     `json:"branch"`
-	RunDir      string     `json:"runDir"`
-	Source      string     `json:"source"`
-	Status      Status     `json:"status"`
-	Steps       []StepView `json:"steps"`
-	Next        Next       `json:"next"`
+	ProjectName string      `json:"projectName"`
+	Repo        string      `json:"repo"`
+	BaseBranch  string      `json:"baseBranch"`
+	Worktree    string      `json:"worktree"`
+	WorktreeRel string      `json:"worktreeRel"`
+	Branch      string      `json:"branch"`
+	RunDir      string      `json:"runDir"`
+	Source      string      `json:"source"`
+	Status      Status      `json:"status"`
+	Steps       []StepView  `json:"steps"`
+	Next        Next        `json:"next"`
+	Usage       usage.Usage `json:"usage"` // every step's session
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -131,7 +134,9 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
 			Artifact: ag.ArtifactName(s.N), Preview: ag.PreviewName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID),
+			Usage: a.usage.Session(s.SessionID),
 		})
+		v.Usage = v.Usage.Add(v.Steps[len(v.Steps)-1].Usage)
 	}
 	if v.Steps == nil {
 		v.Steps = []StepView{}

@@ -10,6 +10,9 @@
   --muted: #898e94;
   --faint: #6e747b;
   --sel: rgba(8, 112, 228, 0.16);
+  /* Zed Fleet Dark's selected toggle: ghost_element.selected, text.accent */
+  --toggle-sel: rgba(8, 112, 228, 0.4);
+  --toggle-text: #4b8dec;
   --hover: #2d2f33;
   --button: #0870e4;
   --button-text: #ffffff;

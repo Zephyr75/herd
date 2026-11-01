@@ -66,9 +66,10 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 var Events = []string{"SessionStart", "UserPromptSubmit", "Notification", "PostToolUse", "Stop"}
 
 // Command is the shell command a hook runs: it does nothing outside herd
-// sessions and never fails the hook.
+// sessions and never fails the hook. $HERD_ENDPOINT holds the current herd's
+// address and token, so sessions that outlived a herd restart still report.
 func Command(event string) string {
-	return `[ -n "$HERD_URL" ] && curl -s -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1; exit 0`
+	return `[ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT"; [ -n "$HERD_URL" ] && curl -s -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1; exit 0`
 }
 
 // Settings returns the Claude Code settings JSON with herd's hooks.

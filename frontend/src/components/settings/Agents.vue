@@ -10,12 +10,9 @@ import type { Agent } from '../../lib/types'
 const agents = computed(() => herd.settings?.agents ?? [])
 const selId = ref(herd.settings?.agents[1]?.id ?? herd.settings?.agents[0]?.id ?? '')
 const A = computed(() => agents.value.find((a) => a.id === selId.value) ?? agents.value[0])
-const newAllowed = ref('')
-const newDenied = ref('')
 const confirmDelete = ref(false)
 
 const models: [string, string][] = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]
-const perms: [string, string][] = [['manual', 'Ask every time'], ['acceptEdits', 'Accept edits'], ['readonly', 'Read only']]
 const modelLabel = (m: string) => models.find((x) => x[0] === m)?.[1] ?? m
 const isAuto = (a: Agent) => a.trigger.startsWith('after:')
 
@@ -50,15 +47,14 @@ const triggers = computed<[string, string][]>(() => {
   return out
 })
 
-function addTool(list: 'allowed' | 'denied') {
-  const box = list === 'allowed' ? newAllowed : newDenied
-  const v = box.value.trim()
-  if (!v || !A.value) return
-  set(list, [...(A.value[list] ?? []), v])
-  box.value = ''
-}
-function removeTool(list: 'allowed' | 'denied', i: number) {
-  if (A.value) set(list, A.value[list].filter((_, j) => j !== i))
+// Rules apply to every agent: they are added to each session's system prompt.
+const saveRules = debounce((r: string) => void herd.attempt('Could not save the rules', () => api.SetRules(r)), 500)
+function setRules(e: Event) {
+  const c = herd.settings?.config
+  if (!c) return
+  c.rules = val(e)
+  herd.edited()
+  saveRules(c.rules)
 }
 
 function addAgent() {
@@ -69,8 +65,8 @@ function addAgent() {
   const id = 'agent' + n
   s.agents.push({
     id, name: 'Agent ' + n, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
-    preview: '', done: 'status: done', permissions: 'readonly', allowed: ['Read', 'Grep', 'Glob', 'Edit(/{run}/**)'], denied: [], commit: false, push: false,
-    instructions: 'Describe what this agent does and what it writes.', rules: '',
+    preview: '', done: 'status: done', commit: false, push: false,
+    instructions: 'Describe what this agent does and what it writes.',
   })
   selId.value = id
   changed()
@@ -106,8 +102,13 @@ function pick(id: string) {
 <template>
   <div class="intro">
     <h1>Agents</h1>
-    <p>Each step of a task runs one agent: a Claude Code session started with the agent's command, model, permissions and instructions. The order below is the pipeline.</p>
+    <p>Each step of a task runs one agent: a Claude Code session started with the agent's command, model and instructions, in Claude Code's auto mode. The order below is the pipeline.</p>
   </div>
+
+  <label class="rules card">
+    <span class="rules-head"><span class="name">Rules</span><span class="muted small">Every agent always follows these, e.g. what it may and may not do</span></span>
+    <textarea class="area mono" rows="5" :value="herd.settings?.config.rules ?? ''" placeholder="e.g. Review never edits code&#10;Never run git commit or git push&#10;Never touch migrations/" @input="setRules"></textarea>
+  </label>
 
   <div class="pipeline">
     <template v-for="(a, i) in agents" :key="a.id">
@@ -145,37 +146,14 @@ function pick(id: string) {
           <button v-for="[v, l] in triggers" :key="v" class="seg" :class="{ on: A.trigger === v }" @click="set('trigger', v)">{{ l }}</button>
         </div>
       </div>
-      <div class="field">
-        <span>Permissions</span>
-        <div class="segs">
-          <button v-for="[v, l] in perms" :key="v" class="seg" :class="{ on: A.permissions === v }" @click="set('permissions', v)">{{ l }}</button>
-        </div>
-      </div>
-      <div class="grid2">
-        <div class="field">
-          <span>Allowed tools</span>
-          <div class="chips">
-            <span v-for="(x, i) in A.allowed ?? []" :key="x + i" class="tool-chip">{{ x }}<button class="rm" :aria-label="'Remove ' + x" @click="removeTool('allowed', i)">×</button></span>
-          </div>
-          <input v-model="newAllowed" class="input mono small-in" placeholder="Add, e.g. Bash(go test:*)" @keydown.enter="addTool('allowed')" />
-        </div>
-        <div class="field">
-          <span>Denied tools</span>
-          <div class="chips">
-            <span v-for="(x, i) in A.denied ?? []" :key="x + i" class="tool-chip denied">{{ x }}<button class="rm" :aria-label="'Remove ' + x" @click="removeTool('denied', i)">×</button></span>
-          </div>
-          <input v-model="newDenied" class="input mono small-in" placeholder="Add, e.g. Bash(git push:*)" @keydown.enter="addTool('denied')" />
-        </div>
-      </div>
       <label class="field">Done when<input class="input mono" :value="A.done" @input="set('done', val($event))" /></label>
       <div class="checks">
         <label><input type="checkbox" :checked="A.commit" @change="set('commit', checked($event))" /> Commit the worktree when done</label>
         <label><input type="checkbox" :checked="A.push" @change="set('push', checked($event))" /> Push and open the PR when done</label>
       </div>
       <label class="field">Instructions (the agent's skill)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
-      <label class="field">Rules (always followed, added to the system prompt)<textarea class="area mono" rows="4" :value="A.rules ?? ''" placeholder="e.g. Never touch migrations/&#10;Run go vet before finishing" @input="set('rules', val($event))"></textarea></label>
       <div class="actions">
-        <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue}' }}; in tools {{ '{run} {worktree}' }}</span>
+        <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue}' }}</span>
         <span class="grow"></span>
         <button class="btn ghost" @click="move(-1)">Move up</button>
         <button class="btn ghost" @click="move(1)">Move down</button>
@@ -248,32 +226,22 @@ function pick(id: string) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
-  .segs,
-  .chips {
+  .segs {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
   }
-  .tool-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+  .rules {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px;
   }
-  .rm {
-    border: 0;
-    background: transparent;
-    color: inherit;
-    opacity: 0.6;
-    padding: 0 0 0 2px;
-    font-size: 13px;
-    line-height: 1;
-  }
-  .rm:hover {
-    opacity: 1;
-  }
-  .small-in {
-    height: 26px;
-    font-size: 12px;
+  .rules-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
   }
   .checks {
     display: flex;

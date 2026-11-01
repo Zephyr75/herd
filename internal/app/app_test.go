@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,9 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"herd/internal/holder"
 	"herd/internal/settings"
 	"herd/internal/store"
 )
+
+// The test binary doubles as the session holder, like herd itself.
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "hold" {
+		os.Exit(holder.Main(os.Args[2:]))
+	}
+	os.Exit(m.Run())
+}
 
 type fakePlatform struct {
 	mu     sync.Mutex
@@ -25,6 +35,11 @@ func (f *fakePlatform) Emit(ev string, _ any) {
 	f.mu.Unlock()
 }
 func (f *fakePlatform) PickFolder(string) (string, error) { return "", nil }
+func (f *fakePlatform) Notify(title, body, _ string) {
+	f.mu.Lock()
+	f.events = append(f.events, "notify:"+title+": "+body)
+	f.mu.Unlock()
+}
 
 func run(t *testing.T, dir string, args ...string) string {
 	t.Helper()
@@ -59,18 +74,28 @@ func newTestApp(t *testing.T) (*App, string) {
 	// herd started from inside a Claude Code session must not pass that on.
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	fake, _ := filepath.Abs("testdata/fake-claude.sh")
-	a := New(home, nil)
-	if err := Start(a, context.Background(), &fakePlatform{}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { Stop(a) })
+	a := startApp(t, home)
+	t.Cleanup(func() {
+		a.run.StopAll() // tests leave no holder behind
+		Stop(a)
+	})
 	if err := a.settings.UpdateConfig(func(c *settings.Config) { c.ClaudeCommand = fake }); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.SaveProject(settings.Project{ID: "core", Name: "pony-core", Path: repo, BaseBranch: "main", PortRange: "7100-7199"}); err != nil {
+	if err := a.SaveProject(settings.Project{ID: "core", Name: "pony-core", Path: repo, BaseBranch: "main"}); err != nil {
 		t.Fatal(err)
 	}
 	return a, repo
+}
+
+func startApp(t *testing.T, home string) *App {
+	t.Helper()
+	a := New(home, nil)
+	a.HoldCmd = []string{os.Args[0], "hold"}
+	if err := Start(a, context.Background(), &fakePlatform{}); err != nil {
+		t.Fatal(err)
+	}
+	return a
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {
@@ -126,12 +151,13 @@ func TestPlanImplementReview(t *testing.T) {
 	}
 	impl := store.StepID(tv.ID, "impl-1")
 	rev := store.StepID(tv.ID, "review-1")
-	waitFor(t, "review done", func() bool { return stepState(a, rev) == store.Done })
+	waitFor(t, "review committed", func() bool { s, _ := a.db.Step(rev); return s.SHA != "" })
+	// Implement leaves its work uncommitted; its Review commits it.
 	s, _ := a.db.Step(impl)
-	if s.SHA == "" || s.Guidance != "keep it small" {
+	if s.SHA != "" || s.Guidance != "keep it small" {
 		t.Fatalf("impl step: %+v", s)
 	}
-	if msg := run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "log", "-1", "--format=%s"); msg != "["+tv.Slug+"] implement-1" {
+	if msg := run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "log", "-1", "--format=%s"); msg != "["+tv.Slug+"] review-1" {
 		t.Fatalf("commit message %q", msg)
 	}
 	if n := run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "rev-list", "--count", "main..HEAD"); n != "1" {
@@ -150,13 +176,12 @@ func TestPlanImplementReview(t *testing.T) {
 		t.Fatalf("CONTEXT.md: %s", ctxFile)
 	}
 
-	// The review's command got the implement sha.
 	sess, ok := a.run.Get(rev)
 	if !ok {
 		t.Fatal("review session not live")
 	}
 	_, back := sess.Attach()
-	if !strings.Contains(string(back), "/herd:review --local "+s.SHA) {
+	if !strings.Contains(string(back), "/herd:review --local") {
 		t.Fatalf("review prompt: %q", back)
 	}
 
@@ -169,7 +194,7 @@ func TestPlanImplementReview(t *testing.T) {
 func TestApprovalAndAllowOnce(t *testing.T) {
 	a, _ := newTestApp(t)
 	ags := a.settings.Agents()
-	ags = append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md", Done: "status: done", Permissions: "manual"}}, ags...)
+	ags = append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md", Done: "status: done"}}, ags...)
 	if err := a.SaveAgents(ags); err != nil {
 		t.Fatal(err)
 	}
@@ -273,12 +298,6 @@ func TestLocalSlug(t *testing.T) {
 	}
 }
 
-func TestPermissionMode(t *testing.T) {
-	if permissionMode("readonly") != "dontAsk" || permissionMode("acceptEdits") != "acceptEdits" || permissionMode("") != "manual" {
-		t.Fatal("permission modes")
-	}
-}
-
 func TestPauseAndResume(t *testing.T) {
 	a, _ := newTestApp(t)
 	tv, _ := a.CreateTask("core", "", "pause me", true)
@@ -307,5 +326,221 @@ func TestPauseAndResume(t *testing.T) {
 	}
 	if _, live := a.run.Get(id); !live || a.paused(id) {
 		t.Fatal("not resumed")
+	}
+}
+
+func addAskAgent(t *testing.T, a *App) {
+	t.Helper()
+	ags := append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md", Done: "status: done"}}, a.settings.Agents()...)
+	if err := a.SaveAgents(ags); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionSurvivesRestart(t *testing.T) {
+	a, _ := newTestApp(t)
+	addAskAgent(t, a)
+	tv, _ := a.CreateTask("core", "", "survive a restart", true)
+	id := store.StepID(tv.ID, "ask-1")
+	waitFor(t, "approval", func() bool { return stepState(a, id) == store.Approval })
+
+	// Quit herd: the step keeps running in its holder.
+	Stop(a)
+	b := startApp(t, a.Home)
+	t.Cleanup(func() { b.run.StopAll(); Stop(b) })
+	sess, live := b.run.Get(id)
+	if !live {
+		t.Fatal("not reattached after restart")
+	}
+	_, scroll := sess.Attach()
+	if !strings.Contains(string(scroll), "fake claude: /herd:ask") {
+		t.Fatalf("scrollback not replayed: %q", scroll)
+	}
+	if stepState(b, id) != store.Approval {
+		t.Fatalf("state %s", stepState(b, id))
+	}
+	// Its hooks reach the new herd: answering finishes the step.
+	if err := b.AllowOnce(id); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "done after restart", func() bool { return stepState(b, id) == store.Done })
+}
+
+func TestStepChanges(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "change some files", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	impl := store.StepID(tv.ID, "impl-1")
+	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	rev := store.StepID(tv.ID, "review-1")
+	waitFor(t, "commit", func() bool { s, _ := a.db.Step(rev); return s.SHA != "" })
+	// Implement shows the commit its Review made.
+	c, err := a.StepChanges(impl)
+	if err != nil || c.Source != "commit" || c.Via != "Review 1" || len(c.Files) != 1 || c.Files[0] != (FileChange{Path: "file-1.txt", Status: "A", Added: 1}) {
+		t.Fatalf("%+v %v", c, err)
+	}
+	// The latest step with no commit of its own shows the worktree's uncommitted work.
+	waitFor(t, "review", func() bool { return stepState(a, rev) == store.Done })
+	a.StartStep(tv.ID, "plan", "", 0)
+	rev = store.StepID(tv.ID, "plan-2")
+	waitFor(t, "plan 2", func() bool { return stepState(a, rev) == store.Done })
+	wt := filepath.Join(repo, ".worktrees", tv.Slug)
+	os.WriteFile(filepath.Join(wt, "README.md"), []byte("hi\nthere\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, "new.txt"), []byte("a\nb\nc"), 0o644)
+	c, err = a.StepChanges(rev)
+	if err != nil || c.Source != "worktree" || len(c.Files) != 2 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if c.Files[0] != (FileChange{Path: "README.md", Status: "M", Added: 1}) || c.Files[1] != (FileChange{Path: "new.txt", Status: "?", Added: 3}) {
+		t.Fatalf("%+v", c.Files)
+	}
+}
+
+func TestResumeGuard(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "guard the session", true)
+	id := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "plan", func() bool { return stepState(a, id) == store.Done })
+	step, _ := a.db.Step(id)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
+	os.MkdirAll(proj, 0o755)
+	os.WriteFile(filepath.Join(proj, step.SessionID+".jsonl"), []byte("{}\n"), 0o644)
+	a.StopStep(id)
+	waitFor(t, "stopped", func() bool { _, live := a.run.Get(id); return !live })
+
+	// The same session resumed in another terminal, e.g. in Zed.
+	other := exec.Command("sh", "-c", "sleep 30; true", "claude", "--resume", step.SessionID)
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer other.Process.Kill()
+	ps, _ := a.SessionElsewhere(id)
+	if len(ps) != 1 || ps[0].PID != other.Process.Pid {
+		t.Fatalf("procs %+v", ps)
+	}
+	if _, err := a.ResumeStep(id); err == nil || !strings.Contains(err.Error(), "another process") {
+		t.Fatalf("want a guard error, got %v", err)
+	}
+	if _, err := a.ResumeStepAnyway(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, live := a.run.Get(id); !live {
+		t.Fatal("not resumed")
+	}
+}
+
+func TestNotifications(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.SetFocused(false)
+	tv, _ := a.CreateTask("core", "", "notify me", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	f := a.plat.(*fakePlatform)
+	waitFor(t, "notification", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, e := range f.events {
+			if strings.HasPrefix(e, "notify:Plan finished: LOCAL notify me") {
+				return true
+			}
+		}
+		return false
+	})
+	// Not while herd has focus.
+	a.SetFocused(true)
+	f.mu.Lock()
+	f.events = nil
+	f.mu.Unlock()
+	a.StartStep(tv.ID, "impl", "", 0)
+	// Review starts by itself after Implement's commit; wait for the lot.
+	waitFor(t, "review", func() bool { return stepState(a, store.StepID(tv.ID, "review-1")) == store.Done })
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, e := range f.events {
+		if strings.HasPrefix(e, "notify:") {
+			t.Fatalf("notified while focused: %s", e)
+		}
+	}
+}
+
+func TestEachReviewCommitsItsOwnDiff(t *testing.T) {
+	a, repo := newTestApp(t)
+	a.settings.UpdateConfig(func(c *settings.Config) { c.ZedCommand = "true" })
+	tv, _ := a.CreateTask("core", "", "two review rounds", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	wt := filepath.Join(repo, ".worktrees", tv.Slug)
+	shas := map[string]string{}
+	for n := 1; n <= 2; n++ {
+		if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+			t.Fatal(err)
+		}
+		rev := store.StepID(tv.ID, fmt.Sprintf("review-%d", n))
+		waitFor(t, "review commit", func() bool { s, _ := a.db.Step(rev); return s.SHA != "" })
+		s, _ := a.db.Step(rev)
+		shas[rev] = s.SHA
+		// Each review's commit holds only its own Implement's file.
+		if files := run(t, wt, "git", "show", "--format=", "--name-only", s.SHA); files != fmt.Sprintf("file-%d.txt", n) {
+			t.Fatalf("review %d commit has %q", n, files)
+		}
+		// Zed diff opens that commit in Zed's commit view, in the worktree.
+		lines, err := a.OpenInZed(tv.ID, rev)
+		full := run(t, wt, "git", "rev-parse", s.SHA)
+		if err != nil || !strings.Contains(strings.Join(lines, "\n"), "zed://git/commit/"+full+"?repo=") {
+			t.Fatalf("%v %v", lines, err)
+		}
+		waitFor(t, "review done", func() bool { return stepState(a, rev) == store.Done })
+		if sess, ok := a.run.Get(rev); ok {
+			sess.Write([]byte("bye\r")) // let the next Implement start
+			waitFor(t, "review exited", func() bool { _, live := a.run.Get(rev); return !live })
+		}
+	}
+	if shas[store.StepID(tv.ID, "review-1")] == shas[store.StepID(tv.ID, "review-2")] {
+		t.Fatal("both reviews point at the same commit")
+	}
+	// A changed file opens as it was in the commit, not as it is now.
+	if err := os.WriteFile(filepath.Join(wt, "file-1.txt"), []byte("edited later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.OpenFileInZed(tv.ID, "file-1.txt", shas[store.StepID(tv.ID, "review-1")]); err != nil {
+		t.Fatal(err)
+	}
+	snaps, _ := filepath.Glob(filepath.Join(a.Home, "views", "*", "*", "file-1.txt"))
+	if len(snaps) != 1 {
+		t.Fatalf("snapshots: %v", snaps)
+	}
+	if b, _ := os.ReadFile(snaps[0]); string(b) != "change 1\n" {
+		t.Fatalf("snapshot holds %q", b)
+	}
+}
+
+func TestRulesAndKnowledge(t *testing.T) {
+	a, _ := newTestApp(t)
+	kb := t.TempDir()
+	if err := a.SetRules("Never touch migrations/"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := a.settings.Context("core")
+	c.Knowledge = kb
+	if err := a.SaveContext(c); err != nil {
+		t.Fatal(err)
+	}
+	tv, err := a.CreateTask("core", "", "rules apply", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ := a.db.Task(tv.ID)
+	p, _ := a.settings.Project("core")
+	for _, ag := range a.settings.Agents() {
+		args := strings.Join(a.spec(launch{task: task, proj: p, agent: ag, step: store.Step{N: 1, SessionID: "s"}}, false).Args, "\x00")
+		if !strings.Contains(args, "Never touch migrations/") || !strings.Contains(args, "--add-dir\x00"+kb) || strings.Contains(args, "allowedTools") {
+			t.Fatalf("%s args: %q", ag.ID, args)
+		}
+	}
+	if err := a.writeContextFile(p, task); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "CONTEXT.md")); !strings.Contains(string(b), kb) {
+		t.Fatalf("CONTEXT.md: %s", b)
 	}
 }

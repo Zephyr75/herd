@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import type { Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind } from './types'
+import type { Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind, Usage } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -17,44 +17,42 @@ function emit(event: string, data: unknown) {
 }
 
 const projects: Project[] = [
-  { id: 'core', name: 'pony-core', path: '~/code/pony/pony-core', repo: 'pony-org/pony-core', baseBranch: 'main', worktreesDir: '.worktrees', portRange: '7100-7199' },
-  { id: 'rider', name: 'pony-rider-app', path: '~/code/pony/rider-app', repo: 'pony-org/rider-app', baseBranch: 'develop', worktreesDir: '.worktrees', portRange: '7200-7299' },
-  { id: 'infra', name: 'pony-infra', path: '~/code/pony/infra', repo: 'pony-org/infra', baseBranch: 'main', worktreesDir: '.worktrees', portRange: '7300-7399' },
+  { id: 'core', name: 'pony-core', path: '~/code/pony/pony-core', repo: 'pony-org/pony-core', baseBranch: 'main', worktreesDir: '.worktrees' },
+  { id: 'rider', name: 'pony-rider-app', path: '~/code/pony/rider-app', repo: 'pony-org/rider-app', baseBranch: 'develop', worktreesDir: '.worktrees' },
+  { id: 'infra', name: 'pony-infra', path: '~/code/pony/infra', repo: 'pony-org/infra', baseBranch: 'main', worktreesDir: '.worktrees' },
 ]
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
 const agents: Agent[] = [
-  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'PLAN.md', preview: '', done: 'status: done', permissions: 'readonly', commit: false, push: false,
-    allowed: ['Read', 'Grep', 'Glob', 'Bash(gh issue view:*)', 'Edit(/{run}/**)', 'Write(/{run}/**)'], denied: ['Edit(/{worktree}/**)'],
-    instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.', rules: '' },
-  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', preview: '', done: 'status: done', permissions: 'acceptEdits', commit: true, push: false,
-    allowed: ['Read', 'Edit', 'Write', 'Bash(go test:*)', 'Bash(pnpm test:*)', 'Bash(terraform validate)'], denied: ['Bash(git commit:*)', 'Bash(git push:*)'],
-    instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits when you finish.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.', rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task} {sha}', model: 'sonnet', trigger: 'after:impl', writes: 'REVIEW-{n}.md', preview: '', done: 'verdict: approve | changes', permissions: 'readonly', commit: false, push: false,
-    allowed: ['Read', 'Grep', 'Bash(git show:*)', 'Edit(/{run}/**)'], denied: ['Edit(/{worktree}/**)'],
-    instructions: 'Review commit {sha} against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code.', rules: '' },
-  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', preview: 'FEEDBACK.md', done: 'status: done', permissions: 'readonly', commit: false, push: true,
-    allowed: ['Read', 'Edit(/{run}/**)'], denied: ['Bash(git push:*)'],
-    instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.', rules: '' },
+  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', preview: '', done: 'status: done', commit: false, push: false,
+    instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
+  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', preview: '', done: 'status: done', commit: false, push: false,
+    instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', preview: '', done: 'verdict: approve | changes', commit: true, push: false,
+    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code: herd commits the reviewed changes when you finish.' },
+  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', preview: 'FEEDBACK.md', done: 'status: done', commit: false, push: true,
+    instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
 const context: Record<string, Context> = {
-  general: { id: 'general', text: '# General context\n- Match the style already in the repo; no new dependencies without asking.\n- Never commit or push: herd does it.\n- Artifacts go to $HERD_RUN_DIR and start with YAML front matter.\n- Prefer small diffs; explain trade-offs in the artifact, not in code comments.\n', agents: ['plan', 'impl', 'review', 'push'], claudeMd: false },
-  core: { id: 'core', text: '# pony-core\n- Go services live in internal/<domain>.\n- Run go test ./internal/<domain>/... before writing IMPLEMENT.\n- Rider-facing errors go through internal/errs.\n', claudeMd: true, agents: ['plan', 'impl', 'review'] },
-  rider: { id: 'rider', text: '# pony-rider-app\n- React Native, TypeScript strict.\n- UI copy lives in src/i18n; never hardcode strings.\n- Run pnpm test <area> before writing IMPLEMENT.\n', claudeMd: true, agents: ['plan', 'impl', 'review'] },
-  infra: { id: 'infra', text: '# pony-infra\n- Terraform 1.9, azurerm provider.\n- Never run terraform apply; validate and plan only.\n- Tag every resource with team = mobility.\n', claudeMd: false, agents: ['plan', 'impl', 'review', 'push'] },
+  general: { id: 'general', text: '# General context\n- Match the style already in the repo; no new dependencies without asking.\n- Never commit or push: herd does it.\n- Artifacts go to $HERD_RUN_DIR and start with YAML front matter.\n- Prefer small diffs; explain trade-offs in the artifact, not in code comments.\n', claudeMd: false, knowledge: '' },
+  core: { id: 'core', text: '# pony-core\n- Go services live in internal/<domain>.\n- Run go test ./internal/<domain>/... before writing IMPLEMENT.\n- Rider-facing errors go through internal/errs.\n', claudeMd: true, knowledge: '' },
+  rider: { id: 'rider', text: '# pony-rider-app\n- React Native, TypeScript strict.\n- UI copy lives in src/i18n; never hardcode strings.\n- Run pnpm test <area> before writing IMPLEMENT.\n', claudeMd: true, knowledge: '' },
+  infra: { id: 'infra', text: '# pony-infra\n- Terraform 1.9, azurerm provider.\n- Never run terraform apply; validate and plan only.\n- Tag every resource with team = mobility.\n', claudeMd: false, knowledge: '' },
 }
 
 const settings: Settings = {
   config: {
     appearance: { theme: 'dark', uiFont: 'IBM Plex Sans', uiFontSize: 13, termFont: 'IBM Plex Mono', termFontSize: 12.5 },
-    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, copilotTimeoutMinutes: 30, projects,
+    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, copilotTimeoutMinutes: 30, notifications: true, maxTabs: 5,
+    rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.', projects,
   },
   agents, context,
   keymap: {
-    palette: ['Mod+P'], scope: ['Mod+O'], newTask: ['Mod+N'], runPrimary: ['Mod+Enter'], toggleArchive: ['Mod+Shift+A'],
-    nextTask: ['Alt+ArrowDown'], prevTask: ['Alt+ArrowUp'], tab1: ['Mod+1'], tab2: ['Mod+2'], tab3: ['Mod+3'], tab4: ['Mod+4'],
-    tab5: ['Mod+5'], tab6: ['Mod+6'], tab7: ['Mod+7'], tab8: ['Mod+8'], tab9: ['Mod+9'], closeTab: ['Mod+W'],
+    palette: ['Mod+P'], scope: ['Mod+Alt+O'], newTask: ['Mod+N'], runPrimary: ['Mod+Enter'], toggleArchive: ['Mod+Shift+A'],
+    nextTask: ['Alt+ArrowDown'], prevTask: ['Alt+ArrowUp'], tab1: ['Alt+1'], tab2: ['Alt+2'], tab3: ['Alt+3'], tab4: ['Alt+4'],
+    tab5: ['Alt+5'], tab6: ['Alt+6'], tab7: ['Alt+7'], tab8: ['Alt+8'], tab9: ['Alt+9'], closeTab: ['Mod+W'],
+    nextTab: ['Ctrl+PageDown', 'Ctrl+Tab'], prevTab: ['Ctrl+PageUp', 'Ctrl+Shift+Tab'],
     openWorktree: ['Mod+Shift+E'], openDiff: ['Mod+Shift+D'], settings: ['Mod+,'], close: ['Escape'],
   },
   dir: '~/.herd',
@@ -77,8 +75,8 @@ const T: MockTask[] = [
       findings: ['Retry budget is hardcoded to 3, should come from config', 'Backoff ignores context cancellation', 'No test for the exhausted-budget path'] },
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', guide: 'focus on scooters with old firmware', session: '1a9e42c0' },
-      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', sha: 'b7c41d9', session: '5d02ab17' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', verdict: 'changes', session: 'c83f0e55' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '5d02ab17' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: 'b7c41d9', verdict: 'changes', session: 'c83f0e55' },
       { key: 'impl-2', agent: 'impl', n: 2, state: 'running', guide: 'keep the retry budget configurable, default 3', session: '7f3c91d4' },
     ] },
   { id: 'core:4361', project: 'core', issue: '4361', slug: '4361', title: 'Per-minute pricing rounding', description: 'Keep the per-minute rule identical to the B2B tariff.',
@@ -88,8 +86,8 @@ const T: MockTask[] = [
       changes: ['Single RoundDuration helper', 'Removed per-second path', 'Table tests for 0s, 59s, 60s, 61s'], findings: ['Rounding uses decimal.Ceil consistently', 'Zero-length ride is covered', 'Nothing blocking'] },
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '2b77e010' },
-      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', sha: '91aa0f3', session: '44e1c9b2' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', verdict: 'approve', session: 'e0c5d7a8' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '44e1c9b2' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '91aa0f3', verdict: 'approve', session: 'e0c5d7a8' },
     ] },
   { id: 'core:4370', project: 'core', issue: '4370', slug: '4370', title: 'Batch battery telemetry ingestion', description: '',
     fx: { goal: 'Telemetry rows are inserted one by one. Batch them per vehicle every 5 seconds to cut database writes.', files: ['internal/telemetry/ingest.go', 'internal/telemetry/batch.go'],
@@ -117,7 +115,7 @@ const T: MockTask[] = [
       changes: ['New ingest node pool module call', 'Taint ingest=true:NoSchedule'], findings: ['Spot eviction needs a PodDisruptionBudget'] },
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '81fe2a3c' },
-      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', sha: 'e41a9c2', session: 'b5c0d9e1' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: 'b5c0d9e1' },
       { key: 'review-1', agent: 'review', n: 1, state: 'running', session: '0d9c3b74' },
     ] },
   { id: 'core:4349', project: 'core', issue: '4349', slug: '4349', title: 'Geofence import from city GeoJSON', description: '', archived: true, pr: 812, prState: 'merged', archivedOn: '2026-10-28',
@@ -127,22 +125,22 @@ const T: MockTask[] = [
       copilot: ['Consider closing the response body with defer in fetch', 'ParseGeoJSON could return a typed error for invalid rings'] },
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '0f4b8a21' },
-      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', sha: '6d3e20b', session: '3e9a77c0' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', verdict: 'approve', session: '71bc04de' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '3e9a77c0' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '6d3e20b', verdict: 'approve', session: '71bc04de' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: 'd2a6f5e9' },
     ] },
   { id: 'infra:207', project: 'infra', issue: '207', slug: '207', title: 'Rotate SP certificates through Horizon', description: '', archived: true, pr: 64, prState: 'merged', archivedOn: '2026-10-21', fx: {},
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '5a1b2c3d' },
-      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', sha: '2c8e7f1', session: '6b2c3d4e' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', verdict: 'approve', session: '7c3d4e5f' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '6b2c3d4e' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '2c8e7f1', verdict: 'approve', session: '7c3d4e5f' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: '8d4e5f60' },
     ] },
   { id: 'rider:1170', project: 'rider', issue: '1170', slug: '1170', title: 'Dark mode for ride summary', description: '', archived: true, pr: 301, prState: 'closed', archivedOn: '2026-10-17', fx: {},
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '9e5f6071' },
-      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', sha: 'a4f0b12', session: 'af607182' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', verdict: 'approve', session: 'b0718293' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: 'af607182' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: 'a4f0b12', verdict: 'approve', session: 'b0718293' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: 'c1829304' },
     ] },
 ]
@@ -152,6 +150,16 @@ const agent = (id: string) => agents.find((a) => a.id === id) ?? agents[0]
 const displayName = (a: Agent, n: number) => (a.writes.includes('{n}') ? `${a.name} ${n}` : a.name)
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
+// Plausible token usage, stable per session id.
+function mockUsage(session: string, running: boolean): Usage {
+  const n = parseInt(session.slice(0, 4), 16) || 1
+  const u = { input: 40 + (n % 900), output: 3000 + n * 2, cacheRead: 120000 + n * 60, cacheWrite: 30000 + n * 4 }
+  if (running) u.output = Math.round(u.output / 3)
+  return u
+}
+const addUsage = (a: Usage, b: Usage): Usage => ({ input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite })
+const noUsage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+
 function stepView(t: MockTask, s: MockStep, i: number): Step {
   const a = agent(s.agent)
   const paused = new URLSearchParams(location.search).get('paused') === `${t.id}/${s.key}` // ?paused=<step id>
@@ -160,7 +168,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), preview: (a.preview || a.writes).replace('{n}', String(s.n)), commits: a.commit,
-    paused,
+    paused, usage: mockUsage(s.session, s.state !== 'done'),
   }
 }
 
@@ -213,7 +221,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: 'agent/' + t.slug, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next,
+    status, steps, next, usage: steps.reduce((u, s) => addUsage(u, s.usage), noUsage),
   }
 }
 
@@ -326,7 +334,7 @@ export const api: Api = {
     changed(t)
     later(4000, () => {
       s.state = 'done'
-      if (agentId === 'impl') s.sha = Math.random().toString(16).slice(2, 9)
+      if (agentId === 'review') s.sha = Math.random().toString(16).slice(2, 9)
       if (agentId === 'review') s.verdict = 'approve'
       if (agentId === 'push') { t.pr = 800 + Math.floor(Math.random() * 99); t.prState = 'open' }
       changed(t)
@@ -345,13 +353,42 @@ export const api: Api = {
     return ok([`$ git -C ${p.path} worktree remove --force ${p.path}/.worktrees/${t.slug}`, `$ git -C ${p.path} branch -D agent/${t.slug}`]) },
   OpenInZed: (id, sid) => {
     const t = find(id), p = proj(t.project), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
-    if (s?.sha) { const v = `~/.herd/views/${p.name}/${t.slug}-implement-${s.n}`; return ok([`$ git worktree add --detach ${v} ${s.sha}`, `$ git -C ${v} reset ${s.sha}^`, `$ zed ${v}`]) }
+    if (s?.sha) return ok([`$ zed zed://git/commit/${s.sha}?repo=${p.path}/.worktrees/${t.slug}`])
     return ok([`$ zed ${p.path}/.worktrees/${t.slug}`])
   },
   OpenProjectInZed: () => ok(undefined),
   ReadArtifact: (sid) => ok(mockArtifact(sid)),
   TerminalURL: (sid) => ok('mock:' + sid),
-  ResumeStep: (sid) => ok('mock:' + sid),
+  ResumeStep: (sid) => (new URLSearchParams(location.search).get('elsewhere') ? Promise.reject('Claude Code is still running this session in another process') : ok('mock:' + sid)),
+  ResumeStepAnyway: (sid) => ok('mock:' + sid),
+  SessionElsewhere: (sid) => {
+    if (!new URLSearchParams(location.search).get('elsewhere')) return ok([])
+    const t = find(sid.slice(0, sid.lastIndexOf('/'))), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
+    return ok([{ pid: 48213, cmd: `claude --resume ${s?.session ?? ''}` }])
+  },
+  StepChanges: (sid) => {
+    const t = find(sid.slice(0, sid.lastIndexOf('/'))), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
+    const i = s ? t.steps.indexOf(s) : -1, last = i === t.steps.length - 1
+    const next = t.steps[i + 1], via = !s?.sha && next?.sha ? next : undefined
+    const sha = s?.sha || via?.sha
+    if (sha) return ok({ source: 'commit', sha, via: via ? displayName(agent(via.agent), via.n) : '', files: [
+      { path: 'internal/unlock/ble.go', status: 'M', added: 42, deleted: 9, binary: false },
+      { path: 'internal/unlock/retry.go', status: 'A', added: 61, deleted: 0, binary: false },
+      { path: 'internal/unlock/retry_test.go', status: 'A', added: 88, deleted: 0, binary: false },
+      { path: 'config/defaults.yaml', status: 'M', added: 2, deleted: 1, binary: false },
+    ] })
+    if (last && s) return ok({ source: 'worktree', sha: '', via: '', files: [
+      { path: 'internal/unlock/ble.go', status: 'M', added: 18, deleted: 4, binary: false },
+      { path: 'internal/unlock/budget.go', status: '?', added: 27, deleted: 0, binary: false },
+    ] })
+    return ok({ source: '', sha: '', via: '', files: [] })
+  },
+  OpenFileInZed: () => ok(undefined),
+  SetFocused: () => ok(undefined),
+  SetNotifications: (on) => { settings.config.notifications = on; return ok(undefined) },
+  SetMaxTabs: (n) => { settings.config.maxTabs = n; emit('settings:changed', settings); return ok(undefined) },
+  SetRules: (r) => { settings.config.rules = r; return ok(undefined) },
+  ChooseFolder: () => ok('~/notes/pony-kb'),
   GetSettings: () => ok(settings),
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },
   SaveContext: (c) => { settings.context[c.id] = c; emit('settings:changed', settings); return ok(undefined) },

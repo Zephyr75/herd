@@ -55,7 +55,7 @@ export function actionFor(km: Keymap, e: KeyboardEvent): string | null {
   return null
 }
 
-const glyph: Record<string, string> = { ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→', Enter: '⏎', Escape: 'Esc' }
+const glyph: Record<string, string> = { ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→', Enter: '⏎', Escape: 'Esc', PageDown: 'PgDn', PageUp: 'PgUp' }
 
 /** label renders a binding for a <kbd>: ⌘⇧A on macOS, Ctrl+Shift+A elsewhere. */
 export function label(binding: string | undefined): string {
@@ -77,6 +77,8 @@ export const actions: { id: string; action: string; where: string }[] = [
   { id: 'nextTask', action: 'Next task in the list', where: 'board' },
   { id: 'prevTask', action: 'Previous task in the list', where: 'board' },
   { id: 'tab1', action: 'Go to tab 1 to 9', where: 'board' },
+  { id: 'nextTab', action: 'Next tab', where: 'board' },
+  { id: 'prevTab', action: 'Previous tab', where: 'board' },
   { id: 'closeTab', action: 'Close tab', where: 'board' },
   { id: 'openWorktree', action: 'Open worktree in Zed', where: 'board' },
   { id: 'openDiff', action: 'Open the focused step diff in Zed', where: 'board' },

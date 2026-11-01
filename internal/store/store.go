@@ -19,7 +19,6 @@ type Task struct {
 	Issue           string    `json:"issue"`
 	Title           string    `json:"title"`
 	Description     string    `json:"description"`
-	PortBase        int       `json:"portBase"`
 	CreatedAt       time.Time `json:"createdAt"`
 	Archived        bool      `json:"archived"`
 	ArchivedAt      time.Time `json:"archivedAt"`
@@ -122,23 +121,23 @@ func b2i(b bool) int {
 
 // SaveTask inserts or replaces a task.
 func (d *DB) SaveTask(t Task) error {
-	_, err := d.db.Exec(`INSERT INTO tasks (id, project, slug, issue, title, description, port_base, created_at, archived, archived_at, pr_number, pr_url, pr_state, worktree_removed)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := d.db.Exec(`INSERT INTO tasks (id, project, slug, issue, title, description, created_at, archived, archived_at, pr_number, pr_url, pr_state, worktree_removed)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET project=excluded.project, slug=excluded.slug, issue=excluded.issue, title=excluded.title,
-		description=excluded.description, port_base=excluded.port_base, archived=excluded.archived, archived_at=excluded.archived_at,
+		description=excluded.description, archived=excluded.archived, archived_at=excluded.archived_at,
 		pr_number=excluded.pr_number, pr_url=excluded.pr_url, pr_state=excluded.pr_state, worktree_removed=excluded.worktree_removed`,
-		t.ID, t.Project, t.Slug, t.Issue, t.Title, t.Description, t.PortBase, ts(t.CreatedAt), b2i(t.Archived), ts(t.ArchivedAt),
+		t.ID, t.Project, t.Slug, t.Issue, t.Title, t.Description, ts(t.CreatedAt), b2i(t.Archived), ts(t.ArchivedAt),
 		t.PRNumber, t.PRURL, t.PRState, b2i(t.WorktreeRemoved))
 	return err
 }
 
-const taskCols = `id, project, slug, issue, title, description, port_base, created_at, archived, archived_at, pr_number, pr_url, pr_state, worktree_removed`
+const taskCols = `id, project, slug, issue, title, description, created_at, archived, archived_at, pr_number, pr_url, pr_state, worktree_removed`
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var created, archivedAt int64
 	var archived, removed int
-	err := r.Scan(&t.ID, &t.Project, &t.Slug, &t.Issue, &t.Title, &t.Description, &t.PortBase, &created, &archived, &archivedAt,
+	err := r.Scan(&t.ID, &t.Project, &t.Slug, &t.Issue, &t.Title, &t.Description, &created, &archived, &archivedAt,
 		&t.PRNumber, &t.PRURL, &t.PRState, &removed)
 	t.CreatedAt, t.ArchivedAt = fromTS(created), fromTS(archivedAt)
 	t.Archived, t.WorktreeRemoved = archived == 1, removed == 1

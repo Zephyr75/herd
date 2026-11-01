@@ -37,7 +37,7 @@ function addProject() {
     <div class="list">
       <template v-for="g in groups" :key="g.p.id">
         <button class="group" :aria-expanded="!herd.collapsed[g.p.id]" @click="toggle(g.p.id)">
-          <Icon :name="herd.collapsed[g.p.id] ? 'chevron-right' : 'chevron'" :size="11" :stroke="2.4" />
+          <Icon :name="herd.collapsed[g.p.id] ? 'chevron-right' : 'chevron'" :size="14" />
           <Icon name="folder" />
           <span class="name">{{ g.p.name }}</span>
           <span>{{ g.tasks.length }}</span>
@@ -88,7 +88,8 @@ aside {
   color: var(--faint);
 }
 .pill .on .count {
-  color: var(--muted);
+  color: inherit;
+  opacity: 0.75;
 }
 .list {
   flex: 1;

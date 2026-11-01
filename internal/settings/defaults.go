@@ -14,6 +14,8 @@ func DefaultConfig() Config {
 		ClaudeCommand:   "claude",
 		MaxLiveSessions: 6,
 		CopilotTimeout:  30,
+		Notifications:   true,
+		MaxTabs:         5,
 		Context:         map[string]ContextMeta{},
 	}
 }
@@ -30,10 +32,8 @@ const DefaultGeneralContext = `# General context
 func DefaultAgents() []Agent {
 	return []Agent{
 		{
-			ID: "plan", Name: "Plan", Command: "/herd:plan {task} -- {guidance}", Model: "opus", Trigger: "manual",
-			Writes: "PLAN.md", Done: "status: done", Permissions: "readonly",
-			Allowed: []string{"Read", "Grep", "Glob", "Bash(gh issue view:*)", "Edit(/{run}/**)", "Write(/{run}/**)"},
-			Denied:  []string{"Edit(/{worktree}/**)"},
+			ID: "plan", Name: "Plan", Command: "/herd:plan {task} -- {guidance}", Model: "sonnet", Trigger: "manual",
+			Writes: "PLAN.md", Done: "status: done",
 			Instructions: `Read the task source: the GitHub issue, the description, or both.
 Explore the repo and decide an approach.
 Write PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.
@@ -41,29 +41,23 @@ Do not edit code. End with front matter status: done.`,
 		},
 		{
 			ID: "impl", Name: "Implement", Command: "/herd:implement {task} -- {guidance}", Model: "opus", Trigger: "manual",
-			Writes: "IMPLEMENT-{n}.md", Done: "status: done", Permissions: "acceptEdits", Commit: true,
-			Allowed: []string{"Read", "Edit", "Write", "Bash(go test:*)", "Bash(pnpm test:*)", "Bash(npm test:*)"},
-			Denied:  []string{"Bash(git commit:*)", "Bash(git push:*)"},
+			Writes: "IMPLEMENT-{n}.md", Done: "status: done",
 			Instructions: `Read PLAN.md, and FEEDBACK.md when it exists.
 Implement the plan in this worktree and run the relevant tests.
-Do not commit: herd commits when you finish.
+Do not commit: herd commits your changes when the Review step ends.
 Write IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.`,
 		},
 		{
-			ID: "review", Name: "Review", Command: "/herd:review {task} {sha}", Model: "sonnet", Trigger: "after:impl",
-			Writes: "REVIEW-{n}.md", Done: "verdict: approve | changes", Permissions: "readonly",
-			Allowed: []string{"Read", "Grep", "Glob", "Bash(git show:*)", "Bash(git diff:*)", "Edit(/{run}/**)", "Write(/{run}/**)"},
-			Denied:  []string{"Edit(/{worktree}/**)"},
-			Instructions: `Review commit {sha} against PLAN.md.
+			ID: "review", Name: "Review", Command: "/herd:review {task}", Model: "opus", Trigger: "after:impl",
+			Writes: "REVIEW-{n}.md", Done: "verdict: approve | changes", Commit: true,
+			Instructions: `Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.
 List findings, most important first, and append them to FEEDBACK.md.
 Write REVIEW-{n}.md with front matter verdict: approve or changes.
-Never edit code.`,
+Never edit code: herd commits the reviewed changes when you finish.`,
 		},
 		{
 			ID: "push", Name: "Push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
-			Writes: "PR.md", Preview: "FEEDBACK.md", Done: "status: done", Permissions: "readonly", Push: true,
-			Allowed: []string{"Read", "Grep", "Bash(git log:*)", "Edit(/{run}/**)", "Write(/{run}/**)"},
-			Denied:  []string{"Bash(git push:*)"},
+			Writes: "PR.md", Preview: "FEEDBACK.md", Done: "status: done", Push: true,
 			Instructions: `Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.
 Add Closes #{issue} when the task has an issue.
 Do not push: herd pushes, opens the PR and collects the Copilot review.`,
@@ -71,27 +65,31 @@ Do not push: herd pushes, opens the PR and collects the Copilot review.`,
 	}
 }
 
-// DefaultKeymap lists every action and its bindings. "Mod" is Cmd on macOS
-// and Ctrl elsewhere.
+// DefaultKeymap lists every action and its bindings, following Zed's Linux
+// keymap where an equivalent exists (Alt+1 for tab 1, Ctrl+Alt+O for recent
+// projects, Ctrl+PageDown for the next tab). "Mod" is Cmd on macOS and Ctrl
+// elsewhere.
 func DefaultKeymap() Keymap {
 	return Keymap{
 		"palette":       {"Mod+P"},
-		"scope":         {"Mod+O"},
+		"scope":         {"Mod+Alt+O"},
 		"newTask":       {"Mod+N"},
 		"runPrimary":    {"Mod+Enter"},
 		"toggleArchive": {"Mod+Shift+A"},
 		"nextTask":      {"Alt+ArrowDown"},
 		"prevTask":      {"Alt+ArrowUp"},
-		"tab1":          {"Mod+1"},
-		"tab2":          {"Mod+2"},
-		"tab3":          {"Mod+3"},
-		"tab4":          {"Mod+4"},
-		"tab5":          {"Mod+5"},
-		"tab6":          {"Mod+6"},
-		"tab7":          {"Mod+7"},
-		"tab8":          {"Mod+8"},
-		"tab9":          {"Mod+9"},
+		"tab1":          {"Alt+1"},
+		"tab2":          {"Alt+2"},
+		"tab3":          {"Alt+3"},
+		"tab4":          {"Alt+4"},
+		"tab5":          {"Alt+5"},
+		"tab6":          {"Alt+6"},
+		"tab7":          {"Alt+7"},
+		"tab8":          {"Alt+8"},
+		"tab9":          {"Alt+9"},
 		"closeTab":      {"Mod+W"},
+		"nextTab":       {"Ctrl+PageDown", "Ctrl+Tab"},
+		"prevTab":       {"Ctrl+PageUp", "Ctrl+Shift+Tab"},
 		"openWorktree":  {"Mod+Shift+E"},
 		"openDiff":      {"Mod+Shift+D"},
 		"settings":      {"Mod+,"},

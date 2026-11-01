@@ -24,7 +24,6 @@ type Project struct {
 	Repo         string `toml:"repo" json:"repo"`
 	BaseBranch   string `toml:"base_branch" json:"baseBranch"`
 	WorktreesDir string `toml:"worktrees_dir" json:"worktreesDir"`
-	PortRange    string `toml:"port_range" json:"portRange"`
 }
 
 // Appearance holds the theme and fonts.
@@ -39,8 +38,8 @@ type Appearance struct {
 // ContextMeta is the per-context settings stored in config.toml; the markdown
 // itself lives in context/<id>.md.
 type ContextMeta struct {
-	Agents   []string `toml:"agents" json:"agents"`
-	ClaudeMd bool     `toml:"claude_md" json:"claudeMd"`
+	ClaudeMd  bool   `toml:"claude_md" json:"claudeMd"`
+	Knowledge string `toml:"knowledge,omitempty" json:"knowledge"` // a knowledge base folder sessions can read
 }
 
 // Config is config.toml.
@@ -50,6 +49,9 @@ type Config struct {
 	ClaudeCommand   string                 `toml:"claude_command" json:"claudeCommand"`
 	MaxLiveSessions int                    `toml:"max_live_sessions" json:"maxLiveSessions"`
 	CopilotTimeout  int                    `toml:"copilot_timeout_minutes" json:"copilotTimeoutMinutes"`
+	Notifications   bool                   `toml:"notifications" json:"notifications"` // desktop notifications while herd is in the background
+	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`             // open terminal tabs; the oldest closes first
+	Rules           string                 `toml:"rules" json:"rules"`                  // always followed by every agent
 	Projects        []Project              `toml:"project" json:"projects"`
 	Context         map[string]ContextMeta `toml:"context" json:"contextMeta"`
 }
@@ -64,25 +66,21 @@ type Agent struct {
 	Writes       string   `toml:"writes" json:"writes"`
 	Preview      string   `toml:"preview,omitempty" json:"preview"`
 	Done         string   `toml:"done" json:"done"`
-	Permissions  string   `toml:"permissions" json:"permissions"` // manual | acceptEdits | readonly
-	Allowed      []string `toml:"allowed" json:"allowed"`
-	Denied       []string `toml:"denied" json:"denied"`
 	Commit       bool     `toml:"commit,omitempty" json:"commit"`
 	Push         bool     `toml:"push,omitempty" json:"push"`
 	Instructions string   `toml:"instructions" json:"instructions"`
-	Rules        string   `toml:"rules,omitempty" json:"rules"` // always appended to the system prompt
 }
 
 type agentsFile struct {
 	Agent []Agent `toml:"agent"`
 }
 
-// Context is a markdown block given to sessions.
+// Context is a markdown block given to every session.
 type Context struct {
-	ID       string   `json:"id"` // "general" or a project id
-	Text     string   `json:"text"`
-	Agents   []string `json:"agents"`
-	ClaudeMd bool     `json:"claudeMd"`
+	ID        string `json:"id"` // "general" or a project id
+	Text      string `json:"text"`
+	ClaudeMd  bool   `json:"claudeMd"`
+	Knowledge string `json:"knowledge"`
 }
 
 // Keymap maps an action to its key bindings, e.g. "palette": ["Mod+P"].
@@ -180,7 +178,7 @@ func (s *Store) Reload() error {
 	for _, id := range ids {
 		meta, ok := cfg.Context[id]
 		if !ok {
-			meta = ContextMeta{Agents: agentIDs(af.Agent), ClaudeMd: id != "general"}
+			meta = ContextMeta{ClaudeMd: id != "general"}
 		}
 		text := ""
 		if b, err := os.ReadFile(filepath.Join(s.Dir, "context", id+".md")); err == nil {
@@ -189,7 +187,7 @@ func (s *Store) Reload() error {
 			text = DefaultGeneralContext
 			_ = os.WriteFile(filepath.Join(s.Dir, "context", "general.md"), []byte(text), 0o644)
 		}
-		ctx[id] = Context{ID: id, Text: text, Agents: meta.Agents, ClaudeMd: meta.ClaudeMd}
+		ctx[id] = Context{ID: id, Text: text, ClaudeMd: meta.ClaudeMd, Knowledge: meta.Knowledge}
 	}
 
 	s.mu.Lock()
@@ -227,6 +225,9 @@ func fillConfig(c *Config) {
 	if c.CopilotTimeout <= 0 {
 		c.CopilotTimeout = d.CopilotTimeout
 	}
+	if c.MaxTabs <= 0 {
+		c.MaxTabs = d.MaxTabs
+	}
 	if c.Context == nil {
 		c.Context = map[string]ContextMeta{}
 	}
@@ -245,14 +246,6 @@ func fillConfig(c *Config) {
 			p.BaseBranch = "main"
 		}
 	}
-}
-
-func agentIDs(a []Agent) []string {
-	out := make([]string, len(a))
-	for i, x := range a {
-		out[i] = x.ID
-	}
-	return out
 }
 
 // Snapshot returns a copy of all settings.
@@ -348,7 +341,7 @@ func (s *Store) SaveContext(c Context) error {
 	for k, v := range s.cfg.Context {
 		cfg.Context[k] = v
 	}
-	cfg.Context[c.ID] = ContextMeta{Agents: c.Agents, ClaudeMd: c.ClaudeMd}
+	cfg.Context[c.ID] = ContextMeta{ClaudeMd: c.ClaudeMd, Knowledge: c.Knowledge}
 	s.cfg = cfg
 	s.mu.Unlock()
 	return s.writeConfig()
@@ -374,7 +367,7 @@ func (s *Store) SaveProject(p Project) error {
 	s.cfg.Projects = projects
 	fillConfig(&s.cfg)
 	if _, ok := s.ctx[p.ID]; !ok {
-		s.ctx[p.ID] = Context{ID: p.ID, Agents: agentIDs(s.ags), ClaudeMd: true}
+		s.ctx[p.ID] = Context{ID: p.ID, ClaudeMd: true}
 	}
 	s.mu.Unlock()
 	return s.writeConfig()

@@ -10,7 +10,6 @@ export interface Project {
   repo: string
   baseBranch: string
   worktreesDir: string
-  portRange: string
 }
 
 export interface Agent {
@@ -22,20 +21,16 @@ export interface Agent {
   writes: string
   preview: string
   done: string
-  permissions: string // manual | acceptEdits | readonly
-  allowed: string[]
-  denied: string[]
   commit: boolean
   push: boolean
   instructions: string
-  rules: string
 }
 
 export interface Context {
   id: string
   text: string
-  agents: string[]
   claudeMd: boolean
+  knowledge: string // a knowledge base folder sessions can read
 }
 
 export interface Appearance {
@@ -46,12 +41,44 @@ export interface Appearance {
   termFontSize: number
 }
 
+/** Tokens used by Claude Code sessions. */
+export interface Usage {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}
+
+export interface FileChange {
+  path: string
+  status: string // A added, M modified, D deleted, ? untracked
+  added: number
+  deleted: number
+  binary: boolean
+}
+
+export interface Changes {
+  source: '' | 'commit' | 'worktree'
+  sha: string
+  via: string // the step that made the commit, when not this one
+  files: FileChange[]
+}
+
+/** A process outside herd running a session. */
+export interface Proc {
+  pid: number
+  cmd: string
+}
+
 export interface Config {
   appearance: Appearance
   zedCommand: string
   claudeCommand: string
   maxLiveSessions: number
   copilotTimeoutMinutes: number
+  notifications: boolean
+  maxTabs: number
+  rules: string // followed by every agent
   projects: Project[] | null
 }
 
@@ -88,6 +115,7 @@ export interface Step {
   preview: string
   commits: boolean
   paused: boolean // stopped by the user until Resume
+  usage: Usage
 }
 
 export interface Option {
@@ -130,6 +158,7 @@ export interface Task {
   status: { kind: StatusKind; label: string; short: string }
   steps: Step[]
   next: Next
+  usage: Usage
 }
 
 export interface Field {

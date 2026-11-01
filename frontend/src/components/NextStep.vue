@@ -40,7 +40,7 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
       <textarea id="guide" v-model="herd.guidance" rows="3" placeholder="Guidance for Claude (optional)"></textarea>
       <div class="opts">
         <button v-for="(o, i) in nx.options" :key="o.agent + o.n" class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)">
-          <Icon name="play" :size="10" />{{ o.label }}
+          <Icon name="play" :size="13" />{{ o.label }}
         </button>
       </div>
     </template>
@@ -85,7 +85,7 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
   flex: 1;
 }
 textarea {
-  resize: vertical;
+  resize: none;
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);

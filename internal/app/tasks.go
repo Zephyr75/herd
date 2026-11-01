@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -149,7 +150,7 @@ func (a *App) CreateTask(projectID, issue, description string, runPlan bool) (Ta
 
 	t := store.Task{
 		ID: p.ID + ":" + slug, Project: p.ID, Slug: slug, Issue: issue, Title: title, Description: description,
-		PortBase: portBase(p.PortRange, len(taken)), CreatedAt: time.Now(),
+		CreatedAt: time.Now(),
 	}
 	if pat := excludePattern(p); pat != "" {
 		if _, err := a.git.EnsureExcluded(a.ctx, p.Path, pat); err != nil {
@@ -174,19 +175,6 @@ func (a *App) CreateTask(projectID, issue, description string, runPlan bool) (Ta
 	}
 	a.emitTask(t.ID)
 	return a.GetTask(t.ID)
-}
-
-// portBase gives each task a block of 10 ports in its project's range.
-func portBase(r string, index int) int {
-	var lo, hi int
-	if _, err := fmt.Sscanf(r, "%d-%d", &lo, &hi); err != nil || hi <= lo {
-		return 0
-	}
-	blocks := (hi - lo + 1) / 10
-	if blocks <= 0 {
-		return lo
-	}
-	return lo + 10*(index%blocks)
 }
 
 func (a *App) updateTask(id string, fn func(*store.Task) error) error {
@@ -273,6 +261,9 @@ func (a *App) OpenInZed(taskID, stepID string) ([]string, error) {
 	p := a.projectOf(t)
 	cmd := a.settings.Config().ZedCommand
 	path := worktreePath(p, t)
+	if t.WorktreeRemoved {
+		return nil, errors.New("the worktree was removed")
+	}
 	var lines []string
 	if stepID != "" {
 		s, err := a.db.Step(stepID)
@@ -280,18 +271,14 @@ func (a *App) OpenInZed(taskID, stepID string) ([]string, error) {
 			return nil, err
 		}
 		if s.SHA != "" {
-			ag := agentFor(a.settings.Agents(), s.Agent)
-			name := strings.ToLower(strings.ReplaceAll(ag.DisplayName(s.N), " ", "-"))
-			view := filepath.Join(a.Home, "views", p.Name, t.Slug+"-"+name)
-			g := gitops.Git{Log: func(l string) { lines = append(lines, l) }}
-			if err := g.DiffView(a.ctx, p.Path, view, s.SHA); err != nil {
-				return lines, err
+			// Zed's own commit view, in the task's worktree: no extra folder,
+			// and no new Zed project when the worktree is already open.
+			full, err := a.git.Run(a.ctx, path, "rev-parse", s.SHA)
+			if err != nil {
+				return nil, err
 			}
-			path = view
+			path = "zed://git/commit/" + full + "?repo=" + url.QueryEscape(path)
 		}
-	}
-	if t.WorktreeRemoved && path == worktreePath(p, t) {
-		return nil, errors.New("the worktree was removed")
 	}
 	lines = append(lines, "$ "+cmd+" "+path)
 	return lines, zed.Open(cmd, path)

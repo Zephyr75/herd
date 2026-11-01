@@ -11,6 +11,8 @@
   --muted: #776b5b;
   --faint: #b9a992;
   --sel: rgba(106, 77, 255, 0.09);
+  --toggle-sel: rgba(106, 77, 255, 0.16);
+  --toggle-text: #6a4dff;
   --hover: #e9e2d7;
   --button: #6a4dff;
   --button-text: #ffffff;

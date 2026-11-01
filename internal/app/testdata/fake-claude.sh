@@ -2,6 +2,7 @@
 # Stands in for claude in tests: posts hooks like Claude Code would, writes
 # the step's artifact, then waits for input like an interactive session.
 post() {
+  [ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT" # the current herd, as in the real hook
   printf '%s' "$2" | curl -s -m 3 -X POST "$HERD_URL/hook?event=$1" \
     -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" --data-binary @- >/dev/null
 }

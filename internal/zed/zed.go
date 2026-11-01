@@ -27,6 +27,22 @@ func Open(command, path string) error {
 	return nil
 }
 
+// OpenFile opens a single file in the existing Zed window (-e) rather than a
+// new one, unless the command already chooses (-n, -e, -a).
+func OpenFile(command, path string) error {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return Open(command, path)
+	}
+	for _, f := range fields[1:] {
+		switch f {
+		case "-n", "--new", "-e", "--existing", "-a", "--add":
+			return Open(command, path)
+		}
+	}
+	return Open(command+" -e", path)
+}
+
 // Available reports whether the Zed command is on PATH.
 func Available(command string) bool {
 	fields := strings.Fields(command)

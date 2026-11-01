@@ -148,7 +148,7 @@ function key(e: KeyboardEvent) {
       <button class="btn ghost" @click="herd.overlay = 'none'">Cancel</button>
       <button class="btn" :disabled="!valid" @click="create(false)">Create</button>
       <button class="btn primary run" :disabled="!valid" @click="create(true)">
-        <Icon name="play" :size="10" />Create and run {{ first }}
+        <Icon name="play" :size="13" />Create and run {{ first }}
       </button>
     </div>
   </div>

@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"herd/internal/artifacts"
@@ -29,6 +30,7 @@ import (
 	"herd/internal/settings"
 	"herd/internal/store"
 	"herd/internal/termws"
+	"herd/internal/usage"
 	"herd/internal/zed"
 )
 
@@ -36,6 +38,9 @@ import (
 type Platform interface {
 	Emit(event string, data any)
 	PickFolder(title string) (string, error)
+	// Notify shows a desktop notification; a click on it should focus
+	// taskID in herd.
+	Notify(title, body, taskID string)
 }
 
 // Events emitted to the frontend.
@@ -51,6 +56,9 @@ const (
 type App struct {
 	Home      string // ~/.herd
 	PluginSrc fs.FS  // the plugin/ folder shipped with the app
+	// HoldCmd runs a session holder (herd's own path and "hold"), so
+	// sessions outlive herd. Empty: sessions end when herd quits.
+	HoldCmd []string
 
 	settings *settings.Store
 	db       *store.DB
@@ -62,6 +70,9 @@ type App struct {
 	token string
 	port  int
 	srv   *http.Server
+
+	usage   *usage.Reader
+	focused atomic.Bool // the herd window has focus (no notifications then)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -98,6 +109,9 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 		return err
 	}
 	a.run = runner.New(a.onExit)
+	a.run.Hold, a.run.SockDir = a.HoldCmd, filepath.Join(a.Home, "sessions")
+	a.usage = usage.NewReader(claudeDir())
+	a.focused.Store(true)
 
 	tok := make([]byte, 24)
 	if _, err := rand.Read(tok); err != nil {
@@ -116,6 +130,12 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 		return err
 	}
 	a.port = ln.Addr().(*net.TCPAddr).Port
+	// Hooks of sessions started by an earlier herd read the current address
+	// and token from here.
+	endpoint := fmt.Sprintf("HERD_URL=%s\nHERD_TOKEN=%s\n", a.baseURL(), a.token)
+	if err := os.WriteFile(a.endpointPath(), []byte(endpoint), 0o600); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/hook", &hooks.Receiver{Token: a.token, OnEvent: a.onHook})
 	mux.Handle("/term/", &termws.Handler{Token: a.token, Runner: a.run})
@@ -144,7 +164,13 @@ func Stop(a *App) {
 		a.cancel()
 	}
 	if a.run != nil {
-		a.run.StopAll()
+		// Steps still working keep running in their holders; the next herd
+		// reattaches them. Finished and paused ones end.
+		a.run.Shutdown(func(stepID string) bool {
+			s, err := a.db.Step(stepID)
+			active := s.State == store.Running || s.State == store.Idle || s.State == store.Approval
+			return err == nil && active && !a.paused(stepID)
+		})
 	}
 	if a.srv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -156,9 +182,10 @@ func Stop(a *App) {
 	}
 }
 
-func (a *App) hooksPath() string { return filepath.Join(a.Home, "hooks.json") }
-func (a *App) pluginDir() string { return filepath.Join(a.Home, "plugin") }
-func (a *App) baseURL() string   { return fmt.Sprintf("http://127.0.0.1:%d", a.port) }
+func (a *App) hooksPath() string    { return filepath.Join(a.Home, "hooks.json") }
+func (a *App) endpointPath() string { return filepath.Join(a.Home, "endpoint") }
+func (a *App) pluginDir() string    { return filepath.Join(a.Home, "plugin") }
+func (a *App) baseURL() string      { return fmt.Sprintf("http://127.0.0.1:%d", a.port) }
 
 func (a *App) emit(ev string, data any) {
 	if a.plat != nil {
@@ -299,7 +326,6 @@ func (a *App) AddProjectPath(dir string) (*settings.Project, error) {
 	if top, err := a.git.Run(a.ctx, dir, "rev-parse", "--show-toplevel"); err == nil {
 		dir = top
 	}
-	cfg := a.settings.Config()
 	name := filepath.Base(dir)
 	id := name
 	for i := 2; ; i++ {
@@ -308,16 +334,9 @@ func (a *App) AddProjectPath(dir string) (*settings.Project, error) {
 		}
 		id = fmt.Sprintf("%s-%d", name, i)
 	}
-	start := 7100
-	for _, p := range cfg.Projects {
-		var lo, hi int
-		if _, err := fmt.Sscanf(p.PortRange, "%d-%d", &lo, &hi); err == nil && hi+1 > start {
-			start = hi + 1
-		}
-	}
 	p := settings.Project{
 		ID: id, Name: name, Path: dir, Repo: a.git.GitHubRepo(a.ctx, dir), BaseBranch: a.git.DefaultBranch(a.ctx, dir),
-		WorktreesDir: ".worktrees", PortRange: fmt.Sprintf("%d-%d", start, start+99),
+		WorktreesDir: ".worktrees",
 	}
 	if err := a.SaveProject(p); err != nil {
 		return nil, err
@@ -345,6 +364,63 @@ func (a *App) SaveAppearance(ap settings.Appearance, zedCommand string) error {
 		}
 		c.ZedCommand = zedCommand
 	})
+}
+
+// SetNotifications turns desktop notifications on or off.
+func (a *App) SetNotifications(on bool) error {
+	return a.updateConfig(func(c *settings.Config) { c.Notifications = on })
+}
+
+// SetMaxTabs sets how many terminal tabs stay open.
+func (a *App) SetMaxTabs(n int) error {
+	if n < 1 {
+		return fmt.Errorf("keep at least one tab")
+	}
+	return a.updateConfig(func(c *settings.Config) { c.MaxTabs = n })
+}
+
+// SetRules saves the rules every agent follows.
+func (a *App) SetRules(rules string) error {
+	return a.updateConfig(func(c *settings.Config) { c.Rules = rules })
+}
+
+// ChooseFolder opens the native folder picker; "" when cancelled.
+func (a *App) ChooseFolder(title string) (string, error) {
+	return a.plat.PickFolder(title)
+}
+
+// SetFocused is called by the frontend when the window gains or loses
+// focus: notifications are only shown while herd is in the background.
+func (a *App) SetFocused(on bool) { a.focused.Store(on) }
+
+// notify tells the user, through the desktop, that a step needs them or ended.
+func (a *App) notify(s store.Step) {
+	if a.focused.Load() || !a.settings.Config().Notifications || a.plat == nil {
+		return
+	}
+	t, err := a.db.Task(s.TaskID)
+	if err != nil {
+		return
+	}
+	name := agentFor(a.settings.Agents(), s.Agent).DisplayName(s.N)
+	var title string
+	switch s.State {
+	case store.Approval:
+		title = name + " needs approval"
+	case store.Idle:
+		title = name + " is waiting for you"
+	case store.Done:
+		title = name + " finished"
+	case store.Failed:
+		title = name + " failed"
+	default:
+		return
+	}
+	ref := "LOCAL"
+	if t.Issue != "" {
+		ref = "#" + t.Issue
+	}
+	a.plat.Notify(title, fmt.Sprintf("%s %s · %s", ref, t.Title, a.projectOf(t).Name), t.ID)
 }
 
 func (a *App) updateConfig(fn func(*settings.Config)) error {
@@ -405,6 +481,9 @@ func (a *App) TerminalURL(stepID string) (string, error) {
 			if a.paused(stepID) {
 				return "", errors.New("this session is paused: press Resume")
 			}
+			if err := a.elsewhereErr(stepID); err != nil {
+				return "", err
+			}
 			if err := a.resume(stepID); err != nil {
 				return "", err
 			}
@@ -414,8 +493,28 @@ func (a *App) TerminalURL(stepID string) (string, error) {
 }
 
 // ResumeStep reopens a step's Claude Code conversation (the Resume buttons)
-// and returns its socket URL.
+// and returns its socket URL. It refuses while another process runs the
+// session (see SessionElsewhere); ResumeStepAnyway does not.
 func (a *App) ResumeStep(stepID string) (string, error) {
+	if _, ok := a.run.Get(stepID); !ok {
+		if err := a.elsewhereErr(stepID); err != nil {
+			return "", err
+		}
+	}
+	return a.ResumeStepAnyway(stepID)
+}
+
+// elsewhereErr explains that another process runs the step's session.
+func (a *App) elsewhereErr(stepID string) error {
+	ps, err := a.SessionElsewhere(stepID)
+	if err != nil || len(ps) == 0 {
+		return nil
+	}
+	return fmt.Errorf("Claude Code is still running this session in another process (pid %d: %s). Exit it there first, so only one process writes the conversation", ps[0].PID, ps[0].Cmd)
+}
+
+// ResumeStepAnyway resumes even when another process runs the session.
+func (a *App) ResumeStepAnyway(stepID string) (string, error) {
 	a.setPaused(stepID, false)
 	if _, ok := a.run.Get(stepID); !ok {
 		if err := a.resume(stepID); err != nil {

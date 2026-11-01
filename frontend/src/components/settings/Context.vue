@@ -1,15 +1,17 @@
 <script setup lang="ts">
-// Settings > Context: general context plus one block per project.
+// Settings > Context: general context plus one block per project, each with
+// an optional knowledge base folder. Both apply to every agent.
 import { computed, ref } from 'vue'
 import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
 import { herd } from '../../lib/state'
+import Icon from '../ui/Icon.vue'
 
 const selId = ref('general')
 const keys = computed(() => ['general', ...herd.projects.map((p) => p.id)])
 const proj = computed(() => herd.project(selId.value))
 const C = computed(
-  () => herd.settings?.context[selId.value] ?? { id: selId.value, text: '', agents: herd.settings?.agents.map((a) => a.id) ?? [], claudeMd: true },
+  () => herd.settings?.context[selId.value] ?? { id: selId.value, text: '', claudeMd: selId.value !== 'general', knowledge: '' },
 )
 
 const save = debounce((id: string) => {
@@ -32,11 +34,11 @@ function update(fn: (c: NonNullable<ReturnType<typeof ensure>>) => void) {
 }
 const setText = (e: Event) => update((c) => (c.text = (e.target as HTMLTextAreaElement).value))
 const toggleMd = () => update((c) => (c.claudeMd = !c.claudeMd))
-const toggleAgent = (id: string) =>
-  update((c) => {
-    const list = c.agents ?? []
-    c.agents = list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
-  })
+async function pickKnowledge() {
+  const dir = await herd.attempt('Could not open the folder picker', () => api.ChooseFolder('Knowledge base folder'))
+  if (dir) update((c) => (c.knowledge = dir))
+}
+const clearKnowledge = () => update((c) => (c.knowledge = ''))
 </script>
 
 <template>
@@ -63,9 +65,14 @@ const toggleAgent = (id: string) =>
         <input id="claudemd" type="checkbox" :checked="C.claudeMd" @change="toggleMd" />
         <label for="claudemd">Also load the repo's <span class="mono">CLAUDE.md</span></label>
       </div>
-      <div class="row wrap">
-        <span class="muted small">Applies to</span>
-        <button v-for="a in herd.settings?.agents ?? []" :key="a.id" class="seg" :class="{ on: (C.agents ?? []).includes(a.id) }" @click="toggleAgent(a.id)">{{ a.name }}</button>
+      <div class="field">
+        <span>Knowledge base folder <span class="muted small">readable by every session, for background and docs</span></span>
+        <div class="row">
+          <button class="btn folder" :title="C.knowledge || 'Choose a folder'" @click="pickKnowledge">
+            <Icon name="folder" /><span class="path mono">{{ C.knowledge || 'Choose a folder…' }}</span>
+          </button>
+          <button v-if="C.knowledge" class="btn ghost" @click="clearKnowledge">Clear</button>
+        </div>
       </div>
     </div>
   </div>
@@ -111,8 +118,16 @@ const toggleAgent = (id: string) =>
     align-items: center;
     gap: 8px;
   }
-  .row.wrap {
-    flex-wrap: wrap;
-    gap: 6px;
+  .folder {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .path {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,20 +19,6 @@ import (
 	"herd/internal/settings"
 	"herd/internal/store"
 )
-
-// permissionMode maps an agent's permissions to Claude Code's flag.
-// "readonly" uses dontAsk: everything not explicitly allowed is refused
-// without prompting.
-func permissionMode(p string) string {
-	switch p {
-	case "acceptEdits":
-		return "acceptEdits"
-	case "readonly", "plan":
-		return "dontAsk"
-	default:
-		return "manual"
-	}
-}
 
 type launch struct {
 	task    store.Task
@@ -72,27 +59,33 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 		b.WriteString("- LOCAL task: no GitHub issue\n")
 	}
 	if l.prevSHA != "" {
-		fmt.Fprintf(&b, "- {sha} = %s (the latest Implement commit)\n", l.prevSHA)
+		fmt.Fprintf(&b, "- {sha} = %s (the latest commit herd made)\n", l.prevSHA)
 	}
 	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s\n", wt, branchName(l.task))
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
 	fmt.Fprintf(&b, "- done when its front matter has %s: %s\n", key, strings.Join(values, " | "))
-	if l.task.PortBase > 0 {
-		fmt.Fprintf(&b, "- dev servers: use ports from %d ($HERD_PORT_BASE)\n", l.task.PortBase)
+	for _, dir := range a.knowledgeDirs(l.proj) {
+		fmt.Fprintf(&b, "- knowledge base: %s (read-only reference, search it when you need background)\n", dir)
 	}
-	if rules := strings.TrimSpace(l.agent.Rules); rules != "" {
-		fmt.Fprintf(&b, "\n# Rules for the %s agent\nAlways follow these rules:\n%s\n", l.agent.Name, rules)
+	if rules := strings.TrimSpace(a.settings.Config().Rules); rules != "" {
+		fmt.Fprintf(&b, "\n# Rules\nAlways follow these rules:\n%s\n", rules)
 	}
 	return b.String()
 }
 
-func expandRules(rules []string, runDir, wt string) []string {
-	r := strings.NewReplacer("{run}", runDir, "{worktree}", wt)
-	out := make([]string, 0, len(rules))
-	for _, x := range rules {
-		if x = strings.TrimSpace(r.Replace(x)); x != "" {
-			out = append(out, x)
+// knowledgeDirs lists the existing knowledge base folders for a project's
+// tasks: the general one, then the project's.
+func (a *App) knowledgeDirs(p settings.Project) []string {
+	var out []string
+	for _, id := range []string{"general", p.ID} {
+		c, ok := a.settings.Context(id)
+		if !ok || c.Knowledge == "" {
+			continue
+		}
+		dir := expandHome(c.Knowledge)
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() && !slices.Contains(out, dir) {
+			out = append(out, dir)
 		}
 	}
 	return out
@@ -109,18 +102,14 @@ func (a *App) spec(l launch, resume bool) runner.Spec {
 	}
 	args := append([]string{}, bin[1:]...)
 	args = append(args, "--settings", a.hooksPath(), "--plugin-dir", a.pluginDir(), "--add-dir", runDir)
+	for _, dir := range a.knowledgeDirs(l.proj) {
+		args = append(args, "--add-dir", dir)
+	}
 	if l.agent.Model != "" {
 		args = append(args, "--model", l.agent.Model)
 	}
-	args = append(args, "--permission-mode", permissionMode(l.agent.Permissions))
-	if allowed := expandRules(l.agent.Allowed, runDir, wt); len(allowed) > 0 {
-		args = append(args, "--allowedTools")
-		args = append(args, allowed...)
-	}
-	if denied := expandRules(l.agent.Denied, runDir, wt); len(denied) > 0 {
-		args = append(args, "--disallowedTools")
-		args = append(args, denied...)
-	}
+	// Every session runs in auto mode; what agents may do is set by the rules.
+	args = append(args, "--permission-mode", "auto")
 	args = append(args, "--append-system-prompt", a.stepBlock(l, runDir, wt))
 	if resume {
 		args = append(args, "--resume", l.step.SessionID)
@@ -131,9 +120,7 @@ func (a *App) spec(l launch, resume bool) runner.Spec {
 		"HERD_URL=" + a.baseURL(), "HERD_TOKEN=" + a.token, "HERD_TASK=" + l.task.ID, "HERD_STEP=" + l.step.Key,
 		"HERD_RUN_DIR=" + runDir, "HERD_N=" + fmt.Sprint(l.step.N), "HERD_SHA=" + l.prevSHA, "HERD_ISSUE=" + l.task.Issue,
 		"HERD_ARTIFACT=" + filepath.Join(runDir, l.agent.ArtifactName(l.step.N)),
-	}
-	if l.task.PortBase > 0 {
-		env = append(env, fmt.Sprintf("HERD_PORT_BASE=%d", l.task.PortBase))
+		"HERD_ENDPOINT=" + a.endpointPath(),
 	}
 	return runner.Spec{StepID: l.step.ID, Dir: wt, Env: env, Unset: inheritedSessionVars, Bin: bin[0], Args: args}
 }
@@ -168,7 +155,7 @@ func sessionSaved(id string) bool {
 	return len(m) > 0
 }
 
-// latestSHA returns the sha of the last Implement-like commit before seq.
+// latestSHA returns the sha of the last commit herd made before seq.
 func latestSHA(steps []store.Step, beforeSeq int) string {
 	sha := ""
 	for _, s := range steps {
@@ -253,7 +240,7 @@ func (a *App) StartStep(taskID, agentID, guidance string, n int) (StepView, erro
 	if err := a.writeTaskFile(p, t); err != nil {
 		return StepView{}, err
 	}
-	if err := a.writeContextFile(p, t, agentID); err != nil {
+	if err := a.writeContextFile(p, t); err != nil {
 		return StepView{}, err
 	}
 	a.reap()
@@ -300,7 +287,7 @@ func (a *App) resume(stepID string) error {
 	ag := agentFor(a.settings.Agents(), s.Agent)
 	steps, _ := a.db.Steps(t.ID)
 	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(steps, s.Seq)}
-	_ = a.writeContextFile(p, t, s.Agent)
+	_ = a.writeContextFile(p, t)
 	a.reap()
 	if _, err := a.run.Start(a.spec(l, true)); err != nil && !errors.Is(err, runner.ErrRunning) {
 		return err
@@ -386,6 +373,7 @@ func (a *App) onHook(ev hooks.Event) {
 	if !changed {
 		return
 	}
+	a.notify(s)
 	if s.State == store.Done {
 		a.complete(s.ID)
 	}
@@ -423,6 +411,9 @@ func (a *App) onExit(stepID string, code int, killed bool) {
 		}
 		return true
 	})
+	if changed {
+		a.notify(s)
+	}
 	if changed && s.State == store.Done {
 		a.complete(s.ID)
 	}
@@ -568,6 +559,14 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 	wt := worktreePath(p, t)
 	runDir := a.runDir(p, t)
 	g := gitops.Git{Log: say}
+	// Work no review committed (e.g. Implement, then Push) still goes in the PR.
+	if sha, err := g.CommitAll(a.ctx, wt, fmt.Sprintf("[%s] unreviewed changes", t.Slug)); err != nil {
+		say("commit failed: " + err.Error())
+		a.toast("Commit failed", err.Error(), true)
+		return
+	} else if sha != "" {
+		say(fmt.Sprintf("committed unreviewed changes as %s", sha))
+	}
 	if err := g.Push(a.ctx, wt, branchName(t)); err != nil {
 		say("push failed: " + err.Error())
 		a.toast("Push failed", err.Error(), true)
@@ -732,6 +731,9 @@ func (a *App) reconcile() {
 	for _, s := range steps {
 		if a.paused(s.ID) {
 			continue // the user resumes it
+		}
+		if _, err := a.run.Attach(s.ID); err == nil {
+			continue // still running in its holder since the last herd
 		}
 		done, verdict := a.artifactDone(s)
 		s2, changed := a.updateStep(s.ID, func(x *store.Step) bool {

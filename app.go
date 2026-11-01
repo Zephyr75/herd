@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"sync/atomic"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -12,12 +14,30 @@ import (
 // Shell connects the bound App service to the Wails runtime: events, the
 // folder picker, and the app lifecycle.
 type Shell struct {
-	ctx context.Context
-	svc *app.App
+	ctx      context.Context
+	svc      *app.App
+	notifyOK atomic.Bool
+	notifyN  atomic.Int64
 }
 
 func (s *Shell) startup(ctx context.Context) {
 	s.ctx = ctx
+	if err := wruntime.InitializeNotifications(ctx); err != nil {
+		log.Printf("herd: notifications: %v", err)
+	} else {
+		s.notifyOK.Store(true)
+		// A click on a notification brings herd forward on that task.
+		wruntime.OnNotificationResponse(ctx, func(r wruntime.NotificationResult) {
+			if r.Error != nil {
+				return
+			}
+			wruntime.WindowUnminimise(ctx)
+			wruntime.WindowShow(ctx)
+			if id, ok := r.Response.UserInfo["taskId"].(string); ok {
+				s.emit("menu", "task:"+id)
+			}
+		})
+	}
 	if err := app.Start(s.svc, ctx, s); err != nil {
 		log.Printf("herd: startup: %v", err)
 		wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
@@ -27,7 +47,26 @@ func (s *Shell) startup(ctx context.Context) {
 	}
 }
 
-func (s *Shell) shutdown(context.Context) { app.Stop(s.svc) }
+func (s *Shell) shutdown(ctx context.Context) {
+	if s.notifyOK.Load() {
+		wruntime.CleanupNotifications(ctx)
+	}
+	app.Stop(s.svc)
+}
+
+// Notify shows a desktop notification.
+func (s *Shell) Notify(title, body, taskID string) {
+	if s.ctx == nil || !s.notifyOK.Load() {
+		return
+	}
+	err := wruntime.SendNotification(s.ctx, wruntime.NotificationOptions{
+		ID: fmt.Sprintf("herd-%d", s.notifyN.Add(1)), Title: title, Body: body,
+		Data: map[string]interface{}{"taskId": taskID},
+	})
+	if err != nil {
+		log.Printf("herd: notify: %v", err)
+	}
+}
 
 // Emit sends an event to the frontend.
 func (s *Shell) Emit(event string, data any) {

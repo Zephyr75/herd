@@ -97,7 +97,6 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
       <label class="field">GitHub repo<input class="input mono" :value="p.repo" placeholder="owner/name" @input="set(p, 'repo', $event)" /></label>
       <label class="field">Base branch<input class="input mono" :value="p.baseBranch" @input="set(p, 'baseBranch', $event)" /></label>
       <label class="field">Worktrees folder<input class="input mono" :value="p.worktreesDir + '/'" @input="set(p, 'worktreesDir', $event)" /></label>
-      <label class="field">Port range<input class="input mono" :value="p.portRange" placeholder="7100-7199" @input="set(p, 'portRange', $event)" /></label>
     </div>
     <div v-for="c in failing(p.id)" :key="c.label" class="check bad">
       <span class="ico"><Icon name="warn" /></span><span class="label">{{ c.label }}</span><span class="detail">{{ c.detail }}</span>
@@ -179,7 +178,7 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
   }
   .grid4 {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
   }
   .manual {

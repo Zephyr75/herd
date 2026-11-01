@@ -46,6 +46,20 @@ function setFont(kind: 'ui' | 'term', e: Event) {
   herd.edited()
   save()
 }
+function setNotify(e: Event) {
+  const on = (e.target as HTMLInputElement).checked
+  if (herd.settings) herd.settings.config.notifications = on
+  void herd.attempt('Could not save notifications', () => api.SetNotifications(on))
+}
+
+function setMaxTabs(e: Event) {
+  const n = Math.round(Number((e.target as HTMLInputElement).value))
+  if (!herd.settings || !(n >= 1)) return
+  herd.settings.config.maxTabs = n
+  herd.trimTabs()
+  void herd.attempt('Could not save the tab limit', () => api.SetMaxTabs(n))
+}
+
 function setZed(e: Event) {
   if (!herd.settings) return
   herd.settings.config.zedCommand = (e.target as HTMLInputElement).value
@@ -101,6 +115,14 @@ function setZed(e: Event) {
     <label class="r">
       <span class="grow">Zed command</span>
       <input class="val" :value="herd.settings?.config.zedCommand" @change="setZed" />
+    </label>
+    <label class="r">
+      <span class="grow">Open tabs <span class="muted small">at most; opening one more closes the oldest</span></span>
+      <input class="val num" type="number" min="1" max="30" :value="herd.settings?.config.maxTabs" @change="setMaxTabs" />
+    </label>
+    <label class="r">
+      <span class="grow">Desktop notifications <span class="muted small">when a step needs you or ends, while herd is in the background</span></span>
+      <input type="checkbox" :checked="herd.settings?.config.notifications" @change="setNotify" />
     </label>
   </div>
 </template>
@@ -221,6 +243,9 @@ function setZed(e: Event) {
     color: var(--text);
     text-align: right;
     width: 220px;
+  }
+  .val.num {
+    width: 70px;
   }
   .val:focus {
     outline: none;

@@ -13,6 +13,21 @@ import Icon from './ui/Icon.vue'
 // running the same session elsewhere, e.g. claude --resume in Zed.
 const props = defineProps<{ step: Step }>()
 const paused = () => props.step.paused && !props.step.live
+const others = () => (props.step.live ? undefined : herd.elsewhere[props.step.id])
+
+async function resumeAnyway() {
+  await herd.resumeAnyway(props.step)
+  if (!paused()) connect(props.step.id)
+}
+async function checkAgain() {
+  const procs = await api.SessionElsewhere(props.step.id).catch(() => [])
+  if (procs.length) herd.elsewhere[props.step.id] = procs
+  else {
+    delete herd.elsewhere[props.step.id]
+    await herd.resumeStep(props.step)
+    if (!paused()) connect(props.step.id)
+  }
+}
 
 const el = ref<HTMLDivElement>()
 const ended = ref(false)
@@ -105,8 +120,11 @@ function connect(id: string, resume = false) {
         if (!disposed) ended.value = true
       }
     })
-    .catch((e) => {
-      t.write(`\x1b[31m${errorText(e)}\x1b[0m\r\n`)
+    .catch(async (e) => {
+      // The resume guard: another process runs this session.
+      const procs = await api.SessionElsewhere(id).catch(() => [])
+      if (procs.length) herd.elsewhere[id] = procs
+      else t.write(`\x1b[31m${errorText(e)}\x1b[0m\r\n`)
       ended.value = true
     })
 
@@ -153,13 +171,23 @@ watch(
 <template>
   <div class="wrap">
     <div ref="el" class="term"></div>
-    <div v-if="paused()" class="paused">
-      <span class="ico"><Icon name="stop" :size="22" :stroke="1.6" /></span>
+    <div v-if="others()" class="paused">
+      <span class="ico warn"><Icon name="warn" :size="22" /></span>
+      <span class="title">Claude is still running this session elsewhere</span>
+      <span class="text">Exit it there first, so only one Claude writes the conversation.</span>
+      <span v-for="p in others()" :key="p.pid" class="proc mono">pid {{ p.pid }} · {{ p.cmd }}</span>
+      <span class="row">
+        <button class="btn" @click="checkAgain">Check again</button>
+        <button class="btn danger" @click="resumeAnyway">Resume anyway</button>
+      </span>
+    </div>
+    <div v-else-if="paused()" class="paused">
+      <span class="ico"><Icon name="stop" :size="22" /></span>
       <span class="title">Claude is stopped in herd</span>
       <span class="text">Continue this session elsewhere, e.g. in a Zed terminal, with the resume command. Resume here when you are done, so only one Claude runs it at a time.</span>
       <span class="row">
-        <button class="btn" @click="herd.copyResume(step)"><Icon name="copy" :size="12" />Copy claude --resume</button>
-        <button class="btn primary" @click="herd.resumeStep(step)"><Icon name="play" :size="10" />Resume here</button>
+        <button class="btn" @click="herd.copyResume(step)"><Icon name="copy" :size="14" />Copy claude --resume</button>
+        <button class="btn primary" @click="herd.resumeStep(step)"><Icon name="play" :size="13" />Resume here</button>
       </span>
     </div>
     <div v-else-if="ended" class="ended">
@@ -210,6 +238,20 @@ watch(
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--muted);
+}
+.paused .ico.warn {
+  color: var(--waiting);
+}
+.paused .proc {
+  max-width: 520px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .paused .row {
   display: flex;

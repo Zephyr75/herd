@@ -37,11 +37,13 @@ In `make ui`, URL params open any screen of the preview, e.g.
 main.go, app.go        Wails entry; Shell bridges events and the folder picker
 internal/app           the bound App service: tasks, steps, hooks → state, done, commit, push
 internal/runner        one PTY per live step, scrollback, reaping
+internal/holder        `herd hold`: keeps a step's PTY alive across herd restarts
+internal/usage         tokens and API-price cost per session, from Claude Code transcripts
 internal/termws        PTY ⇄ xterm.js over ws://127.0.0.1 with a per-launch token
 internal/hooks         POST /hook receiver and ~/.herd/hooks.json
 internal/store         SQLite (tasks, steps, open tabs)
 internal/settings      config.toml, agents.toml, context/*.md, keymap.json (watched)
-internal/gitops        worktrees, commits, step diff views, push
+internal/gitops        worktrees, commits, push
 internal/github        gh: issue titles, PRs, Copilot review
 internal/artifacts     front matter, run-dir watcher
 internal/zed           open in Zed
@@ -54,17 +56,26 @@ plugin/                Claude Code plugin shipped with herd (commands are genera
 ```
 cd <repo>/.worktrees/<task>
 HERD_URL=… HERD_TOKEN=… HERD_TASK=core:4356 HERD_STEP=impl-2 HERD_RUN_DIR=~/.herd/runs/pony-core/4356 \
-claude --settings ~/.herd/hooks.json --plugin-dir ~/.herd/plugin --add-dir <run dir> \
-       --model opus --permission-mode acceptEdits --allowedTools … --disallowedTools … \
-       --append-system-prompt "<herd step: n, sha, artifact path, done rule>" \
+claude --settings ~/.herd/hooks.json --plugin-dir ~/.herd/plugin --add-dir <run dir> [--add-dir <knowledge base>] \
+       --model opus --permission-mode auto \
+       --append-system-prompt "<herd step: n, sha, artifact path, done rule; your rules>" \
        --session-id <uuid> -- "/herd:implement 4356 -- keep the retry budget configurable"
 ```
 
 Hooks (`SessionStart`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `Stop`) drive the
 step state; a step is done when `Stop` fires and its artifact's front matter matches the agent's
-done rule (or the user clicks Mark done). Then herd commits (Implement), starts automatic agents
-(Review after Implement), or pushes and opens the PR (Push) and waits for the Copilot review.
+done rule (or the user clicks Mark done). Then herd starts automatic agents (Review after
+Implement), commits (each Review commits the changes it reviewed), or pushes and opens the PR
+(Push) and waits for the Copilot review. Zed diff on a review opens its commit in Zed's commit
+view, inside the task's worktree; a file in the Changes tab opens as it was in that commit.
 
 To continue a session in Zed: Open worktree in Zed, press Stop in the terminal toolbar (herd's
 claude ends, so only one process uses the session), copy the `claude --resume` command into a Zed
 terminal, and press Resume in herd when you are done.
+
+Every session runs in Claude Code's auto mode. The Rules in Settings > Agents apply to every agent
+(say there what agents may not do); the context and knowledge base folders in Settings > Context
+apply to every session.
+Each claude runs inside a small `herd hold` process, so quitting herd leaves steps that are still
+working running: the next herd reattaches them with their output, and their hooks reach it
+through `~/.herd/endpoint`. Finished and paused steps end when herd quits.

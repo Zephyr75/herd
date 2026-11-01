@@ -4,7 +4,8 @@ import { api } from '../lib/api'
 import { herd } from '../lib/state'
 import { render, renderMermaid } from '../lib/markdown'
 import Icon from './ui/Icon.vue'
-import type { Artifact } from '../lib/types'
+import ChangesView from './Changes.vue'
+import type { Artifact, Changes } from '../lib/types'
 
 const step = computed(() => herd.selStep)
 const art = ref<Artifact | null>(null)
@@ -31,9 +32,42 @@ watch(
   { immediate: true },
 )
 
-const html = computed(() => (art.value?.exists ? render(art.value.body) : ''))
+// The step's changed files, refreshed as the task changes (debounced: hooks
+// fire often while a step works).
+const changes = ref<Changes | null>(null)
+let cseq = 0
+let ctimer: ReturnType<typeof setTimeout> | undefined
+function loadChanges(id: string | undefined, delay: number) {
+  clearTimeout(ctimer)
+  const mine = ++cseq
+  if (!id) {
+    changes.value = null
+    return
+  }
+  ctimer = setTimeout(() => {
+    api.StepChanges(id).then(
+      (c) => mine === cseq && (changes.value = c),
+      () => mine === cseq && (changes.value = { source: '', sha: '', via: '', files: [] }),
+    )
+  }, delay)
+}
 watch(
-  () => [html.value, herd.theme] as const,
+  () => step.value?.id,
+  (id) => {
+    changes.value = null
+    loadChanges(id, 0)
+  },
+  { immediate: true },
+)
+watch(
+  () => [herd.selTask, step.value?.sha, step.value?.state] as const,
+  () => loadChanges(step.value?.id, 800),
+)
+
+const html = computed(() => (art.value?.exists ? render(art.value.body) : ''))
+// The body div is recreated when the Preview tab comes back, so redraw then too.
+watch(
+  () => [html.value, herd.theme, herd.rightTab] as const,
   async () => {
     await nextTick()
     if (!body.value || !html.value) return
@@ -51,11 +85,15 @@ const vcls = (v: string) => (v === 'changes' ? 'c-waiting' : v === 'approve' || 
 <template>
   <div class="wrap">
     <div class="bar">
-      <span class="tab"><Icon name="file" />Preview {{ file }}</span>
+      <button class="tab" :class="{ on: herd.rightTab === 'preview' }" @click="herd.rightTab = 'preview'"><Icon name="file" />Preview {{ file }}</button>
+      <button v-if="step" class="tab" :class="{ on: herd.rightTab === 'changes' }" @click="herd.rightTab = 'changes'">
+        Changes<span v-if="changes?.files.length" class="count">{{ changes.files.length }}</span>
+      </button>
       <span class="grow"></span>
     </div>
     <div class="content">
-      <p v-if="!step" class="empty">Open a step to preview the artifact it wrote.</p>
+      <ChangesView v-if="step && herd.rightTab === 'changes'" :changes="changes" />
+      <p v-else-if="!step" class="empty">Open a step to preview the artifact it wrote.</p>
       <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as Claude writes it.</p>
       <template v-else>
         <div v-if="art.front?.length" class="front">
@@ -89,10 +127,25 @@ const vcls = (v: string) => (v === 'changes' ? 'c-waiting' : v === 'approve' || 
     align-items: center;
     gap: 7px;
     padding: 0 14px;
-    background: var(--bg);
+    border: 0;
     border-right: 1px solid var(--border);
-    margin-bottom: -1px;
+    background: var(--chrome);
+    color: var(--muted);
     white-space: nowrap;
+    font-size: 13px;
+  }
+  .tab.on {
+    background: var(--bg);
+    color: var(--text);
+    margin-bottom: -1px;
+  }
+  .count {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
   }
   .grow {
     flex: 1;

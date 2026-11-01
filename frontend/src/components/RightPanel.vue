@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
+import { usageLabel, usageTitle } from '../lib/format'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import Preview from './Preview.vue'
@@ -39,7 +40,7 @@ async function archive() {
           <span class="title">{{ t.title }}</span>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" /></button>
         </div>
-        <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
+        <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}<span v-if="usageLabel(t.usage)" :title="usageTitle(t.usage)"> · {{ usageLabel(t.usage) }}</span></span>
         <p v-if="t.description" class="desc">{{ t.description }}</p>
       </div>
 
@@ -61,9 +62,9 @@ async function archive() {
               <span class="name">{{ s.name }}</span>
               <span v-if="meta(s).text" :class="['meta', meta(s).cls]">{{ meta(s).text }}</span>
             </span>
-            <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
+            <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}<span v-if="usageLabel(s.usage)" :title="usageTitle(s.usage)"> · {{ usageLabel(s.usage) }}</span></span>
           </button>
-          <button v-if="s.sha" class="diff" aria-label="Open this step's diff in Zed" @click="herd.openDiff(s)">Zed diff</button>
+          <button v-if="s.sha && s.commits" class="diff" aria-label="Open this step's commit in Zed" @click="herd.openDiff(s)">Zed diff</button>
         </div>
         <div v-if="t.next.ghost" class="row ghost">
           <span class="rail"><span class="sdot pending"></span></span>

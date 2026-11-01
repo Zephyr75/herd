@@ -34,7 +34,7 @@ function dblclick(e: MouseEvent) {
     </button>
     <template v-if="herd.view === 'board' && t">
       <button class="crumb project" :class="{ on: scopeOpen('project') }" @click="herd.openOverlay('scope', 'project')">
-        {{ t.projectName }}<Icon name="chevron" :size="10" :stroke="2.4" />
+        {{ t.projectName }}<Icon name="chevron" :size="13" />
       </button>
       <span class="sep" aria-hidden="true">/</span>
       <button class="crumb" :class="{ on: scopeOpen('worktree') }" @click="herd.openOverlay('scope', 'worktree')">
@@ -51,18 +51,18 @@ function dblclick(e: MouseEvent) {
       <Icon name="search" /><span class="grow">Search tasks</span>
     </button>
     <button class="new" @click="herd.openOverlay('new')">
-      <Icon name="plus" :size="12" :stroke="2.2" />New task
+      <Icon name="plus" :size="14" />New task
     </button>
     <div v-if="controls" class="win" aria-label="Window">
       <button class="wc" aria-label="Minimise" title="Minimise" @click="minimise()">
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5.5h8" stroke="currentColor" stroke-width="1.2" /></svg>
+        <Icon name="win-min" :size="16" />
       </button>
       <button class="wc" :aria-label="maximised ? 'Restore' : 'Maximise'" :title="maximised ? 'Restore' : 'Maximise'" @click="toggleMaximise()">
-        <svg v-if="maximised" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1" y="3" width="6" height="6" /><path d="M3 3V1h6v6H7" /></svg>
-        <svg v-else width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7" /></svg>
+        <Icon v-if="maximised" name="win-restore" :size="16" />
+        <Icon v-else name="win-max" :size="16" />
       </button>
       <button class="wc close" aria-label="Close" title="Close" @click="quit()">
-        <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>
+        <Icon name="win-close" :size="16" />
       </button>
     </div>
   </header>

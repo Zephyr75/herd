@@ -6,6 +6,7 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"os"
 	"runtime"
 
 	"github.com/wailsapp/wails/v2"
@@ -17,6 +18,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
 	"herd/internal/app"
+	"herd/internal/holder"
 )
 
 //go:embed all:frontend/dist
@@ -26,11 +28,19 @@ var assets embed.FS
 var pluginFiles embed.FS
 
 func main() {
+	// `herd hold <socket> -- <cmd>` keeps one Claude Code session alive
+	// across herd restarts (see internal/holder).
+	if len(os.Args) > 1 && os.Args[1] == "hold" {
+		os.Exit(holder.Main(os.Args[2:]))
+	}
 	plugin, err := fs.Sub(pluginFiles, "plugin")
 	if err != nil {
 		log.Fatal(err)
 	}
 	svc := app.New(app.DefaultHome(), plugin)
+	if exe, err := os.Executable(); err == nil {
+		svc.HoldCmd = []string{exe, "hold"}
+	}
 	shell := &Shell{svc: svc}
 
 	opts := &options.App{

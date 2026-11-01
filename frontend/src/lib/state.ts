@@ -6,9 +6,9 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import type { Option, Settings, Step, TabRef, Task } from './types'
+import type { Option, Proc, Settings, Step, TabRef, Task } from './types'
 
-export type Overlay = 'none' | 'palette' | 'scope' | 'new'
+export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
 export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts'
 
@@ -51,6 +51,9 @@ class Herd {
   view: 'board' | 'settings' = 'board'
   settingsTab: SettingsTab = 'agents'
   overlay: Overlay = 'none'
+  rightTab: 'preview' | 'changes' = 'preview'
+  /** Steps whose session another process still runs (the resume guard). */
+  elsewhere: Record<string, Proc[]> = {}
   scope: ScopeMode = 'project'
   collapsed: Record<string, boolean> = {}
   guidance = ''
@@ -108,6 +111,7 @@ class Herd {
       if (this.active < 0 && this.tabs.length) this.active = 0
       this.sel = this.tabs[this.active]?.task ?? this.tasks.find((t) => !t.archived)?.id ?? this.tasks[0]?.id ?? ''
       if (this.task(this.sel)?.archived) this.left = 'archive'
+      this.trimTabs()
     } catch (e) {
       this.failed = errorText(e)
       return
@@ -124,6 +128,14 @@ class Herd {
     })
     on('toast', (d: { title: string; body: string; error: boolean }) => this.toast(d.title, d.body, d.error))
     on('menu', (what: string) => this.command(what))
+    if (isDesktop) {
+      // Desktop notifications are only shown while herd is in the background.
+      const report = () => void api.SetFocused(document.hasFocus() && !document.hidden)
+      window.addEventListener('focus', report)
+      window.addEventListener('blur', report)
+      document.addEventListener('visibilitychange', report)
+      report()
+    }
     window.addEventListener('keydown', (e) => this.onKey(e), true)
     this.ready = true
   }
@@ -150,7 +162,8 @@ class Herd {
     const scope = q.get('scope')
     if (scope === 'project' || scope === 'worktree' || scope === 'branch') this.scope = scope
     const overlay = q.get('overlay')
-    if (overlay === 'palette' || overlay === 'scope' || overlay === 'new') this.overlay = overlay
+    if (overlay === 'palette' || overlay === 'scope' || overlay === 'new' || overlay === 'activity') this.overlay = overlay
+    if (q.get('right') === 'changes') this.rightTab = 'changes'
     this.previewQuery = q.get('q') ?? ''
     this.previewNew = q.get('new') ?? ''
   }
@@ -175,6 +188,7 @@ class Herd {
       if (!hasTab) continue
       this.tabs.push({ task: t.id, step: s.id })
       if (watching) this.active = this.tabs.length - 1
+      this.trimTabs()
       this.persistTabs()
     }
   }
@@ -226,6 +240,27 @@ class Herd {
 
   // ---- selection and tabs ----
 
+  /** When each tab was last opened or focused, by step id. */
+  private tabUsed: Record<string, number> = {}
+
+  /** trimTabs closes the least recently used tabs above the limit in Settings. */
+  trimTabs() {
+    const max = Math.max(1, this.settings?.config.maxTabs || 5)
+    const keep = this.tabs[this.active]
+    if (keep) this.tabUsed[keep.step] = Date.now()
+    while (this.tabs.length > max) {
+      let old = -1
+      this.tabs.forEach((tb, i) => {
+        if (tb !== keep && (old < 0 || (this.tabUsed[tb.step] ?? 0) < (this.tabUsed[this.tabs[old].step] ?? 0))) old = i
+      })
+      if (old < 0) break
+      delete this.tabUsed[this.tabs[old].step]
+      this.tabs.splice(old, 1)
+      if (old < this.active) this.active--
+    }
+    this.persistTabs()
+  }
+
   openStep(taskId: string, stepId: string) {
     let ix = this.tabs.findIndex((tb) => tb.task === taskId && tb.step === stepId)
     if (ix < 0) {
@@ -233,6 +268,7 @@ class Herd {
       ix = this.tabs.length - 1
     }
     this.active = ix
+    this.trimTabs()
     this.sel = taskId
     this.overlay = 'none'
     this.view = 'board'
@@ -268,6 +304,7 @@ class Herd {
     const tb = this.tabs[i]
     if (!tb) return
     this.active = i
+    this.tabUsed[tb.step] = Date.now()
     this.sel = tb.task
     this.view = 'board'
     const t = this.task(tb.task)
@@ -346,8 +383,22 @@ class Herd {
     return this.attempt('Could not stop Claude', () => api.StopStep(step.id))
   }
 
-  resumeStep(step: Step) {
-    return this.attempt('Could not resume', () => api.ResumeStep(step.id))
+  /** Resume, unless another process (e.g. claude --resume in Zed) still
+   *  runs the session: then the terminal shows who, and Resume anyway. */
+  async resumeStep(step: Step) {
+    try {
+      await api.ResumeStep(step.id)
+      delete this.elsewhere[step.id]
+    } catch (e) {
+      const procs = await api.SessionElsewhere(step.id).catch(() => [])
+      if (procs.length) this.elsewhere[step.id] = procs
+      else this.toast('Could not resume', errorText(e), true)
+    }
+  }
+
+  async resumeAnyway(step: Step) {
+    delete this.elsewhere[step.id]
+    await this.attempt('Could not resume', () => api.ResumeStepAnyway(step.id))
   }
 
   // ---- overlays and commands ----
@@ -358,6 +409,12 @@ class Herd {
   }
 
   command(action: string) {
+    if (action.startsWith('task:')) {
+      // A click on a desktop notification.
+      this.overlay = 'none'
+      this.view = 'board'
+      return this.pickTask(action.slice(5))
+    }
     const board = this.view === 'board'
     switch (action) {
       case 'palette':
@@ -389,6 +446,10 @@ class Herd {
       case 'closeTab':
         if (this.activeTab) this.closeTab(this.active)
         return
+      case 'nextTab':
+      case 'prevTab':
+        if (this.tabs.length) this.focusTab((Math.max(this.active, 0) + (action === 'nextTab' ? 1 : this.tabs.length - 1)) % this.tabs.length)
+        return
       case 'openWorktree':
         return void this.openWorktree()
       case 'openDiff':
@@ -404,6 +465,8 @@ class Herd {
     if (!action) return
     // ⌘⏎ inside a popup belongs to the popup (Create and run Plan, open in Zed).
     if (this.overlay !== 'none' && action === 'runPrimary') return
+    // Escape with nothing to close belongs to the focused element, e.g. Claude Code in the terminal.
+    if (action === 'close' && this.overlay === 'none' && this.view === 'board') return
     e.preventDefault()
     e.stopPropagation()
     this.command(action)

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"herd/internal/github"
 	"herd/internal/settings"
 	"herd/internal/store"
 )
@@ -25,10 +26,11 @@ type StepView struct {
 	Auto     bool   `json:"auto"`
 	Artifact string `json:"artifact"`
 	Commits  bool   `json:"commits"`
-	Paused   bool   `json:"paused"` // stopped by the user until Resume
-	Manual   bool   `json:"manual"` // created without running: the user drives its session
-	Fresh    bool   `json:"fresh"`  // its session has no transcript yet: claude --session-id, not --resume
-	Rerun    bool   `json:"rerun"`  // Rerun applies (see markRerun)
+	Paused   bool   `json:"paused"`   // stopped by the user until Resume
+	Manual   bool   `json:"manual"`   // created without running: the user drives its session
+	Fresh    bool   `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
+	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
+	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
 }
 
 // Option is one next-step button.
@@ -60,19 +62,21 @@ type Next struct {
 // TaskView is a task with its steps and derived state.
 type TaskView struct {
 	store.Task
-	ProjectName string     `json:"projectName"`
-	Repo        string     `json:"repo"`
-	BaseBranch  string     `json:"baseBranch"`
-	Worktree    string     `json:"worktree"`
-	WorktreeRel string     `json:"worktreeRel"`
-	Branch      string     `json:"branch"`
-	RunDir      string     `json:"runDir"`
-	Source      string     `json:"source"`
-	Status      Status     `json:"status"`
-	Steps       []StepView `json:"steps"`
-	Next        Next       `json:"next"`
-	PRTitle     *PRTitle   `json:"prTitle"`     // chosen at the last Push
-	ProjectGone bool       `json:"projectGone"` // its project was removed from Settings > Projects
+	ProjectName string         `json:"projectName"`
+	Repo        string         `json:"repo"`
+	BaseBranch  string         `json:"baseBranch"`
+	Worktree    string         `json:"worktree"`
+	WorktreeRel string         `json:"worktreeRel"`
+	Branch      string         `json:"branch"`
+	RunDir      string         `json:"runDir"`
+	Source      string         `json:"source"`
+	Status      Status         `json:"status"`
+	Steps       []StepView     `json:"steps"`
+	Next        Next           `json:"next"`
+	PRTitle     *PRTitle       `json:"prTitle"`     // chosen at the last Push
+	ProjectGone bool           `json:"projectGone"` // its project was removed from Settings > Projects
+	Checks      []github.Check `json:"checks"`      // CI checks of the open PR, refreshed every minute
+	Labels      []string       `json:"labels"`      // labels of the open PR
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -147,6 +151,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
 			Artifact: ag.ArtifactName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID), Manual: a.manual(s.ID),
+			External: s.Agent == copilotAgent,
 		})
 		if sv := &v.Steps[len(v.Steps)-1]; sv.Manual && sv.State != store.Done {
 			sv.Fresh = !sessionSaved(s.SessionID)
@@ -161,7 +166,18 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	_, known := a.settings.Project(t.Project)
 	v.ProjectGone = !known
 	a.markRerun(t, v.Steps, agents)
+	v.Labels = a.labelsOf(t.ID)
+	if v.Labels == nil {
+		v.Labels = []string{}
+	}
+	v.Checks = a.checksOf(t.ID)
+	if v.Checks == nil {
+		v.Checks = []github.Check{}
+	}
 	v.Status = statusOf(t, v.Steps)
+	if ci := ciSummary(v.Checks); ci != "" && t.PRNumber > 0 && t.PRState == "open" {
+		v.Status.Label += " · " + ci
+	}
 	v.Next = nextOf(t, v.Steps, agents)
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
 	return v, nil
@@ -242,6 +258,26 @@ func (a *App) changedSince(t store.Task, stepID string) bool {
 	return err == nil && now != was
 }
 
+// ciSummary is the PR's CI state in a few words, "" before any check.
+func ciSummary(cs []github.Check) string {
+	if len(cs) == 0 {
+		return ""
+	}
+	pending := false
+	for _, c := range cs {
+		switch c.Bucket {
+		case "fail", "cancel":
+			return "CI failed"
+		case "pending":
+			pending = true
+		}
+	}
+	if pending {
+		return "CI running"
+	}
+	return "CI passed"
+}
+
 func sourceText(t store.Task, p settings.Project) string {
 	switch {
 	case t.Issue != "" && t.Description != "":
@@ -282,6 +318,9 @@ func statusOf(t store.Task, steps []StepView) Status {
 		}
 	}
 	for _, s := range steps {
+		if s.State == store.Running && s.External {
+			return Status{"running", fmt.Sprintf("Waiting for Copilot · PR #%d", t.PRNumber), "copilot"}
+		}
 		if s.State == store.Running {
 			return Status{"running", "Running · " + s.Name, "running"}
 		}
@@ -378,7 +417,29 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 			return nx
 		}
 	}
+	// fix is the manual agent to go back to (Implement): the nearest one
+	// before the last step, or before Push after herd's Copilot step.
+	var fix *Option
+	from := idx
+	if last.External {
+		from = len(agents)
+	}
+	for i := from - 1; i >= 0; i-- {
+		if agents[i].AfterAgent() == "" && !agents[i].Push {
+			o := option(agents[i], countAgent(steps, agents[i].ID)+1, "")
+			fix = &o
+			break
+		}
+	}
 	for _, s := range steps {
+		if s.State == store.Running && s.External {
+			nx.Text = fmt.Sprintf("Waiting for Copilot's review of PR #%d (checked every minute). Start a fix any time, or Mark done to stop waiting.", t.PRNumber)
+			nx.MarkDone = s.ID
+			if fix != nil {
+				nx.Options = append(nx.Options, *fix)
+			}
+			return nx
+		}
 		if s.State == store.Running {
 			nx.Text = s.Name + " is running. "
 			if autoNext != nil && s.ID == last.ID && !last.Manual {
@@ -400,15 +461,20 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		nx.MarkDone = last.ID
 		return nx
 	}
-	// The last step finished. fix is the manual agent to go back to, e.g.
-	// Implement after a failed Review or Test, or after Push.
-	var fix *Option
-	for i := idx - 1; i >= 0; i-- {
-		if agents[i].AfterAgent() == "" && !agents[i].Push {
-			o := option(agents[i], countAgent(steps, agents[i].ID)+1, "")
-			fix = &o
-			break
+	// The last step finished.
+	if last.External {
+		if last.Unsuccessful() {
+			nx.Text = fmt.Sprintf("Copilot left comments on PR #%d (%s, also in FEEDBACK.md).", t.PRNumber, last.Artifact)
+		} else if last.Verdict == skipped {
+			nx.Text = fmt.Sprintf("herd stopped waiting for Copilot on PR #%d.", t.PRNumber)
+		} else {
+			nx.Text = fmt.Sprintf("Copilot found nothing to fix on PR #%d. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
 		}
+		if fix != nil {
+			nx.Text += " Start " + fix.Label + " for fixes (Copilot comments, failing CI), then push again."
+			nx.Options = append(nx.Options, *fix)
+		}
+		return nx
 	}
 	if last.Unsuccessful() {
 		nx.Text = last.Name + " failed: " + last.Artifact + " says why."

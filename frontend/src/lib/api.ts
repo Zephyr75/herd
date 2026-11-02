@@ -25,6 +25,8 @@ export interface Api {
   DeleteTask(task: string): Promise<string[]>
   OpenInZed(task: string, step: string): Promise<string[]>
   OpenRunDir(task: string): Promise<void>
+  OpenURL(link: string): Promise<void>
+  MarkPRReady(task: string): Promise<void>
   OpenProjectInZed(project: string): Promise<void>
   ReadArtifact(step: string): Promise<Artifact>
   TerminalURL(step: string): Promise<string>

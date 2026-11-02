@@ -78,11 +78,15 @@ type App struct {
 	mu     sync.Mutex // serialises step and task state transitions
 
 	pollMu sync.Mutex // one pollPRs at a time
+
+	checksMu sync.Mutex
+	checks   map[string][]github.Check // CI checks of each open PR, by task id
+	labels   map[string][]string       // labels of each open PR, by task id
 }
 
 // New creates the service; call Start before use.
 func New(home string, plugin fs.FS) *App {
-	return &App{Home: home, PluginSrc: plugin}
+	return &App{Home: home, PluginSrc: plugin, checks: map[string][]github.Check{}, labels: map[string][]string{}}
 }
 
 // DefaultHome returns ~/.herd, or $HERD_HOME when set.
@@ -289,7 +293,7 @@ func (a *App) toast(title, body string, isErr bool) {
 // loop runs the reaper and the PR poller (state and Copilot reviews).
 func (a *App) loop() {
 	reap := time.NewTicker(20 * time.Second)
-	prs := time.NewTicker(3 * time.Minute)
+	prs := time.NewTicker(time.Minute)
 	defer reap.Stop()
 	defer prs.Stop()
 	go a.pollPRs()

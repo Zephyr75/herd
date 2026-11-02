@@ -123,6 +123,7 @@ export interface Step {
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume
   rerun: boolean // Rerun applies: the latest committing step, or the Review after hand edits
+  external: boolean // run by herd, not Claude: the Copilot review step
 }
 
 export interface Option {
@@ -167,6 +168,8 @@ export interface Task {
   next: Next
   prTitle: PRTitle | null // chosen at the last Push
   projectGone: boolean // its project was removed from Settings > Projects
+  checks: CICheck[] // CI checks of the open PR
+  labels: string[] // labels of the open PR
 }
 
 export type PRKind = 'feat' | 'fix' | 'perf' | 'test'
@@ -203,10 +206,19 @@ export interface TabRef {
   step: string
 }
 
+/** One CI check on a PR; bucket is pass, fail, pending, skipping or cancel. */
+export interface CICheck {
+  name: string
+  workflow: string
+  bucket: string
+  link: string
+}
+
 /** An open GitHub issue assigned to you, for New task. */
 export interface Issue {
   number: number
   title: string
+  priority: string // the issue's Priority field (Urgent, High, …), '' when unset
 }
 
 export interface Bootstrap {

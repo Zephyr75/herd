@@ -6,7 +6,7 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import type { Option, PRTitle, Proc, Settings, Step, TabRef, Task } from './types'
+import { unsuccessful, type Option, type PRTitle, type Proc, type Settings, type Step, type TabRef, type Task } from './types'
 
 export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push' | 'diff' | 'artifact'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
@@ -484,6 +484,19 @@ class Herd {
     const t = this.selTask
     const opt = t?.next.options[0]
     if (t && opt && !t.archived) void this.run(opt)
+  }
+
+  /** readyLabel: 'offer' once the latest Copilot step found nothing on the
+   *  open PR, 'done' when the PR has the ready label, else ''. */
+  readyLabel(t: Task | null): '' | 'offer' | 'done' {
+    if (!t || t.archived || !t.pr || t.prState !== 'open') return ''
+    if (t.labels.includes('ready')) return 'done'
+    const last = t.steps[t.steps.length - 1]
+    return last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped' ? 'offer' : ''
+  }
+
+  async markReady(t: Task) {
+    if ((await this.attempt('Could not add the label', () => api.MarkPRReady(t.id).then(() => true))) && !t.labels.includes('ready')) t.labels.push('ready')
   }
 
   async openWorktree() {

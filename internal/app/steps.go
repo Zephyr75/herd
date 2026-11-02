@@ -305,6 +305,10 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 		Guidance: strings.TrimSpace(guidance), SessionID: uuid.NewString(), Model: ag.Model, StartedAt: time.Now(),
 	}
 	for _, x := range steps {
+		if x.Agent == copilotAgent && x.State == store.Running { // stop waiting: the user moved on
+			x.State, x.EndedAt, x.Completed, x.Verdict = store.Done, time.Now(), true, skipped
+			_ = a.db.SaveStep(x)
+		}
 		if x.State != store.Done && x.State != store.Failed && a.manual(x.ID) {
 			x.State, x.EndedAt, x.Completed = store.Done, time.Now(), true
 			_ = a.db.SaveStep(x)
@@ -501,6 +505,9 @@ func (a *App) MarkDone(stepID string) error {
 			return false
 		}
 		s.State, s.EndedAt, s.Verdict = store.Done, time.Now(), "" // the user says it succeeded
+		if s.Agent == copilotAgent {
+			s.Verdict = skipped
+		}
 		return true
 	})
 	if changed {
@@ -751,14 +758,86 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 	}
 	if t.PRNumber == n {
 		say(fmt.Sprintf("updated PR #%d %s", n, url))
+	} else {
+		say(fmt.Sprintf("opened PR #%d %s", n, url))
+		_ = a.updateTask(t.ID, func(t *store.Task) error {
+			t.PRNumber, t.PRURL, t.PRState = n, url, "open"
+			return nil
+		})
+	}
+	if err := a.gh.RequestCopilot(a.ctx, p.Repo, n); err != nil {
+		say("could not ask Copilot for a review: " + err.Error())
+	} else {
+		say(fmt.Sprintf("asked Copilot to review PR #%d", n))
+	}
+	a.startCopilotStep(t.ID)
+	go a.pollPRs()
+}
+
+// copilotAgent is the step herd runs itself after each push: it waits for
+// Copilot's review and writes it to COPILOT-<n>.md (no Claude session).
+const copilotAgent = "copilot"
+
+// skipped is the Verdict of a Copilot step herd stopped waiting on.
+const skipped = "skipped"
+
+func (a *App) startCopilotStep(taskID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	steps, err := a.db.Steps(taskID)
+	if err != nil {
 		return
 	}
-	say(fmt.Sprintf("opened PR #%d %s", n, url))
-	_ = a.updateTask(t.ID, func(t *store.Task) error {
-		t.PRNumber, t.PRURL, t.PRState = n, url, "open"
-		return nil
+	n := 1
+	for _, s := range steps {
+		if s.Agent == copilotAgent && s.N >= n {
+			n = s.N + 1
+		}
+	}
+	seq, err := a.db.NextSeq(taskID)
+	if err != nil {
+		return
+	}
+	key := fmt.Sprintf("%s-%d", copilotAgent, n)
+	_ = a.db.SaveStep(store.Step{ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: copilotAgent, N: n, Seq: seq, State: store.Running, StartedAt: time.Now()})
+	a.emitTask(taskID)
+}
+
+// finishCopilotStep writes the review into the waiting Copilot step, if any:
+// it fails when Copilot left comments, so Next step offers a fix.
+func (a *App) finishCopilotStep(t store.Task, r github.Review) {
+	steps, _ := a.db.Steps(t.ID)
+	var s *store.Step
+	for i := range steps {
+		if steps[i].Agent == copilotAgent && steps[i].State == store.Running {
+			s = &steps[i]
+		}
+	}
+	if s == nil {
+		return
+	}
+	status := "done"
+	if len(r.Comments) > 0 {
+		status = "failed"
+	}
+	md := fmt.Sprintf("---\nstatus: %s\npr: %d\ncomments: %d\n---\n\n%s", status, t.PRNumber, len(r.Comments), copilotMarkdown(t.PRNumber, r.Body, r.Comments))
+	ag := agentFor(a.settings.Agents(), copilotAgent)
+	_ = os.WriteFile(filepath.Join(a.runDir(a.projectOf(t), t), ag.ArtifactName(s.N)), []byte(md), 0o644)
+	done, changed := a.updateStep(s.ID, func(x *store.Step) bool {
+		if x.State != store.Running {
+			return false
+		}
+		x.State, x.EndedAt, x.Verdict = store.Done, time.Now(), ""
+		if status == "failed" {
+			x.Verdict = store.Failure
+		}
+		return true
 	})
-	say("herd appends Copilot's reviews to FEEDBACK.md as they arrive")
+	if changed {
+		a.notify(done)
+		a.complete(done.ID)
+		a.emitTask(t.ID)
+	}
 }
 
 // splitTitle returns the first non-empty line (without #) and the rest.
@@ -787,6 +866,7 @@ func (a *App) collectCopilot(t store.Task) {
 	}
 	for _, r := range rs {
 		a.appendFeedback(t, p.Name, copilotMarkdown(t.PRNumber, r.Body, r.Comments))
+		a.finishCopilotStep(t, r)
 		_ = a.db.Set("copilot:"+t.ID, strconv.FormatInt(r.ID, 10))
 		a.toast("Copilot review arrived", fmt.Sprintf("PR #%d: %d comments appended to FEEDBACK.md", t.PRNumber, len(r.Comments)), false)
 	}
@@ -836,8 +916,8 @@ func (a *App) reconcile() {
 		return
 	}
 	for _, s := range steps {
-		if a.paused(s.ID) {
-			continue // the user resumes it
+		if a.paused(s.ID) || s.Agent == copilotAgent {
+			continue // the user resumes it; herd itself waits for Copilot
 		}
 		if _, err := a.run.Attach(s.ID); err == nil {
 			continue // still running in its holder since the last herd

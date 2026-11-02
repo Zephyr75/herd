@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"herd/internal/github"
 	"herd/internal/holder"
 	"herd/internal/settings"
 	"herd/internal/store"
@@ -834,6 +835,9 @@ func TestNextAfterOutcome(t *testing.T) {
 		}
 		return strings.Join(l, ", ")
 	}
+	copilotStep := func(n int, state, verdict string) StepView {
+		return StepView{Step: store.Step{Agent: copilotAgent, N: n, State: state, Verdict: verdict}, Name: "Copilot 1", Artifact: "COPILOT-1.md", External: true}
+	}
 	base := []StepView{step("plan", 1, ""), step("impl", 1, ""), step("review", 1, "")}
 	for name, c := range map[string]struct {
 		steps []StepView
@@ -844,6 +848,8 @@ func TestNextAfterOutcome(t *testing.T) {
 		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Push, Implement 2"},
 		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Plan"},
 		"pushed":           {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Implement 2"},
+		"copilot comments": {append(base, step("push", 1, ""), copilotStep(1, store.Done, store.Failure)), store.Task{PRNumber: 7}, "Implement 2"},
+		"copilot waiting":  {append(base, step("push", 1, ""), copilotStep(1, store.Running, "")), store.Task{PRNumber: 7}, "Implement 2"},
 	} {
 		if got := labels(nextOf(c.task, c.steps, agents)); got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
@@ -907,5 +913,39 @@ func TestPlanOptionsWarning(t *testing.T) {
 	v, _ := a.GetTask(tv.ID)
 	if !strings.Contains(v.Next.Warning, "PLAN.md lists several options") || !strings.Contains(v.Next.Warning, "Implement 1") {
 		t.Fatalf("warning %q", v.Next.Warning)
+	}
+}
+
+func TestCopilotStep(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "wait for copilot", "", false)
+	_ = a.updateTask(tv.ID, func(t *store.Task) error { t.PRNumber, t.PRState = 7, "open"; return nil })
+	a.startCopilotStep(tv.ID)
+	id := store.StepID(tv.ID, "copilot-1")
+	v, _ := a.GetTask(tv.ID)
+	if v.Status.Short != "copilot" || v.Next.MarkDone != id {
+		t.Fatalf("waiting: %+v %+v", v.Status, v.Next)
+	}
+	task, _ := a.db.Task(tv.ID)
+	a.finishCopilotStep(task, github.Review{ID: 1, Body: "Looks fine", Comments: []github.Comment{{Path: "a.go", Line: 3, Body: "nil check"}}})
+	s, _ := a.db.Step(id)
+	if !s.Unsuccessful() {
+		t.Fatalf("a review with comments should fail the step: %+v", s)
+	}
+	b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-1.md"))
+	if !strings.Contains(string(b), "status: failed") || !strings.Contains(string(b), "`a.go:3` nil check") {
+		t.Fatalf("COPILOT-1.md: %s", b)
+	}
+}
+
+func TestCISummary(t *testing.T) {
+	for want, buckets := range map[string][]string{"": nil, "CI passed": {"pass", "skipping"}, "CI running": {"pass", "pending"}, "CI failed": {"pending", "fail"}} {
+		var cs []github.Check
+		for _, b := range buckets {
+			cs = append(cs, github.Check{Bucket: b})
+		}
+		if got := ciSummary(cs); got != want {
+			t.Errorf("%v: %q, want %q", buckets, got, want)
+		}
 	}
 }

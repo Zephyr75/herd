@@ -25,7 +25,7 @@ const toggle = (id: string) => (herd.collapsed[id] = !herd.collapsed[id])
 // PR open and its Push is the latest step: nothing left but the merge.
 function awaitingMerge(t: Task) {
   const last = t.steps[t.steps.length - 1]
-  const isPush = !!herd.settings?.agents.find((a) => a.id === last?.agent)?.push
+  const isPush = !!last && (last.external || !!herd.settings?.agents.find((a) => a.id === last.agent)?.push)
   return !t.archived && t.pr > 0 && t.prState === 'open' && isPush && last.state === 'done' && !unsuccessful(last)
 }
 const archive = (t: Task) => herd.attempt('Could not archive', () => api.ArchiveTask(t.id))

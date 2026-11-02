@@ -83,7 +83,7 @@ const file = computed(() => art.value?.file || step.value?.artifact || '')
     <div class="content">
       <ChangesView v-if="step && herd.rightTab === 'changes'" :changes="changes" />
       <p v-else-if="!step" class="empty">Open a step to preview the artifact it wrote.</p>
-      <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as Claude writes it.</p>
+      <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as {{ step.external ? "Copilot's review arrives" : 'Claude writes it' }}.</p>
       <ArtifactView v-else :art="art" />
     </div>
   </div>

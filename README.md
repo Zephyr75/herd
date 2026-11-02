@@ -68,9 +68,13 @@ or when the user clicks Mark done. A step still waiting on a background shell st
 After a success, herd commits (agents with Commit set), pushes and opens the PR (Push), and starts
 the automatic agents (`trigger = "after:<agent>"`: Review after Implement, Test after Review). A
 failed step changes nothing; Next step offers to go back (Implement after a failed Review or Test).
-While a PR is open, herd checks it every 3 minutes and appends each new Copilot review to
-FEEDBACK.md; Implement again (offered after Push) reads it and fixes failing CI checks, then Push
-updates the PR. Once the PR is open and nothing is left to fix, an archive button appears on the
+After each push herd asks Copilot for a review (`gh pr edit --add-reviewer @copilot`) and adds a
+Copilot step that herd runs itself: its tab shows the PR's CI checks by workflow and the review
+state, refreshed every minute; the review lands in COPILOT-n.md (Preview tab) and FEEDBACK.md, and
+the step fails when Copilot left comments. When it succeeds, "Label ready" (Next step and the
+Copilot tab) adds the `ready` label to the PR. Task cards show the CI state (CI running, passed,
+failed). Implement again (offered after Push and Copilot) reads FEEDBACK.md and fixes failing CI
+checks, then Push updates the PR. Once the PR is open and nothing is left to fix, an archive button appears on the
 task in the task list. The folder icon next to Steps opens the task's run folder (its markdown files). Diff on a step with a commit opens that commit in Zed's
 commit view, inside the task's worktree. A file in the Changes tab opens a large pop-up with every changed
 file and the selected one's read-only diff; Zed diff opens that step's own commit in Zed's diff view
@@ -89,8 +93,8 @@ after it waits for you to Start it.
 An archived task can be deleted for good (Delete task, two clicks): herd forgets it and removes its
 worktree, local branch and run files; the pushed branch and the PR stay on GitHub.
 
-New task lists the project's open issues assigned to you (`gh issue list --assignee @me`); the #
-field takes any other issue. When a plan lists Options, Next step asks you to name one in the
+New task lists the project's open issues assigned to you, most urgent first, with their Priority
+issue field (Urgent, High, …); the # field takes any other issue. When a plan lists Options, Next step asks you to name one in the
 guidance before Implement. Rerun appears on the cycle's Review when you changed the worktree by
 hand after the last step finished (herd keeps a content hash of the worktree per step), even
 after Test. Shortcuts: Alt+E and Alt+A hide the task list and the steps panel, Escape closes

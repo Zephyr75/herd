@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import { afterOf, unsuccessful, type PRTitle, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind } from './types'
+import { afterOf, unsuccessful, type CICheck, type PRTitle, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -61,7 +61,7 @@ interface Fx {
   diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]; options?: boolean // the plan lists options
 }
 interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
-interface MockTask { id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
+interface MockTask { labels?: string[]; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
 
 const T: MockTask[] = [
   { id: 'core:4356', project: 'core', issue: '4356', slug: '4356', title: 'Retry BLE unlock on flaky connections', description: '',
@@ -116,12 +116,27 @@ const T: MockTask[] = [
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: 'b5c0d9e1' },
       { key: 'review-1', agent: 'review', n: 1, state: 'running', session: '0d9c3b74' },
     ] },
+  { id: 'core:4390', project: 'core', issue: '4390', slug: '4390', title: 'Cache region config lookups', description: '', pr: 902, prState: 'open', fx: { copilot: [] },
+    steps: [
+      { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '6c7d8e9f' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '7d8e9fa0' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', session: '8e9fa0b1' },
+      { key: 'push-1', agent: 'push', n: 1, state: 'done', session: '9fa0b1c2' },
+      { key: 'copilot-1', agent: 'copilot', n: 1, state: 'done', session: '' },
+    ],
+    checks: [{ name: 'pytest', workflow: 'Tests', bucket: 'pass', link: '' }, { name: 'ruff', workflow: 'Lint code', bucket: 'pass', link: '' }] },
   { id: 'infra:219', project: 'infra', issue: '219', slug: '219', title: 'Alert on ingestion lag', description: '', pr: 71, prState: 'open', fx: {},
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '2e3f4a5b' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '3f4a5b6c' },
       { key: 'review-1', agent: 'review', n: 1, state: 'done', session: '4a5b6c7d' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: '5b6c7d8e' },
+      { key: 'copilot-1', agent: 'copilot', n: 1, state: 'running', session: '' },
+    ],
+    checks: [
+      { name: 'pytest', workflow: 'Tests', bucket: 'pass', link: '' }, { name: 'ruff', workflow: 'Lint code', bucket: 'pass', link: '' },
+      { name: 'Regtests 1/4', workflow: 'Regtests (local stack)', bucket: 'pass', link: '' }, { name: 'Regtests 2/4', workflow: 'Regtests (local stack)', bucket: 'pending', link: '' },
+      { name: 'Regtests 3/4', workflow: 'Regtests (local stack)', bucket: 'fail', link: '' }, { name: 'Regtests 4/4', workflow: 'Regtests (local stack)', bucket: 'pass', link: '' },
     ] },
   { id: 'core:4349', project: 'core', issue: '4349', slug: '4349', title: 'Geofence import from city GeoJSON', description: '', archived: true, pr: 812, prState: 'merged', archivedOn: '2026-10-28',
     fx: { goal: 'Import parking and no-ride zones from the city open-data GeoJSON instead of the manual CSV.', files: ['internal/zones/geojson.go', 'internal/zones/import.go'], test: 'go test ./internal/zones/...',
@@ -151,7 +166,9 @@ const T: MockTask[] = [
 ]
 
 const proj = (id: string) => projects.find((p) => p.id === id) ?? projects[0]
-const agent = (id: string) => agents.find((a) => a.id === id) ?? agents[0]
+// herd's own step after a push: it waits for Copilot's review.
+const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '', model: '', trigger: 'manual', writes: 'COPILOT-{n}.md', commit: false, push: false, ignoreRules: false, instructions: '' }
+const agent = (id: string) => (id === 'copilot' ? copilotA : agents.find((a) => a.id === id) ?? agents[0])
 const displayName = (a: Agent, n: number) => (a.writes.includes('{n}') ? `${a.name} ${n}` : a.name)
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
@@ -162,10 +179,11 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
   return {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
-    name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
+    name: displayName(a, s.n), live: s.state !== 'done' && !paused && s.agent !== 'copilot', auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit,
     paused, manual: !!s.manual, fresh: !!s.manual && open,
     rerun: i === t.steps.length - 1 && a.commit && !open,
+    external: s.agent === 'copilot',
   }
 }
 
@@ -180,6 +198,7 @@ function derive(t: MockTask): Task {
   else if (!steps.length) status = st('idle', 'Not started', 'not started')
   else if (last.manual && last.paused) status = st('waiting', 'Manual · ' + last.name, 'manual')
   else if (steps.some((s) => s.state === 'approval')) status = st('approval', 'Needs approval · ' + steps.find((s) => s.state === 'approval')!.name, 'approval')
+  else if (steps.some((s) => s.state === 'running' && s.external)) status = st('running', `Waiting for Copilot · PR #${t.pr}`, 'copilot')
   else if (steps.some((s) => s.state === 'running')) status = st('running', 'Running · ' + steps.find((s) => s.state === 'running')!.name, 'running')
   else if (last.state === 'idle') status = st('waiting', 'Waiting for input · ' + last.name, 'waiting')
   else if (last.state === 'failed') status = st('waiting', `Waiting for input · ${last.name} ended early`, 'failed')
@@ -187,6 +206,9 @@ function derive(t: MockTask): Task {
   else if (t.pr && t.prState === 'open') status = st('done', `PR #${t.pr} open`, 'PR open')
   else status = st('waiting', 'Waiting for input · after ' + last.name, 'waiting')
 
+  const cs = t.checks ?? []
+  if (cs.length && t.pr && t.prState === 'open' && !t.archived)
+    status = { ...status, label: status.label + ' · ' + (cs.some((c) => c.bucket === 'fail' || c.bucket === 'cancel') ? 'CI failed' : cs.some((c) => c.bucket === 'pending') ? 'CI running' : 'CI passed') }
   const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
@@ -204,7 +226,14 @@ function derive(t: MockTask): Task {
     const idx = agents.indexOf(la)
     const fixA = agents.slice(0, Math.max(0, idx)).reverse().find((a) => !afterOf(a.trigger) && !a.push)
     const fix = fixA ? opt(fixA, count(fixA.id) + 1) : undefined
+    const pushFixA = [...agents].reverse().find((a) => !afterOf(a.trigger) && !a.push)
+    const pushFix = pushFixA ? opt(pushFixA, count(pushFixA.id) + 1) : undefined
     if (appr) { next.approval = appr.id; next.text = 'Claude Code wants to run a command. Answer in the terminal, or allow it once here.' }
+    else if (run?.external) { next.text = `Waiting for Copilot's review of PR #${t.pr} (checked every minute). Start a fix any time, or Mark done to stop waiting.`; next.markDone = run.id; if (pushFix) next.options.push(pushFix) }
+    else if (last.external) {
+      next.text = unsuccessful(last) ? `Copilot left comments on PR #${t.pr} (${last.artifact}, also in FEEDBACK.md).` : `Copilot found nothing to fix on PR #${t.pr}. The task moves to Archive when the PR is merged or closed.`
+      if (pushFix) { next.text += ` Start ${pushFix.label} for fixes (Copilot comments, failing CI), then push again.`; next.options.push(pushFix) }
+    }
     else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically if it succeeds.` : 'You will be asked for the next step when it finishes.')
     else if (manualNext) { next.options.push(manualNext); next.text = `${last.name} is yours: use its session outside herd (copy the claude command in its toolbar) or Resume it here. Start ${manualNext.label} when you are done.` }
     else if (last.state === 'idle') { next.text = `Claude is waiting for you in the ${last.name} terminal. Mark it done if ${last.artifact} is complete.`; next.markDone = last.id }
@@ -230,7 +259,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next, projectGone: !projects.some((x) => x.id === t.project),
+    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [],
   }
 }
 
@@ -322,7 +351,7 @@ export const api: Api = {
   SaveTabs: () => ok(undefined),
   ListTasks: () => ok(T.map(derive)),
   MyIssues: (p) => (projects.find((x) => x.id === p)?.repo ? ok([
-    { number: 1190, title: ISSUE_TITLES['1190'] }, { number: 4356, title: ISSUE_TITLES['4356'] }, { number: 4388, title: 'Export ride receipts as PDF' },
+    { number: 1190, title: ISSUE_TITLES['1190'], priority: 'Urgent' }, { number: 4356, title: ISSUE_TITLES['4356'], priority: 'High' }, { number: 4388, title: 'Export ride receipts as PDF', priority: '' },
   ]) : Promise.reject('the project has no GitHub repo')),
   IssueTitle: (_p, issue) => (ISSUE_TITLES[issue] ? ok(ISSUE_TITLES[issue]) : Promise.reject('issue not found')),
   CreateTask: (project, issue, description, branch, runPlan) => {
@@ -390,6 +419,8 @@ export const api: Api = {
   RemoveWorktree: (id) => { const t = find(id), p = proj(t.project); t.removed = true; changed(t)
     return ok([`$ git -C ${p.path} worktree remove --force ${p.path}/.worktrees/${t.slug}`, `$ git -C ${p.path} branch -D agent/${t.slug}`]) },
   OpenRunDir: () => ok(undefined),
+  OpenURL: () => ok(undefined),
+  MarkPRReady: (id) => { const t = find(id); t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },
   OpenInZed: (id, sid) => {
     const t = find(id), p = proj(t.project), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
     if (s?.sha) return ok([`$ zed zed://git/commit/${s.sha}?repo=${p.path}/.worktrees/${t.slug}`])

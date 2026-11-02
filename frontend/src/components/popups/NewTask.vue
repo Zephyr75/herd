@@ -163,8 +163,8 @@ function key(e: KeyboardEvent) {
       <div class="group">
         <label for="nfmine" class="lbl">GitHub issue <span class="faint">optional</span></label>
         <select v-if="p?.repo" id="nfmine" class="input mine" :value="mine?.some((x) => String(x.number) === nIssue) ? nIssue : ''" :disabled="!mine?.length" @change="pickMine">
-          <option value="">{{ mine === null ? 'Loading the issues assigned to you…' : mineError ? 'Could not list your issues: ' + mineError : mine.length ? `Assigned to you (${mine.length} open)` : 'No open issues assigned to you' }}</option>
-          <option v-for="is in mine ?? []" :key="is.number" :value="String(is.number)" :disabled="hasTask(is.number)">#{{ is.number }} {{ is.title }}{{ hasTask(is.number) ? ' (has a task)' : '' }}</option>
+          <option value="">{{ mine === null ? 'Loading the issues assigned to you…' : mineError ? 'Could not list your issues: ' + mineError : mine.length ? `Assigned to you (${mine.length} open, most urgent first)` : 'No open issues assigned to you' }}</option>
+          <option v-for="is in mine ?? []" :key="is.number" :value="String(is.number)" :disabled="hasTask(is.number)">{{ is.priority ? is.priority + ' · ' : '' }}#{{ is.number }} {{ is.title }}{{ hasTask(is.number) ? ' (has a task)' : '' }}</option>
         </select>
         <div class="issue-row">
           <span v-if="p?.repo" class="muted small">or any issue</span>

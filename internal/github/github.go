@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +41,25 @@ func (g GH) run(ctx context.Context, dir string, args ...string) (string, error)
 	return strings.TrimSpace(out.String()), nil
 }
 
+// output is run, but keeps stdout when gh exits with an error: gh pr checks
+// exits non-zero while checks fail (1) or are pending (8).
+func (g GH) output(ctx context.Context, args ...string) (string, error) {
+	bin := g.Bin
+	if bin == "" {
+		bin = "gh"
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	var out, errb bytes.Buffer
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	if err != nil {
+		err = fmt.Errorf("gh %s: %w: %s", args[0], err, strings.TrimSpace(errb.String()))
+	}
+	return strings.TrimSpace(out.String()), err
+}
+
 // Available reports whether gh is installed and authenticated.
 func (g GH) Available(ctx context.Context) (bool, string) {
 	if _, err := exec.LookPath(orDefault(g.Bin, "gh")); err != nil {
@@ -62,22 +83,97 @@ func (g GH) IssueTitle(ctx context.Context, repo, issue string) (string, error) 
 	return g.run(ctx, "", "issue", "view", issue, "--repo", repo, "--json", "title", "-q", ".title")
 }
 
-// Issue is an open issue, for the New task picker.
-type Issue struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
+// RequestCopilot asks Copilot to review a PR (again, after a new push).
+func (g GH) RequestCopilot(ctx context.Context, repo string, n int) error {
+	_, err := g.run(ctx, "", "pr", "edit", strconv.Itoa(n), "--repo", repo, "--add-reviewer", "@copilot")
+	return err
 }
 
-// MyIssues lists the open issues of repo assigned to the gh user, newest first.
+// Check is one CI check run on a PR. Bucket is pass, fail, pending,
+// skipping or cancel.
+type Check struct {
+	Name     string `json:"name"`
+	Workflow string `json:"workflow"`
+	Bucket   string `json:"bucket"`
+	Link     string `json:"link"`
+}
+
+// Checks lists a PR's CI checks (none yet: an empty list).
+func (g GH) Checks(ctx context.Context, repo string, n int) ([]Check, error) {
+	out, err := g.output(ctx, "pr", "checks", strconv.Itoa(n), "--repo", repo, "--json", "name,workflow,bucket,link")
+	cs := []Check{}
+	if out != "" && json.Unmarshal([]byte(out), &cs) == nil {
+		return cs, nil
+	}
+	if err != nil && strings.Contains(err.Error(), "no checks reported") {
+		return cs, nil
+	}
+	return nil, err
+}
+
+// Issue is an open issue, for the New task picker.
+type Issue struct {
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	Priority string `json:"priority"` // the "Priority" issue field (Urgent, High, …), "" when unset
+}
+
+var priorityRank = map[string]int{"urgent": 0, "high": 1, "medium": 2, "low": 3}
+
+// MyIssues lists the open issues of repo assigned to the gh user, most
+// urgent first, then newest. It uses the REST API: gh issue list does not
+// return issue fields such as Priority.
 func (g GH) MyIssues(ctx context.Context, repo string) ([]Issue, error) {
-	out, err := g.run(ctx, "", "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title")
+	login, err := g.run(ctx, "", "api", "user", "-q", ".login")
 	if err != nil {
 		return nil, err
 	}
-	is := []Issue{}
-	if err := json.Unmarshal([]byte(out), &is); err != nil {
+	out, err := g.run(ctx, "", "api", fmt.Sprintf("repos/%s/issues?assignee=%s&state=open&per_page=100", repo, url.QueryEscape(login)))
+	if err != nil {
 		return nil, err
 	}
+	var raw []struct {
+		Number      int
+		Title       string
+		PullRequest *struct{} `json:"pull_request"`
+		Fields      []struct {
+			Name   string `json:"issue_field_name"`
+			Option *struct {
+				Name string `json:"name"`
+			} `json:"single_select_option"`
+		} `json:"issue_field_values"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, err
+	}
+	is := []Issue{}
+	for _, r := range raw {
+		if r.PullRequest != nil { // the issues endpoint lists PRs too
+			continue
+		}
+		i := Issue{Number: r.Number, Title: r.Title}
+		for _, f := range r.Fields {
+			if strings.EqualFold(f.Name, "priority") && f.Option != nil {
+				i.Priority = f.Option.Name
+			}
+		}
+		is = append(is, i)
+	}
+	rank := func(p string) int {
+		if r, ok := priorityRank[strings.ToLower(p)]; ok {
+			return r
+		}
+		if p != "" {
+			return len(priorityRank)
+		}
+		return len(priorityRank) + 1
+	}
+	sort.SliceStable(is, func(a, b int) bool {
+		if ra, rb := rank(is[a].Priority), rank(is[b].Priority); ra != rb {
+			return ra < rb
+		}
+		return is[a].Number > is[b].Number
+	})
 	return is, nil
 }
 
@@ -115,18 +211,24 @@ func (g GH) CreatePR(ctx context.Context, worktree, repo, base, head, title, bod
 }
 
 // PRState returns open, merged or closed, and when it changed.
-func (g GH) PRState(ctx context.Context, repo string, n int) (string, time.Time, error) {
-	out, err := g.run(ctx, "", "pr", "view", strconv.Itoa(n), "--repo", repo, "--json", "state,mergedAt,closedAt")
+// It also returns the PR's labels.
+func (g GH) PRState(ctx context.Context, repo string, n int) (string, time.Time, []string, error) {
+	out, err := g.run(ctx, "", "pr", "view", strconv.Itoa(n), "--repo", repo, "--json", "state,mergedAt,closedAt,labels")
 	if err != nil {
-		return "", time.Time{}, err
+		return "", time.Time{}, nil, err
 	}
 	var v struct {
 		State    string
 		MergedAt *time.Time
 		ClosedAt *time.Time
+		Labels   []struct{ Name string }
 	}
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
-		return "", time.Time{}, err
+		return "", time.Time{}, nil, err
+	}
+	labels := []string{}
+	for _, l := range v.Labels {
+		labels = append(labels, l.Name)
 	}
 	at := time.Now()
 	if v.MergedAt != nil {
@@ -134,7 +236,13 @@ func (g GH) PRState(ctx context.Context, repo string, n int) (string, time.Time,
 	} else if v.ClosedAt != nil {
 		at = *v.ClosedAt
 	}
-	return strings.ToLower(v.State), at, nil
+	return strings.ToLower(v.State), at, labels, nil
+}
+
+// AddLabel adds a label to a PR, e.g. ready.
+func (g GH) AddLabel(ctx context.Context, repo string, n int, label string) error {
+	_, err := g.run(ctx, "", "pr", "edit", strconv.Itoa(n), "--repo", repo, "--add-label", label)
+	return err
 }
 
 // Comment is one review comment.

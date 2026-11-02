@@ -9,8 +9,9 @@ import (
 )
 
 // Open runs the configured Zed command (e.g. "zed" or "zeditor --new") on
-// path without waiting for it.
-func Open(command, path string) error {
+// paths without waiting for it. A folder and a file in it open as one
+// workspace showing the file.
+func Open(command string, paths ...string) error {
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return errors.New("no Zed command configured (Settings > Appearance)")
@@ -19,28 +20,12 @@ func Open(command, path string) error {
 	if err != nil {
 		return fmt.Errorf("%s is not on PATH (set the Zed command in Settings > Appearance)", fields[0])
 	}
-	cmd := exec.Command(bin, append(fields[1:], path)...)
+	cmd := exec.Command(bin, append(fields[1:], paths...)...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
-}
-
-// OpenFile opens a single file in the existing Zed window (-e) rather than a
-// new one, unless the command already chooses (-n, -e, -a).
-func OpenFile(command, path string) error {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return Open(command, path)
-	}
-	for _, f := range fields[1:] {
-		switch f {
-		case "-n", "--new", "-e", "--existing", "-a", "--add":
-			return Open(command, path)
-		}
-	}
-	return Open(command+" -e", path)
 }
 
 // Available reports whether the Zed command is on PATH.

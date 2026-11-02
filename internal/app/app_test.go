@@ -165,14 +165,12 @@ func TestPlanImplementReview(t *testing.T) {
 	if n := run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "rev-list", "--count", "main..HEAD"); n != "1" {
 		t.Fatalf("want 1 commit, got %s", n)
 	}
-	r, _ := a.db.Step(rev)
-	if r.Verdict != "changes" {
-		t.Fatalf("verdict %q", r.Verdict)
-	}
-	v, _ = a.GetTask(tv.ID)
-	if len(v.Next.Options) != 2 || v.Next.Options[0].Label != "Implement 2" || v.Next.Options[1].Label != "Push" {
-		t.Fatalf("after review: %+v", v.Next.Options)
-	}
+	// The review passed, so Test 1 starts by itself.
+	waitFor(t, "test done", func() bool { return stepState(a, store.StepID(tv.ID, "test-1")) == store.Done })
+	waitFor(t, "next after test", func() bool {
+		v, _ = a.GetTask(tv.ID)
+		return len(v.Next.Options) == 2 && v.Next.Options[0].Label == "Push" && v.Next.Options[1].Label == "Implement 2"
+	})
 	ctxFile, _ := os.ReadFile(filepath.Join(tv.RunDir, "CONTEXT.md"))
 	if !strings.Contains(string(ctxFile), "General context") {
 		t.Fatalf("CONTEXT.md: %s", ctxFile)
@@ -196,7 +194,7 @@ func TestPlanImplementReview(t *testing.T) {
 func TestApprovalAndAllowOnce(t *testing.T) {
 	a, _ := newTestApp(t)
 	ags := a.settings.Agents()
-	ags = append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md", Done: "status: done"}}, ags...)
+	ags = append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md"}}, ags...)
 	if err := a.SaveAgents(ags); err != nil {
 		t.Fatal(err)
 	}
@@ -218,13 +216,7 @@ func TestApprovalAndAllowOnce(t *testing.T) {
 
 func TestExitWithoutArtifactFails(t *testing.T) {
 	a, _ := newTestApp(t)
-	ags := a.settings.Agents()
-	ags[0].Command = "/herd:plan {task}"
-	ags[0].Writes = "NEVER.md" // fake claude writes $HERD_ARTIFACT, so point it elsewhere via done rule
-	ags[0].Done = "status: finished"
-	if err := a.SaveAgents(ags); err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("FAKE_STATUS", "working") // the plan never says it finished
 	tv, err := a.CreateTask("core", "", "fail me", "", true)
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +325,7 @@ func TestPauseAndResume(t *testing.T) {
 
 func addAskAgent(t *testing.T, a *App) {
 	t.Helper()
-	ags := append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md", Done: "status: done"}}, a.settings.Agents()...)
+	ags := append([]settings.Agent{{ID: "ask", Name: "Ask", Command: "/herd:ask {task}", Writes: "ASK.md"}}, a.settings.Agents()...)
 	if err := a.SaveAgents(ags); err != nil {
 		t.Fatal(err)
 	}
@@ -500,19 +492,19 @@ func TestEachReviewCommitsItsOwnDiff(t *testing.T) {
 	if shas[store.StepID(tv.ID, "review-1")] == shas[store.StepID(tv.ID, "review-2")] {
 		t.Fatal("both reviews point at the same commit")
 	}
-	// A changed file opens as it was in the commit, not as it is now.
-	if err := os.WriteFile(filepath.Join(wt, "file-1.txt"), []byte("edited later\n"), 0o644); err != nil {
-		t.Fatal(err)
+	// The diff herd shows for a file is the commit's.
+	d, err := a.FileDiff(store.StepID(tv.ID, "review-1"), "file-1.txt")
+	if err != nil || !strings.Contains(d.Diff, "+change 1") || strings.Contains(d.Diff, "file-2") {
+		t.Fatalf("diff %+v %v", d, err)
 	}
-	if err := a.OpenFileInZed(tv.ID, "file-1.txt", shas[store.StepID(tv.ID, "review-1")]); err != nil {
-		t.Fatal(err)
+	if _, err := a.FileDiff(store.StepID(tv.ID, "review-1"), "../secret"); err == nil {
+		t.Fatal("diff of a file outside the step's changes")
 	}
-	snaps, _ := filepath.Glob(filepath.Join(a.Home, "views", "*", "*", "file-1.txt"))
-	if len(snaps) != 1 {
-		t.Fatalf("snapshots: %v", snaps)
-	}
-	if b, _ := os.ReadFile(snaps[0]); string(b) != "change 1\n" {
-		t.Fatalf("snapshot holds %q", b)
+	// An Implement opens the commit its Review made, not the latest one.
+	lines, err := a.OpenInZed(tv.ID, store.StepID(tv.ID, "impl-1"))
+	full := run(t, wt, "git", "rev-parse", shas[store.StepID(tv.ID, "review-1")])
+	if err != nil || !strings.Contains(strings.Join(lines, "\n"), "zed://git/commit/"+full+"?repo=") {
+		t.Fatalf("impl-1 opened %v %v", lines, err)
 	}
 }
 
@@ -602,6 +594,7 @@ func TestManualStepClosedByNextStep(t *testing.T) {
 
 func TestRerunAmendsTheReviewCommit(t *testing.T) {
 	a, repo := newTestApp(t)
+	withoutAgent(t, a, "test") // the review stays the latest step
 	tv, _ := a.CreateTask("core", "", "rerun the review", "", true)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
@@ -661,7 +654,7 @@ func TestPRTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Format("9726"); got != "fix(vehicles): take a vehicle sent back to prod out of QA - #9726" {
+	if got := p.Format("9726"); got != "fix(vehicles): take a vehicle sent back to prod out of QA #9726" {
 		t.Fatalf("title %q", got)
 	}
 	if got := p.Format(""); got != "fix(vehicles): take a vehicle sent back to prod out of QA" {
@@ -725,5 +718,148 @@ func TestOverrideSystemClaudeMd(t *testing.T) {
 	}
 	if again, _ := a.OverrideSystemClaudeMd(); again != "" {
 		t.Fatal("backed up a file that was already in sync")
+	}
+}
+
+func TestUntrackedDiff(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("a\nb\n"), 0o644)
+	d, err := untrackedDiff(dir, "new.txt")
+	if err != nil || d != "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n" {
+		t.Fatalf("%q %v", d, err)
+	}
+}
+
+func TestTestAgentRunsOnlyAfterReviewSucceeds(t *testing.T) {
+	for _, status := range []string{"failed", "done"} {
+		t.Run(status, func(t *testing.T) {
+			t.Setenv("FAKE_REVIEW", status)
+			a, _ := newTestApp(t)
+			tv, _ := a.CreateTask("core", "", "test after review "+status, "", true)
+			waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+			if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+				t.Fatal(err)
+			}
+			rev := store.StepID(tv.ID, "review-1")
+			waitFor(t, "review done", func() bool { return stepState(a, rev) == store.Done })
+			test := store.StepID(tv.ID, "test-1")
+			if status == "done" {
+				waitFor(t, "test started", func() bool { _, err := a.db.Step(test); return err == nil })
+				return
+			}
+			time.Sleep(300 * time.Millisecond)
+			if _, err := a.db.Step(test); err == nil {
+				t.Fatal("Test started after the review failed")
+			}
+			if s, _ := a.db.Step(rev); s.SHA != "" {
+				t.Fatal("a failed review committed")
+			}
+			v, _ := a.GetTask(tv.ID)
+			if len(v.Next.Options) == 0 || v.Next.Options[0].Label != "Implement 2" || v.Next.Ghost != nil {
+				t.Fatalf("next after a failed review: %+v", v.Next)
+			}
+		})
+	}
+}
+
+func TestDeleteTask(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "delete me for good", "", true)
+	plan := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "plan", func() bool { return stepState(a, plan) == store.Done })
+	a.setPaused(plan, true)
+	if _, err := a.DeleteTask(tv.ID); err == nil {
+		t.Fatal("deleted a task that is not archived")
+	}
+	if err := a.ArchiveTask(tv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.DeleteTask(tv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Task(tv.ID); err == nil {
+		t.Fatal("task still in the db")
+	}
+	if steps, _ := a.db.Steps(tv.ID); len(steps) != 0 || a.paused(plan) {
+		t.Fatalf("steps or state left: %d", len(steps))
+	}
+	if _, err := os.Stat(tv.RunDir); !os.IsNotExist(err) {
+		t.Fatal("run dir left")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".worktrees", tv.Slug)); !os.IsNotExist(err) {
+		t.Fatal("worktree left")
+	}
+	if out := run(t, repo, "git", "branch", "--list", tv.Branch); out != "" {
+		t.Fatalf("branch left: %q", out)
+	}
+}
+
+func TestDeleteTaskOfRemovedProject(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "project goes away", "", false)
+	a.ArchiveTask(tv.ID)
+	if err := a.RemoveProject("core"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := a.GetTask(tv.ID); !v.ProjectGone {
+		t.Fatal("task view does not say the project is gone")
+	}
+	if err := a.RestoreTask(tv.ID); err == nil {
+		t.Fatal("restored a task without its project")
+	}
+	if _, err := a.RemoveWorktree(tv.ID); err == nil {
+		t.Fatal("ran git without knowing the repository")
+	}
+	if _, err := a.DeleteTask(tv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Task(tv.ID); err == nil {
+		t.Fatal("task still in the db")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".worktrees", tv.Slug)); err != nil {
+		t.Fatal("the worktree of an unknown repository was touched")
+	}
+}
+
+func TestNextAfterOutcome(t *testing.T) {
+	agents := settings.DefaultAgents()
+	step := func(agent string, n int, verdict string) StepView {
+		ag := agentFor(agents, agent)
+		return StepView{Step: store.Step{Agent: agent, N: n, State: store.Done, Verdict: verdict}, Name: ag.DisplayName(n), Artifact: ag.ArtifactName(n)}
+	}
+	labels := func(nx Next) string {
+		var l []string
+		for _, o := range nx.Options {
+			l = append(l, o.Label)
+		}
+		return strings.Join(l, ", ")
+	}
+	base := []StepView{step("plan", 1, ""), step("impl", 1, ""), step("review", 1, "")}
+	for name, c := range map[string]struct {
+		steps []StepView
+		task  store.Task
+		want  string
+	}{
+		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2, Test 2"},
+		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Push, Implement 2"},
+		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Plan"},
+		"pushed":           {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Implement 2"},
+	} {
+		if got := labels(nextOf(c.task, c.steps, agents)); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+func withoutAgent(t *testing.T, a *App, id string) {
+	t.Helper()
+	var keep []settings.Agent
+	for _, ag := range a.settings.Agents() {
+		if ag.ID != id {
+			keep = append(keep, ag)
+		}
+	}
+	if err := a.SaveAgents(keep); err != nil {
+		t.Fatal(err)
 	}
 }

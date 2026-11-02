@@ -1,13 +1,7 @@
-- Remove remaining mentions of claude tokens, i already have them displayed inside claude code so no need for an extra info on herd
-- Change the worktree icon from a folder to the split arrow like in zed
-- Make the left and right panels possible to hide
-- Make the search tasks in the top bar smaller horizontally
-- The part above claude code with the reesume and stop tasks buttons gets cropped on half screen, fix it
-- Move the Agents rules to the context settings page and just call it Rules
-- Add an agent setting ro ignore common rules (example for the push agent which is the only one allowed to use git)
+- Browse open issues assigned to me in a dropdown, leave an additional input field if the task i want to start is not assigned to me
+- Keep shortcuts to a minimum: for now i just want one to hide the left panel and one to hide the right, default to Alt+E for left and Alt+A for right
+- Allow rerunning a review if manual changes have been done since the last review even if a new implement step has not been started
+- When a plan proposes multiple implementation choices, add a warning in the panel to trigger the implement step to make sure the user looks at the options and specifies which one to use in the guidance field
 
 Later
-- Make sure the herd agents do not use the global system ClAUDE.md, if this is not possible, add a button in the context settings to override the system Claude.md to be the general context appended with the general rules
-
-Later
-- Make it so the changes preview opens a read only preview of the actual changes instead of opening them in zed
+- Once a PR has been created, add a tracked to show the step it's at in the CI (whether unit / regression tests have run and if they succeeded, if the Copilot Review has been ran), if possible trigger the copilot review automatically on PR creation and create a Copilot review step where you get copilot's feedback and display it in the preview tab

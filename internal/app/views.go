@@ -68,7 +68,8 @@ type TaskView struct {
 	Status      Status     `json:"status"`
 	Steps       []StepView `json:"steps"`
 	Next        Next       `json:"next"`
-	PRTitle     *PRTitle   `json:"prTitle"` // chosen at the last Push
+	PRTitle     *PRTitle   `json:"prTitle"`     // chosen at the last Push
+	ProjectGone bool       `json:"projectGone"` // its project was removed from Settings > Projects
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -154,6 +155,8 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if pt, ok := a.prTitle(t.ID); ok {
 		v.PRTitle = &pt
 	}
+	_, known := a.settings.Project(t.Project)
+	v.ProjectGone = !known
 	v.Status = statusOf(t, v.Steps)
 	v.Next = nextOf(t, v.Steps, agents)
 	return v, nil
@@ -208,6 +211,9 @@ func statusOf(t store.Task, steps []StepView) Status {
 	case store.Idle:
 		return Status{"waiting", "Waiting for input · " + last.Name, "waiting"}
 	case store.Failed:
+		return Status{"waiting", "Waiting for input · " + last.Name + " ended early", "failed"}
+	}
+	if last.Unsuccessful() {
 		return Status{"waiting", "Waiting for input · " + last.Name + " failed", "failed"}
 	}
 	if t.PRNumber > 0 && t.PRState == "open" {
@@ -262,9 +268,11 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 			idx = i
 		}
 	}
+	// The agent that starts by itself after the last step, when that step
+	// succeeds (or still may: it has not finished).
 	var autoNext *settings.Agent
 	for i := range agents {
-		if agents[i].AfterAgent() == last.Agent {
+		if agents[i].AfterAgent() == last.Agent && !last.Unsuccessful() {
 			autoNext = &agents[i]
 			break
 		}
@@ -294,7 +302,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		if s.State == store.Running {
 			nx.Text = s.Name + " is running. "
 			if autoNext != nil && s.ID == last.ID && !last.Manual {
-				nx.Text += autoNext.DisplayName(countAgent(steps, autoNext.ID)+1) + " starts automatically when it finishes."
+				nx.Text += autoNext.DisplayName(countAgent(steps, autoNext.ID)+1) + " starts automatically if it succeeds."
 			} else {
 				nx.Text += "You will be asked for the next step when it finishes."
 			}
@@ -312,10 +320,36 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		nx.MarkDone = last.ID
 		return nx
 	}
-	// last step is done
+	// The last step finished. fix is the manual agent to go back to, e.g.
+	// Implement after a failed Review or Test, or after Push.
+	var fix *Option
+	for i := idx - 1; i >= 0; i-- {
+		if agents[i].AfterAgent() == "" && !agents[i].Push {
+			o := option(agents[i], countAgent(steps, agents[i].ID)+1, "")
+			fix = &o
+			break
+		}
+	}
+	if last.Unsuccessful() {
+		nx.Text = last.Name + " failed: " + last.Artifact + " says why."
+		again := option(ag, countAgent(steps, ag.ID)+1, "")
+		switch {
+		case fix == nil:
+			nx.Options = append(nx.Options, again)
+		case ag.AfterAgent() != "": // an automatic check failed: fix the work first
+			nx.Options = append(nx.Options, *fix, again)
+		default:
+			nx.Options = append(nx.Options, again, *fix)
+		}
+		return nx
+	}
 	if ag.Push {
 		if t.PRNumber > 0 {
 			nx.Text = fmt.Sprintf("PR #%d is open. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
+			if fix != nil {
+				nx.Text += " If Copilot or the CI checks ask for changes, start " + fix.Label + ", then push again."
+				nx.Options = append(nx.Options, *fix)
+			}
 			return nx
 		}
 		nx.Text = "The push did not open a pull request. Check the Push tab, then run Push again."
@@ -337,29 +371,12 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	if idx < 0 {
 		next = &agents[0]
 	}
-	var loop *settings.Agent
-	if last.Verdict != "" {
-		back := ag.AfterAgent()
-		if back == "" && idx > 0 {
-			back = agents[idx-1].ID
-		}
-		for i := range agents {
-			if agents[i].ID == back {
-				loop = &agents[i]
-			}
-		}
-	}
 	var opts []Option
 	if next != nil {
 		opts = append(opts, option(*next, countAgent(steps, next.ID)+1, ""))
 	}
-	if loop != nil {
-		lo := option(*loop, countAgent(steps, loop.ID)+1, "")
-		if last.Verdict == "approve" {
-			opts = append(opts, lo)
-		} else {
-			opts = append([]Option{lo}, opts...)
-		}
+	if fix != nil && ag.AfterAgent() != "" { // after an automatic check passed, going back stays possible
+		opts = append(opts, *fix)
 	}
 	nx.Options = append(nx.Options, opts...)
 	if len(opts) == 0 {

@@ -1,7 +1,7 @@
 # herd
 
 A desktop app (Go + Wails) that runs Claude Code through a configurable pipeline of agents
-(Plan → Implement → Review → Push), on tasks from several repositories at once, each task in
+(Plan → Implement → Review → Test → Push), on tasks from several repositories at once, each task in
 its own git worktree. A companion to Zed: same themes (Fleet Dark, Flatwhite), one click to
 open a task or a step's diff in Zed.
 
@@ -62,23 +62,35 @@ claude --settings ~/.herd/hooks.json --plugin-dir ~/.herd/plugin --add-dir <run 
 ```
 
 Hooks (`SessionStart`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `Stop`) drive the
-step state; a step is done when `Stop` fires and its artifact's front matter matches the agent's
-done rule (or the user clicks Mark done). Then herd starts automatic agents (Review after
-Implement), commits (each Review commits the changes it reviewed), or pushes and opens the PR
-(Push) and waits for the Copilot review. Zed diff on a review opens its commit in Zed's commit
-view, inside the task's worktree; a file in the Changes tab opens as it was in that commit.
+step state. A step finishes when `Stop` fires and its artifact's front matter says `status: done`
+(succeeded) or `status: failed` (failed, e.g. a review asking for changes or a test showing a bug),
+or when the user clicks Mark done. A step still waiting on a background shell stays running.
+After a success, herd commits (agents with Commit set), pushes and opens the PR (Push), and starts
+the automatic agents (`trigger = "after:<agent>"`: Review after Implement, Test after Review). A
+failed step changes nothing; Next step offers to go back (Implement after a failed Review or Test).
+While a PR is open, herd checks it every 3 minutes and appends each new Copilot review to
+FEEDBACK.md; Implement again (offered after Push) reads it and fixes failing CI checks, then Push
+updates the PR. Once the PR is open and nothing is left to fix, an archive button appears on the
+task in the task list. The folder icon next to Steps opens the task's run folder (its markdown files). Diff on a step with a commit opens that commit in Zed's
+commit view, inside the task's worktree. A file in the Changes tab opens a large pop-up with every changed
+file and the selected one's read-only diff; Zed diff opens that step's own commit in Zed's diff view
+(an Implement's is the one its Review made), or the worktree for uncommitted work.
 
-To continue a session in Zed: press Edit on the latest Implement (opens the worktree in Zed),
-press Stop in the terminal toolbar (herd's claude ends, so only one process uses the session), copy
-the `claude --resume` command into a Zed terminal, and press Resume in herd when you are done.
+To continue a session in Zed: press Edit in the task header (opens the worktree in Zed),
+press "Stop and copy" in the terminal toolbar (herd's claude ends, so only one process uses the
+session, and the `claude --resume` command is copied), paste it into a Zed terminal, and press
+Resume in herd when you are done.
 Rerun on a finished latest Review reviews again in the same session and amends its commit (while
 unpushed), so hand edits stay in the same cycle; start the next Implement for a new cycle.
 "Implement N manually" creates the step without running Claude: it copies
 `claude --session-id <id>` for use outside herd, Resume here starts it in herd, and the Review
 after it waits for you to Start it.
 
-New tasks get the branch you name in New task; it must start with the prefix in Settings >
-Projects (`ar-` by default). Push first asks for the PR title, `type(scope): description - #issue`
+An archived task can be deleted for good (Delete task, two clicks): herd forgets it and removes its
+worktree, local branch and run files; the pushed branch and the PR stay on GitHub.
+
+New tasks get the branch you name in New task, from the project's base branch (Settings > Projects); it must start with the prefix in Settings >
+Projects (`ar-` by default). Push first asks for the PR title, `type(scope): description #issue`
 (type feat, fix, perf or test; the description defaults to the branch without its prefix).
 
 Every session runs in Claude Code's auto mode. The Rules in Settings > Context go in every agent's

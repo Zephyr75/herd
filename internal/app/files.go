@@ -128,7 +128,6 @@ func (a *App) writePlugin() error {
 		if name == "" {
 			continue
 		}
-		key, values := ag.DoneRule()
 		var b strings.Builder
 		fmt.Fprintf(&b, "---\ndescription: herd %s agent\nargument-hint: \"<task> [-- guidance]\"\n---\n\n", ag.Name)
 		fmt.Fprintf(&b, "You are the herd **%s** agent. Arguments: $ARGUMENTS\n\n", ag.Name)
@@ -138,7 +137,7 @@ func (a *App) writePlugin() error {
 		b.WriteString("1. Read `TASK.md` and then `CONTEXT.md` in the run directory (`$HERD_RUN_DIR`) before anything else.\n")
 		b.WriteString("2. Work in the current directory: it is the task's own git worktree.\n")
 		b.WriteString("3. Never commit or push: herd does it.\n")
-		fmt.Fprintf(&b, "4. Write your artifact (`%s`) in the run directory. It starts with YAML front matter; when the step is finished it contains `%s: %s`.\n", ag.Writes, key, strings.Join(values, " | "))
+		fmt.Fprintf(&b, "4. Write your artifact (`%s`) in the run directory. It starts with YAML front matter; when the step is finished it contains `status: done` (it succeeded) or `status: failed` (it did not, and the artifact says why).\n", ag.Writes)
 		b.WriteString("   Only add that line when the step is truly finished. If you need the user, ask in the terminal and stop.\n\n")
 		b.WriteString("## Instructions\n\n")
 		b.WriteString(strings.TrimSpace(ag.Instructions))

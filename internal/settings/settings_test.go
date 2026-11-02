@@ -3,7 +3,7 @@ package settings
 import "testing"
 
 func TestCheckTriggers(t *testing.T) {
-	ok := []Agent{{ID: "plan", Name: "Plan", Trigger: "manual"}, {ID: "impl", Name: "Implement", Trigger: "after:plan"}, {ID: "review", Name: "Review", Trigger: "after:plan"}}
+	ok := []Agent{{ID: "plan", Name: "Plan", Trigger: "manual"}, {ID: "impl", Name: "Implement", Trigger: "after:plan"}, {ID: "review", Name: "Review", Trigger: "after:plan"}, {ID: "test", Name: "Test", Trigger: "after:review"}}
 	if err := checkTriggers(ok); err != nil {
 		t.Fatal(err)
 	}
@@ -12,6 +12,7 @@ func TestCheckTriggers(t *testing.T) {
 		"missing": {{ID: "a", Name: "A", Trigger: "after:b"}},
 		"loop":    {{ID: "a", Name: "A", Trigger: "after:b"}, {ID: "b", Name: "B", Trigger: "after:c"}, {ID: "c", Name: "C", Trigger: "after:a"}},
 		"unknown": {{ID: "a", Name: "A", Trigger: "sometimes"}},
+		"verdict": {{ID: "a", Name: "A"}, {ID: "b", Name: "B", Trigger: "after:a=approve"}},
 	} {
 		if checkTriggers(ags) == nil {
 			t.Errorf("%s: accepted", name)

@@ -25,6 +25,19 @@ async function removeWt() {
 // An agent another one follows (Implement) can also be created manually: no
 // Claude runs, its session is for the user to drive outside herd.
 const manualOk = (agent: string) => !!herd.settings?.agents.some((a) => a.trigger === 'after:' + agent)
+// Deleting is for good: herd forgets the task and removes its worktree, local
+// branch and run files. Two clicks, like removing the worktree.
+async function deleteTask() {
+  const task = t.value
+  if (!task) return
+  if (herd.confirmDelete !== task.id) {
+    herd.confirmDelete = task.id
+    return
+  }
+  herd.confirmDelete = ''
+  const lines = await herd.attempt('Could not delete the task', () => api.DeleteTask(task.id))
+  if (lines) herd.toast('Deleted ' + (task.issue ? '#' + task.issue : task.title), lines.join('\n'))
+}
 const allow = (id: string) => herd.attempt('Allow once failed', () => api.AllowOnce(id))
 const markDone = (id: string) => herd.attempt('Mark done failed', () => api.MarkDone(id))
 </script>
@@ -61,10 +74,21 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
     <button v-if="nx.approval" class="btn allow" @click="allow(nx.approval)">Allow once</button>
     <button v-if="nx.markDone" class="btn ghost-border" @click="markDone(nx.markDone)">Mark done</button>
 
-    <div v-if="t.archived && !t.worktreeRemoved" class="row">
+    <p v-if="t.projectGone">{{ t.projectName }} is no longer in Settings &gt; Projects, so herd cannot restore this task or touch its repository. Delete task only removes it from herd.</p>
+    <div v-if="t.archived && !t.worktreeRemoved && !t.projectGone" class="row">
       <button class="btn" @click="restore">Restore to Tasks</button>
       <button class="btn" :class="herd.confirmRemove === t.id ? 'danger' : 'transparent'" @click="removeWt">
         {{ herd.confirmRemove === t.id ? 'Remove worktree and branch?' : 'Remove worktree' }}
+      </button>
+    </div>
+    <div v-if="t.archived" class="row">
+      <button
+        class="btn"
+        :class="herd.confirmDelete === t.id ? 'danger' : 'transparent'"
+        title="Forget the task in herd, and remove its worktree, local branch and run files (the pushed branch and the PR stay on GitHub)"
+        @click="deleteTask"
+      >
+        {{ herd.confirmDelete === t.id ? 'Delete for good? This cannot be undone' : 'Delete task' }}
       </button>
     </div>
   </div>

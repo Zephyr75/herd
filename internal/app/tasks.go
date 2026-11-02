@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -241,6 +243,9 @@ func (a *App) ArchiveTask(id string) error {
 // RestoreTask moves an archived task back to Tasks.
 func (a *App) RestoreTask(id string) error {
 	return a.updateTask(id, func(t *store.Task) error {
+		if _, ok := a.settings.Project(t.Project); !ok {
+			return fmt.Errorf("add the project %s back in Settings > Projects first", t.Project)
+		}
 		if t.WorktreeRemoved {
 			return errors.New("the worktree was removed; this task can no longer run")
 		}
@@ -258,6 +263,11 @@ func (a *App) RemoveWorktree(id string) ([]string, error) {
 	t, err := a.db.Task(id)
 	if err != nil {
 		return nil, err
+	}
+	if _, ok := a.settings.Project(t.Project); !ok {
+		// Without the project, herd no longer knows the repository: git
+		// would run in whatever directory herd started in.
+		return nil, fmt.Errorf("the project %s is no longer in Settings > Projects, so herd cannot find its repository", t.Project)
 	}
 	a.stopTaskSessions(id)
 	p := a.projectOf(t)
@@ -281,6 +291,66 @@ func (a *App) RemoveWorktree(id string) ([]string, error) {
 	})
 }
 
+// DeleteTask removes an archived task for good: its worktree and local
+// branch (the pushed branch and the PR stay on GitHub), its run files
+// (artifacts, FEEDBACK.md) and its steps in herd.
+func (a *App) DeleteTask(id string) ([]string, error) {
+	t, err := a.db.Task(id)
+	if err != nil {
+		return nil, err
+	}
+	if !t.Archived {
+		return nil, errors.New("archive the task before deleting it")
+	}
+	var lines []string
+	if _, ok := a.settings.Project(t.Project); !ok {
+		lines = append(lines, "the project "+t.Project+" is no longer in Settings > Projects: its repository, worktree and branch were left alone")
+	} else if !t.WorktreeRemoved {
+		if lines, err = a.RemoveWorktree(id); err != nil {
+			return lines, err
+		}
+	}
+	a.stopTaskSessions(id)
+	p := a.projectOf(t)
+	if t.Slug != "" {
+		if err := os.RemoveAll(a.runDir(p, t)); err != nil {
+			return lines, err
+		}
+		lines = append(lines, "removed "+a.runDir(p, t))
+	}
+	if err := a.db.DeleteTask(id); err != nil {
+		return lines, err
+	}
+	a.emit(EvRemoved, map[string]string{"id": id})
+	return lines, nil
+}
+
+// OpenRunDir opens the folder holding the task's artifacts (TASK.md, PLAN.md,
+// FEEDBACK.md, …) in the file manager.
+func (a *App) OpenRunDir(taskID string) error {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return err
+	}
+	dir := a.runDir(a.projectOf(t), t)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	opener := "xdg-open"
+	switch runtime.GOOS {
+	case "darwin":
+		opener = "open"
+	case "windows":
+		opener = "explorer"
+	}
+	cmd := exec.Command(opener, dir)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%s %s: %w", opener, dir, err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 // OpenInZed opens the task's worktree, or for a step with a commit a view
 // worktree showing only that step's changes. It returns the commands run.
 func (a *App) OpenInZed(taskID, stepID string) ([]string, error) {
@@ -300,10 +370,15 @@ func (a *App) OpenInZed(taskID, stepID string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if s.SHA != "" {
+		sha := s.SHA
+		if ch, err := a.StepChanges(stepID); sha == "" && err == nil && ch.Source == "commit" {
+			sha = ch.SHA // Implement: the commit its Review made
+		}
+		if sha != "" {
 			// Zed's own commit view, in the task's worktree: no extra folder,
 			// and no new Zed project when the worktree is already open.
-			full, err := a.git.Run(a.ctx, path, "rev-parse", s.SHA)
+			// Uncommitted work opens the worktree, where Zed shows it.
+			full, err := a.git.Run(a.ctx, path, "rev-parse", sha)
 			if err != nil {
 				return nil, err
 			}
@@ -359,8 +434,13 @@ func (a *App) onArtifact(path string) {
 	}
 }
 
-// pollPRs archives tasks whose PR was merged or closed.
+// pollPRs archives tasks whose PR was merged or closed, and collects the
+// Copilot reviews of the open ones.
 func (a *App) pollPRs() {
+	if !a.pollMu.TryLock() {
+		return
+	}
+	defer a.pollMu.Unlock()
 	tasks, err := a.db.Tasks()
 	if err != nil {
 		return
@@ -372,6 +452,7 @@ func (a *App) pollPRs() {
 		p := a.projectOf(t)
 		state, at, err := a.gh.PRState(a.ctx, p.Repo, t.PRNumber)
 		if err != nil || state == "open" || state == "" {
+			a.collectCopilot(t)
 			continue
 		}
 		a.stopTaskSessions(t.ID)

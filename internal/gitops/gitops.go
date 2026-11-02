@@ -233,19 +233,6 @@ func (g Git) AmendAll(ctx context.Context, worktree string) (string, error) {
 	return g.Run(ctx, worktree, "rev-parse", "--short", "HEAD")
 }
 
-// FileAt returns a file's bytes in commit rev (path relative to the repo root).
-func (g Git) FileAt(ctx context.Context, dir, rev, path string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, g.bin(), "-C", dir, "show", rev+":"+path)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git show %s:%s: %w", rev, path, err)
-	}
-	return out, nil
-}
-
 // PruneViews removes every view worktree under dir that belongs to repo.
 func (g Git) PruneViews(ctx context.Context, repo, dir string) {
 	entries, err := os.ReadDir(dir)

@@ -45,6 +45,7 @@ type Platform interface {
 // Events emitted to the frontend.
 const (
 	EvTask     = "task:changed"
+	EvRemoved  = "task:removed"
 	EvStep     = "step:changed"
 	EvArtifact = "artifact:changed"
 	EvSettings = "settings:changed"
@@ -76,13 +77,12 @@ type App struct {
 	cancel context.CancelFunc
 	mu     sync.Mutex // serialises step and task state transitions
 
-	pollMu  sync.Mutex
-	copilot map[string]bool // task ids with a running Copilot poller
+	pollMu sync.Mutex // one pollPRs at a time
 }
 
 // New creates the service; call Start before use.
 func New(home string, plugin fs.FS) *App {
-	return &App{Home: home, PluginSrc: plugin, copilot: map[string]bool{}}
+	return &App{Home: home, PluginSrc: plugin}
 }
 
 // DefaultHome returns ~/.herd, or $HERD_HOME when set.
@@ -286,13 +286,12 @@ func (a *App) toast(title, body string, isErr bool) {
 	a.emit(EvToast, map[string]any{"title": title, "body": body, "error": isErr})
 }
 
-// loop runs the reaper, the PR state poller and the Copilot pollers.
+// loop runs the reaper and the PR poller (state and Copilot reviews).
 func (a *App) loop() {
 	reap := time.NewTicker(20 * time.Second)
 	prs := time.NewTicker(3 * time.Minute)
 	defer reap.Stop()
 	defer prs.Stop()
-	a.resumeCopilotPollers()
 	go a.pollPRs()
 	for {
 		select {

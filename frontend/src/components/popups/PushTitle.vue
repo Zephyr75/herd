@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Push: the pull request title, "fix(vehicles): take a vehicle out of QA - #9726",
+// Push: the pull request title, "fix(vehicles): take a vehicle out of QA #9726",
 // chosen before the push step runs.
 import { computed, onMounted, ref } from 'vue'
 import { herd } from '../../lib/state'
@@ -31,7 +31,7 @@ onMounted(() => scopeInput.value?.focus())
 const nScope = computed(() => scope.value.trim())
 const nDesc = computed(() => desc.value.trim().replace(/\s+/g, ' ') || defaultDesc.value)
 const scopeOk = computed(() => /^[A-Za-z0-9._/-]+$/.test(nScope.value))
-const preview = computed(() => `${kind.value}(${nScope.value || '…'}): ${nDesc.value}${t.value?.issue ? ' - #' + t.value.issue : ''}`)
+const preview = computed(() => `${kind.value}(${nScope.value || '…'}): ${nDesc.value}${t.value?.issue ? ' #' + t.value.issue : ''}`)
 
 async function push() {
   if (!scopeOk.value || busy.value) return

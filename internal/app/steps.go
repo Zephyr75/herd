@@ -3,9 +3,11 @@ package app
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,7 +61,6 @@ func (a *App) prompt(l launch) string {
 // stepBlock is appended to the system prompt: per-step facts the agent's
 // command file refers to.
 func (a *App) stepBlock(l launch, runDir, wt string) string {
-	key, values := l.agent.DoneRule()
 	var b strings.Builder
 	b.WriteString("# herd step\n")
 	fmt.Fprintf(&b, "- task: %s (%s), project %s\n", l.task.ID, l.task.Title, l.proj.Name)
@@ -81,7 +82,10 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s\n", wt, branchName(l.task))
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
-	fmt.Fprintf(&b, "- done when its front matter has %s: %s\n", key, strings.Join(values, " | "))
+	b.WriteString("- finished when its front matter has status: done (succeeded) or status: failed (did not; say why). The next automatic agent only starts after a success\n")
+	if l.task.PRNumber > 0 {
+		fmt.Fprintf(&b, "- pull request: #%d %s (gh pr checks %d shows its CI checks)\n", l.task.PRNumber, l.task.PRURL, l.task.PRNumber)
+	}
 	for _, dir := range a.knowledgeDirs(l.proj) {
 		fmt.Fprintf(&b, "- knowledge base: %s (read-only reference, search it when you need background)\n", dir)
 	}
@@ -390,20 +394,26 @@ func (a *App) artifactFor(s store.Step) (artifacts.Artifact, settings.Agent) {
 	return art, ag
 }
 
+// artifactDone reports whether the step's artifact says it finished, and its
+// verdict: store.Failure when it failed.
 func (a *App) artifactDone(s store.Step) (bool, string) {
-	art, ag := a.artifactFor(s)
-	key, values := ag.DoneRule()
-	return art.IsDone(key, values), art.Get("verdict")
+	art, _ := a.artifactFor(s)
+	finished, failed := art.Outcome()
+	if failed {
+		return finished, store.Failure
+	}
+	return finished, ""
 }
 
 // onHook turns Claude Code hook events into step states.
 func (a *App) onHook(ev hooks.Event) {
-	var finish bool
+	var finish, shell bool
 	var verdict string
 	if ev.Name == "Stop" {
 		if s, err := a.db.Step(ev.StepID); err == nil {
 			finish, verdict = a.artifactDone(s)
 		}
+		shell = !finish && hooks.BackgroundShell(ev.PID)
 	}
 	s, changed := a.updateStep(ev.StepID, func(s *store.Step) bool {
 		before := *s
@@ -428,9 +438,9 @@ func (a *App) onHook(ev hooks.Event) {
 		case "Stop":
 			if finish {
 				s.State, s.EndedAt = store.Done, time.Now()
-				if verdict != "" {
-					s.Verdict = verdict
-				}
+				s.Verdict = verdict
+			} else if shell {
+				s.State = store.Running // its next turn starts when the shell ends
 			} else {
 				s.State = store.Idle
 			}
@@ -470,9 +480,7 @@ func (a *App) onExit(stepID string, code int, killed bool) {
 		s.EndedAt = time.Now()
 		if done {
 			s.State = store.Done
-			if verdict != "" {
-				s.Verdict = verdict
-			}
+			s.Verdict = verdict
 		} else {
 			s.State = store.Failed
 		}
@@ -486,20 +494,13 @@ func (a *App) onExit(stepID string, code int, killed bool) {
 	}
 }
 
-// MarkDone marks a step done when the agent forgot its front matter.
+// MarkDone marks a step succeeded when the agent forgot its front matter.
 func (a *App) MarkDone(stepID string) error {
-	verdict := ""
-	if s, err := a.db.Step(stepID); err == nil {
-		_, verdict = a.artifactDone(s)
-	}
 	s, changed := a.updateStep(stepID, func(s *store.Step) bool {
 		if s.State == store.Done {
 			return false
 		}
-		s.State, s.EndedAt = store.Done, time.Now()
-		if verdict != "" {
-			s.Verdict = verdict
-		}
+		s.State, s.EndedAt, s.Verdict = store.Done, time.Now(), "" // the user says it succeeded
 		return true
 	})
 	if changed {
@@ -617,8 +618,9 @@ func (a *App) setPaused(stepID string, on bool) {
 	_ = a.db.Set("paused:"+stepID, v)
 }
 
-// complete runs the orchestrator's actions the first time a step is done:
-// commit, start automatic agents, push.
+// complete runs the orchestrator's actions the first time a step finishes
+// with a success: commit, push, start the automatic agents. A failed step
+// leaves the worktree as it is.
 func (a *App) complete(stepID string) {
 	s, first := a.updateStep(stepID, func(s *store.Step) bool {
 		if s.Completed || s.State != store.Done {
@@ -647,6 +649,9 @@ func (a *App) afterDone(s store.Step) {
 		}
 	}
 
+	if !s.Succeeded() {
+		return
+	}
 	if ag.Commit {
 		wt := worktreePath(p, t)
 		msg := fmt.Sprintf("[%s] %s", t.Slug, strings.ToLower(strings.ReplaceAll(ag.DisplayName(s.N), " ", "-")))
@@ -740,13 +745,16 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 		a.toast("Could not open the PR", err.Error(), true)
 		return
 	}
+	if t.PRNumber == n {
+		say(fmt.Sprintf("updated PR #%d %s", n, url))
+		return
+	}
 	say(fmt.Sprintf("opened PR #%d %s", n, url))
 	_ = a.updateTask(t.ID, func(t *store.Task) error {
 		t.PRNumber, t.PRURL, t.PRState = n, url, "open"
 		return nil
 	})
-	say("waiting for the Copilot review…")
-	a.startCopilotPoller(t.ID, s.ID)
+	say("herd appends Copilot's reviews to FEEDBACK.md as they arrive")
 }
 
 // splitTitle returns the first non-empty line (without #) and the rest.
@@ -762,52 +770,25 @@ func splitTitle(md string) (string, string) {
 	return "", ""
 }
 
-func (a *App) startCopilotPoller(taskID, stepID string) {
-	a.pollMu.Lock()
-	if a.copilot[taskID] {
-		a.pollMu.Unlock()
+// collectCopilot appends the PR's new Copilot reviews to FEEDBACK.md, where
+// the next Implement reads them. The kv key holds the last review id seen.
+func (a *App) collectCopilot(t store.Task) {
+	p := a.projectOf(t)
+	seen, _ := a.db.Get("copilot:" + t.ID)
+	after, _ := strconv.ParseInt(seen, 10, 64) // "timeout" (older herd): read them all
+	rs, err := a.gh.CopilotReviews(a.ctx, p.Repo, t.PRNumber, after)
+	if seen == "done" && len(rs) > 0 { // older herd appended the latest already
+		_ = a.db.Set("copilot:"+t.ID, strconv.FormatInt(rs[len(rs)-1].ID, 10))
 		return
 	}
-	a.copilot[taskID] = true
-	a.pollMu.Unlock()
-	go func() {
-		defer func() {
-			a.pollMu.Lock()
-			delete(a.copilot, taskID)
-			a.pollMu.Unlock()
-		}()
-		timeout := time.Duration(a.settings.Config().CopilotTimeout) * time.Minute
-		deadline := time.Now().Add(timeout)
-		tick := time.NewTicker(time.Minute)
-		defer tick.Stop()
-		for {
-			t, err := a.db.Task(taskID)
-			if err != nil || t.PRNumber == 0 {
-				return
-			}
-			p := a.projectOf(t)
-			body, comments, ok, err := a.gh.CopilotReview(a.ctx, p.Repo, t.PRNumber)
-			if err == nil && ok {
-				a.appendFeedback(t, p.Name, copilotMarkdown(t.PRNumber, body, comments))
-				_ = a.db.Set("copilot:"+taskID, "done")
-				if sess, live := a.run.Get(stepID); live {
-					sess.Inject([]byte(fmt.Sprintf("\r\n\x1b[36m● herd: Copilot review, %d comments appended to FEEDBACK.md\x1b[0m\r\n", len(comments))))
-				}
-				a.toast("Copilot review arrived", fmt.Sprintf("PR #%d: %d comments appended to FEEDBACK.md", t.PRNumber, len(comments)), false)
-				return
-			}
-			if time.Now().After(deadline) {
-				a.appendFeedback(t, p.Name, fmt.Sprintf("## Copilot review (PR #%d)\n\nNo Copilot review arrived within %d minutes; herd stopped waiting.\n", t.PRNumber, int(timeout.Minutes())))
-				_ = a.db.Set("copilot:"+taskID, "timeout")
-				return
-			}
-			select {
-			case <-a.ctx.Done():
-				return
-			case <-tick.C:
-			}
-		}
-	}()
+	for _, r := range rs {
+		a.appendFeedback(t, p.Name, copilotMarkdown(t.PRNumber, r.Body, r.Comments))
+		_ = a.db.Set("copilot:"+t.ID, strconv.FormatInt(r.ID, 10))
+		a.toast("Copilot review arrived", fmt.Sprintf("PR #%d: %d comments appended to FEEDBACK.md", t.PRNumber, len(r.Comments)), false)
+	}
+	if err != nil {
+		log.Printf("copilot reviews of PR #%d: %v", t.PRNumber, err)
+	}
 }
 
 func copilotMarkdown(pr int, body string, comments []github.Comment) string {
@@ -843,27 +824,6 @@ func (a *App) appendFeedback(t store.Task, projectName, md string) {
 	_, _ = f.WriteString(md)
 }
 
-func (a *App) resumeCopilotPollers() {
-	tasks, err := a.db.Tasks()
-	if err != nil {
-		return
-	}
-	for _, t := range tasks {
-		if t.Archived || t.PRNumber == 0 || t.PRState != "open" {
-			continue
-		}
-		if v, _ := a.db.Get("copilot:" + t.ID); v != "" {
-			continue
-		}
-		steps, _ := a.db.Steps(t.ID)
-		last := ""
-		if len(steps) > 0 {
-			last = steps[len(steps)-1].ID
-		}
-		a.startCopilotPoller(t.ID, last)
-	}
-}
-
 // reconcile fixes steps left live by a previous run: herd owns every
 // process, so after a restart none of them is running any more.
 func (a *App) reconcile() {
@@ -883,9 +843,7 @@ func (a *App) reconcile() {
 			x.EndedAt = time.Now()
 			if done {
 				x.State = store.Done
-				if verdict != "" {
-					x.Verdict = verdict
-				}
+				x.Verdict = verdict
 			} else {
 				x.State = store.Failed
 			}

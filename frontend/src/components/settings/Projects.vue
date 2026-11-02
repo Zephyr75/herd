@@ -106,7 +106,7 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
     </div>
     <div class="grid4">
       <label class="field">GitHub repo<input class="input mono" :value="p.repo" placeholder="owner/name" @input="set(p, 'repo', $event)" /></label>
-      <label class="field">Base branch<input class="input mono" :value="p.baseBranch" @input="set(p, 'baseBranch', $event)" /></label>
+      <label class="field" title="New task worktrees start from origin/<this branch> (fetched first); pull requests target it">Base branch<input class="input mono" :value="p.baseBranch" @input="set(p, 'baseBranch', $event)" /></label>
       <label class="field">Worktrees folder<input class="input mono" :value="p.worktreesDir + '/'" @input="set(p, 'worktreesDir', $event)" /></label>
     </div>
     <div v-for="c in failing(p.id)" :key="c.label" class="check bad">

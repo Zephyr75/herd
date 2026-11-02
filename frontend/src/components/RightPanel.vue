@@ -6,7 +6,7 @@ import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import Preview from './Preview.vue'
 import Splitter from './ui/Splitter.vue'
-import type { Step } from '../lib/types'
+import { unsuccessful, type Step } from '../lib/types'
 
 const t = computed(() => herd.selTask)
 
@@ -15,24 +15,17 @@ function meta(s: Step): { text: string; cls: string } {
   if (s.state === 'running') return { text: 'running', cls: 'c-running' }
   if (s.state === 'approval') return { text: 'needs approval', cls: 'c-approval' }
   if (s.state === 'idle') return { text: 'waiting for you', cls: 'c-waiting' }
-  if (s.state === 'failed') return { text: 'failed', cls: 'c-approval' }
-  if (s.verdict) return s.verdict === 'approve' ? { text: 'approved', cls: 'c-done' } : { text: 'changes requested', cls: 'c-waiting' }
+  if (s.state === 'failed') return { text: 'ended early', cls: 'c-approval' }
+  if (unsuccessful(s)) return { text: 'failed', cls: 'c-approval' }
   const task = t.value
   if (task && s.state === 'done' && task.pr && herd.settings?.agents.find((a) => a.id === s.agent)?.push) return { text: 'PR #' + task.pr, cls: '' }
   return { text: '', cls: '' }
 }
-const dotCls = (s: Step) => (s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' || s.state === 'idle' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-approval')
+const dotCls = (s: Step) => (unsuccessful(s) ? 'd-failed' : s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' || s.state === 'idle' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-approval')
 
-// The latest step of an agent another one follows (Implement) gets Edit:
-// open the worktree in Zed to change it by hand. The task's latest step, when
-// it commits and is finished (Review), gets Rerun: review again in the same
-// session, folding the edits into its commit.
-const followed = (agent: string) => !!herd.settings?.agents.some((a) => a.trigger === 'after:' + agent)
-function canEdit(s: Step) {
-  const task = t.value
-  if (!task || task.archived || task.worktreeRemoved || !followed(s.agent)) return false
-  return [...task.steps].reverse().find((x) => x.agent === s.agent)?.id === s.id
-}
+// The task's latest step, when it commits and is finished (Review), gets
+// Rerun: review again in the same session, folding hand edits (Edit opens the
+// worktree in Zed) into its commit.
 function canRerun(s: Step) {
   const task = t.value
   if (!task || task.archived || task.worktreeRemoved || !s.commits) return false
@@ -62,6 +55,11 @@ function dragSplit(e: PointerEvent) {
   handle.addEventListener('pointerup', up)
 }
 
+async function openRunDir() {
+  const task = t.value
+  if (task) await herd.attempt('Could not open the run folder', () => api.OpenRunDir(task.id))
+}
+
 async function archive() {
   const task = t.value
   if (task) await herd.attempt('Could not archive', () => api.ArchiveTask(task.id))
@@ -76,7 +74,8 @@ async function archive() {
         <div class="title-row">
           <TaskRef :issue="t.issue" />
           <span class="title">{{ t.title }}</span>
-          <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" /></button>
+          <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()">Edit</button>
+          <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>
         <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
         <p v-if="t.description" class="desc">{{ t.description }}</p>
@@ -84,6 +83,8 @@ async function archive() {
 
       <div class="steps-head">
         <span class="muted small">Steps</span>
+        <span class="grow"></span>
+        <button class="icon-btn run-dir" :title="`Open the folder with this task's markdown files (${t.runDir})`" aria-label="Open the run folder" @click="openRunDir"><Icon name="folder" :size="16" /></button>
       </div>
 
       <div ref="timeline" class="timeline" :class="{ sized: herd.timelineHeight > 0 }" :style="herd.timelineHeight > 0 ? { height: herd.timelineHeight + 'px' } : {}">
@@ -101,9 +102,8 @@ async function archive() {
             <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
           <span class="acts">
-            <button v-if="canEdit(s)" class="act" title="Open the worktree in Zed to edit it by hand" @click="herd.openWorktree()"><Icon name="external" :size="13" />Edit</button>
             <button v-if="canRerun(s)" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="play" :size="12" />Rerun</button>
-            <button v-if="s.sha && s.commits" class="act" aria-label="Open this step's commit in Zed" @click="herd.openDiff(s)">Zed diff</button>
+            <button v-if="s.sha && s.commits" class="act" aria-label="Open this step's commit in Zed" title="Open this step's commit in Zed" @click="herd.openDiff(s)">Diff</button>
           </span>
         </div>
         <div v-if="t.next.ghost" class="row ghost">
@@ -111,7 +111,7 @@ async function archive() {
           <span class="step static">
             <span class="name">{{ t.next.ghost.name }}</span>
             <span v-if="t.next.ghost.manual" class="small muted">Start it when you are done with {{ t.next.ghost.after }}</span>
-            <span v-else class="small muted">Starts automatically when {{ t.next.ghost.after }} finishes</span>
+            <span v-else class="small muted">Starts automatically if {{ t.next.ghost.after }} succeeds</span>
           </span>
           <span v-if="t.next.ghost.start" class="acts">
             <button class="act" @click="herd.run(t.next.ghost.start)"><Icon name="play" :size="12" />Start</button>
@@ -160,8 +160,8 @@ async function archive() {
   }
   .icon-btn {
     flex: none;
-    width: 24px;
-    height: 22px;
+    width: 28px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;

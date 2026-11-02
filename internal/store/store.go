@@ -29,7 +29,8 @@ type Task struct {
 	WorktreeRemoved bool      `json:"worktreeRemoved"`
 }
 
-// Step states.
+// Step states. Done: the agent finished, and succeeded unless Verdict is
+// Failure. Failed: it ended before finishing.
 const (
 	Running  = "running"
 	Idle     = "idle"
@@ -37,6 +38,19 @@ const (
 	Done     = "done"
 	Failed   = "failed"
 )
+
+// Failure is the Verdict of a finished step whose agent reported status:
+// failed, e.g. a review asking for changes or a test showing a bug.
+const Failure = "failed"
+
+// Unsuccessful reports whether the step finished with a failure ("changes"
+// is how reviews failed before steps had outcomes).
+func (s Step) Unsuccessful() bool {
+	return s.State == Done && (s.Verdict == Failure || s.Verdict == "changes")
+}
+
+// Succeeded reports whether the step finished without failing.
+func (s Step) Succeeded() bool { return s.State == Done && !s.Unsuccessful() }
 
 // Step is one run of an agent on a task.
 type Step struct {
@@ -177,10 +191,22 @@ func (d *DB) Tasks() ([]Task, error) {
 	return out, rows.Err()
 }
 
-// DeleteTask removes a task and its steps.
+// DeleteTask removes a task, its steps and the UI state saved for them
+// (kv keys "<name>:<task id>" and "<name>:<task id>/<step>").
 func (d *DB) DeleteTask(id string) error {
-	_, err := d.db.Exec(`DELETE FROM tasks WHERE id = ?`, id)
-	return err
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM kv WHERE substr(key, instr(key, ':') + 1) = ? OR substr(key, instr(key, ':') + 1, ?) = ?`,
+		id, len(id)+1, id+"/"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SaveStep inserts or replaces a step.

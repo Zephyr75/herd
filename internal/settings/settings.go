@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -48,7 +47,6 @@ type Config struct {
 	ZedCommand      string                 `toml:"zed_command" json:"zedCommand"`
 	ClaudeCommand   string                 `toml:"claude_command" json:"claudeCommand"`
 	MaxLiveSessions int                    `toml:"max_live_sessions" json:"maxLiveSessions"`
-	CopilotTimeout  int                    `toml:"copilot_timeout_minutes" json:"copilotTimeoutMinutes"`
 	Notifications   bool                   `toml:"notifications" json:"notifications"` // desktop notifications while herd is in the background
 	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`            // open terminal tabs; the oldest closes first
 	Rules           string                 `toml:"rules" json:"rules"`                 // always followed by every agent
@@ -63,9 +61,8 @@ type Agent struct {
 	Name         string `toml:"name" json:"name"`
 	Command      string `toml:"command" json:"command"`
 	Model        string `toml:"model" json:"model"`
-	Trigger      string `toml:"trigger" json:"trigger"` // manual | after:<agent id>
+	Trigger      string `toml:"trigger" json:"trigger"` // manual | after:<agent id> (when that step succeeds)
 	Writes       string `toml:"writes" json:"writes"`
-	Done         string `toml:"done" json:"done"`
 	Commit       bool   `toml:"commit,omitempty" json:"commit"`
 	Push         bool   `toml:"push,omitempty" json:"push"`
 	IgnoreRules  bool   `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
@@ -222,9 +219,6 @@ func fillConfig(c *Config) {
 	}
 	if c.MaxLiveSessions <= 0 {
 		c.MaxLiveSessions = d.MaxLiveSessions
-	}
-	if c.CopilotTimeout <= 0 {
-		c.CopilotTimeout = d.CopilotTimeout
 	}
 	if c.MaxTabs <= 0 {
 		c.MaxTabs = d.MaxTabs
@@ -474,28 +468,11 @@ func (a Agent) ArtifactName(n int) string {
 	return strings.ReplaceAll(a.Writes, "{n}", fmt.Sprint(n))
 }
 
-// AfterAgent returns the agent id this one starts after, or "".
+// AfterAgent returns the agent id this one starts after, or "": it starts
+// by itself when a step of that agent succeeds.
 func (a Agent) AfterAgent() string {
-	if strings.HasPrefix(a.Trigger, "after:") {
-		return strings.TrimPrefix(a.Trigger, "after:")
+	if !strings.HasPrefix(a.Trigger, "after:") {
+		return ""
 	}
-	return ""
-}
-
-// DoneRule parses "status: done" or "verdict: approve | changes" into a key
-// and its accepted values.
-func (a Agent) DoneRule() (key string, values []string) {
-	d := strings.TrimSpace(a.Done)
-	d = strings.TrimPrefix(d, "front matter ")
-	k, v, ok := strings.Cut(d, ":")
-	if !ok {
-		return "status", []string{"done"}
-	}
-	for _, x := range strings.Split(v, "|") {
-		if x = strings.TrimSpace(x); x != "" {
-			values = append(values, x)
-		}
-	}
-	sort.Strings(values)
-	return strings.TrimSpace(k), values
+	return strings.TrimPrefix(a.Trigger, "after:")
 }

@@ -163,7 +163,7 @@ button {
   align-items: center;
   gap: 6px;
   height: 24px;
-  padding: 0 10px;
+  padding: 0 13px 0 10px; /* text ends flush, so the right side needs more to look even */
   margin-left: 6px;
   border-radius: 6px;
   border: 1px solid var(--border);

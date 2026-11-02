@@ -71,6 +71,8 @@ withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), { 
       <path d="M9 2V14" />
       <rect x="2" y="2" width="12" height="12" rx="1.5" />
     </template>
+    <!-- maximize -->
+    <path v-else-if="name === 'maximize'" d="M10 3H13V6M6 13H3V10M13 3L9.5 6.5M3 13L6.5 9.5" />
     <!-- menu -->
     <path v-else-if="name === 'menu'" d="M2.667 8h10.666M2.667 4h10.666M2.667 12h10.666" />
     <!-- settings -->

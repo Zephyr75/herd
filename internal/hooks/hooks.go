@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +17,7 @@ import (
 type Event struct {
 	Name             string // SessionStart, UserPromptSubmit, Notification, PostToolUse, Stop
 	StepID           string // <task id>/<step key>
+	PID              int    // the claude process that ran the hook (0 if unknown)
 	SessionID        string `json:"session_id"`
 	Source           string `json:"source"` // SessionStart: startup | resume | clear | compact
 	Message          string `json:"message"`
@@ -51,6 +54,7 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev := Event{Name: r.URL.Query().Get("event"), StepID: r.Header.Get("X-Herd-Step"), Raw: body}
+	ev.PID, _ = strconv.Atoi(r.Header.Get("X-Herd-Pid"))
 	_ = json.Unmarshal(body, &ev)
 	if ev.Name == "" || ev.StepID == "" || ev.StepID == "/" {
 		http.Error(w, "missing event or step", http.StatusBadRequest)
@@ -69,7 +73,7 @@ var Events = []string{"SessionStart", "UserPromptSubmit", "Notification", "PostT
 // sessions and never fails the hook. $HERD_ENDPOINT holds the current herd's
 // address and token, so sessions that outlived a herd restart still report.
 func Command(event string) string {
-	return `[ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT"; [ -n "$HERD_URL" ] && curl -s -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1; exit 0`
+	return `[ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT"; [ -n "$HERD_URL" ] && curl -s -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "X-Herd-Pid: $PPID" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1; exit 0`
 }
 
 // Settings returns the Claude Code settings every herd session gets: herd's
@@ -96,4 +100,29 @@ func WriteSettings(path string, excludes []string) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0o644)
+}
+
+// BackgroundShell reports whether the claude process pid still runs a shell
+// from its Bash tool (a background command or Monitor): its turn ended, but
+// it is waiting on that shell, not on the user. Bash tool shells are direct
+// children of claude that source a Claude Code shell snapshot.
+func BackgroundShell(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	out, err := exec.Command("ps", "-A", "-o", "ppid=,args=").Output()
+	if err != nil {
+		return false
+	}
+	return hasShellChild(string(out), pid)
+}
+
+func hasShellChild(ps string, pid int) bool {
+	for _, line := range strings.Split(ps, "\n") {
+		ppid, args, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if ok && ppid == strconv.Itoa(pid) && strings.Contains(args, "/shell-snapshots/") {
+			return true
+		}
+	}
+	return false
 }

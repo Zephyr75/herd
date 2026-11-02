@@ -2,7 +2,7 @@
 // at window.runtime. In a plain browser (npm run dev) a mock built from the
 // UI preview's fixtures stands in, so the UI can be worked on without Go.
 
-import type { SystemMemory, PRTitle, Agent, Artifact, Bootstrap, Changes, Check, Context, Proc, Project, Settings, Step, Task, Appearance } from './types'
+import type { FileDiff, SystemMemory, PRTitle, Agent, Artifact, Bootstrap, Changes, Check, Context, Proc, Project, Settings, Step, Task, Appearance } from './types'
 
 export interface Api {
   Bootstrap(): Promise<Bootstrap>
@@ -21,7 +21,9 @@ export interface Api {
   ArchiveTask(task: string): Promise<void>
   RestoreTask(task: string): Promise<void>
   RemoveWorktree(task: string): Promise<string[]>
+  DeleteTask(task: string): Promise<string[]>
   OpenInZed(task: string, step: string): Promise<string[]>
+  OpenRunDir(task: string): Promise<void>
   OpenProjectInZed(project: string): Promise<void>
   ReadArtifact(step: string): Promise<Artifact>
   TerminalURL(step: string): Promise<string>
@@ -29,7 +31,7 @@ export interface Api {
   ResumeStepAnyway(step: string): Promise<string>
   SessionElsewhere(step: string): Promise<Proc[]>
   StepChanges(step: string): Promise<Changes>
-  OpenFileInZed(task: string, path: string, sha: string): Promise<void>
+  FileDiff(step: string, path: string): Promise<FileDiff>
   SetFocused(focused: boolean): Promise<void>
   SetNotifications(on: boolean): Promise<void>
   SetMaxTabs(n: number): Promise<void>

@@ -17,9 +17,8 @@ export interface Agent {
   name: string
   command: string
   model: string
-  trigger: string // manual | after:<id>
+  trigger: string // manual | after:<id> (when that step succeeds)
   writes: string
-  done: string
   commit: boolean
   push: boolean
   ignoreRules: boolean // the common rules are not given to this agent
@@ -63,6 +62,14 @@ export interface SystemMemory {
   synced: boolean
 }
 
+/** One file's unified diff in a step's changes. */
+export interface FileDiff {
+  path: string
+  diff: string
+  binary: boolean
+  truncated: boolean
+}
+
 /** A process outside herd running a session. */
 export interface Proc {
   pid: number
@@ -74,7 +81,6 @@ export interface Config {
   zedCommand: string
   claudeCommand: string
   maxLiveSessions: number
-  copilotTimeoutMinutes: number
   notifications: boolean
   maxTabs: number
   rules: string // followed by every agent
@@ -158,6 +164,7 @@ export interface Task {
   steps: Step[]
   next: Next
   prTitle: PRTitle | null // chosen at the last Push
+  projectGone: boolean // its project was removed from Settings > Projects
 }
 
 export type PRKind = 'feat' | 'fix' | 'perf' | 'test'
@@ -200,3 +207,9 @@ export interface Bootstrap {
   tabs: { tabs: TabRef[]; active: number } | null
   os: string
 }
+
+/** afterOf is the agent id a trigger starts after ("after:review" is review), or "". */
+export const afterOf = (trigger: string) => (trigger.startsWith('after:') ? trigger.slice(6) : '')
+
+/** unsuccessful: the step finished, and its agent reported status: failed ("changes": older reviews). */
+export const unsuccessful = (s: { state: string; verdict: string }) => s.state === 'done' && (s.verdict === 'failed' || s.verdict === 'changes')

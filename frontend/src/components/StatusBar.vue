@@ -30,7 +30,7 @@ const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.st
 <template>
   <footer>
     <button class="dock" :class="{ off: herd.leftHidden }" :title="tip('task list', herd.leftHidden, 'toggleLeft')" @click="herd.togglePanel('left')">
-      <Icon :name="herd.leftHidden ? 'panel-left-off' : 'panel-left'" />
+      <Icon :name="herd.leftHidden ? 'panel-left-off' : 'panel-left'" :size="16" />
     </button>
     <button v-if="counts.running + counts.waiting + counts.approval" class="activity" :class="{ on: herd.overlay === 'activity' }" title="Show running tasks" @click="herd.openOverlay(herd.overlay === 'activity' ? 'none' : 'activity')">
       <span v-if="counts.running" class="item"><span class="dot s-running"></span>{{ counts.running }} running</span>
@@ -42,7 +42,7 @@ const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.st
     <span>{{ right }}</span>
     <span v-if="autoReview">auto-review on</span>
     <button class="dock" :class="{ off: herd.rightHidden }" :title="tip('steps and preview', herd.rightHidden, 'toggleRight')" @click="herd.togglePanel('right')">
-      <Icon :name="herd.rightHidden ? 'panel-right-off' : 'panel-right'" />
+      <Icon :name="herd.rightHidden ? 'panel-right-off' : 'panel-right'" :size="16" />
     </button>
   </footer>
 </template>
@@ -51,13 +51,13 @@ const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.st
 footer {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   flex: none;
-  height: 26px;
+  height: 31px; /* as Zed: 4px padding around 22px buttons, plus the border */
   padding: 0 12px;
   background: var(--chrome);
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -65,15 +65,15 @@ footer {
 .activity {
   display: flex;
   align-items: center;
-  gap: 14px;
-  height: 20px;
+  gap: 16px;
+  height: 22px;
   margin-left: -6px;
   padding: 0 6px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: 13.5px;
 }
 .activity:hover,
 .activity.on {
@@ -83,9 +83,11 @@ footer {
 .item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 .dot {
+  width: 8px;
+  height: 8px;
   background: var(--dot) !important;
 }
 .grow {
@@ -93,8 +95,8 @@ footer {
 }
 .dock {
   flex: none;
-  width: 22px;
-  height: 20px;
+  width: 24px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;

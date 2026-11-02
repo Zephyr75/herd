@@ -97,19 +97,19 @@ func Read(path string) (Artifact, error) {
 	return a, nil
 }
 
-// IsDone reports whether the artifact satisfies a done rule: key has one of
-// values.
-func (a Artifact) IsDone(key string, values []string) bool {
+// Outcome reads the front matter's status: done (finished, succeeded) or
+// failed (finished, failed); anything else means the step is not finished.
+func (a Artifact) Outcome() (finished, failed bool) {
 	if !a.Exists {
-		return false
+		return false, false
 	}
-	v := strings.ToLower(a.Get(key))
-	for _, want := range values {
-		if v == strings.ToLower(want) {
-			return true
-		}
+	switch strings.ToLower(a.Get("status")) {
+	case "done":
+		return true, false
+	case "failed":
+		return true, true
 	}
-	return false
+	return false, false
 }
 
 // Watch calls onWrite(path) for each markdown file written under root,

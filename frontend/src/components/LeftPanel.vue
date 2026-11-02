@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
+import { api } from '../lib/api'
+import { unsuccessful, type Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
@@ -12,12 +14,21 @@ const counts = computed(() => ({
   archived: herd.tasks.filter((t) => t.archived).length,
 }))
 const groups = computed(() =>
-  herd.projects.map((p) => ({
-    p,
-    tasks: herd.tasks.filter((t) => t.project === p.id && (herd.left === 'archive' ? t.archived : !t.archived)),
-  })),
+  herd.groups
+    .map((p) => ({
+      p,
+      tasks: herd.tasks.filter((t) => t.project === p.id && (herd.left === 'archive' ? t.archived : !t.archived)),
+    }))
+    .filter((g) => !g.p.gone || g.tasks.length),
 )
 const toggle = (id: string) => (herd.collapsed[id] = !herd.collapsed[id])
+// PR open and its Push is the latest step: nothing left but the merge.
+function awaitingMerge(t: Task) {
+  const last = t.steps[t.steps.length - 1]
+  const isPush = !!herd.settings?.agents.find((a) => a.id === last?.agent)?.push
+  return !t.archived && t.pr > 0 && t.prState === 'open' && isPush && last.state === 'done' && !unsuccessful(last)
+}
+const archive = (t: Task) => herd.attempt('Could not archive', () => api.ArchiveTask(t.id))
 function addProject() {
   herd.view = 'settings'
   herd.settingsTab = 'projects'
@@ -40,17 +51,21 @@ function addProject() {
           <Icon :name="herd.collapsed[g.p.id] ? 'chevron-right' : 'chevron'" :size="14" />
           <Icon name="folder" />
           <span class="name">{{ g.p.name }}</span>
+          <span v-if="g.p.gone" class="gone" title="This project was removed from Settings > Projects">removed</span>
           <span>{{ g.tasks.length }}</span>
         </button>
         <template v-if="!herd.collapsed[g.p.id]">
           <span v-if="!g.tasks.length" class="empty">{{ herd.left === 'archive' ? 'Nothing archived' : 'No open tasks' }}</span>
-          <button v-for="t in g.tasks" :key="t.id" class="card" :class="{ on: t.id === herd.sel }" @click="herd.pickTask(t.id)">
-            <span class="row">
-              <TaskRef :issue="t.issue" />
-              <span class="title">{{ t.title }}</span>
-            </span>
-            <StatusBadge :kind="t.status.kind" :label="t.status.label" />
-          </button>
+          <div v-for="t in g.tasks" :key="t.id" class="cardw">
+            <button class="card" :class="{ on: t.id === herd.sel }" @click="herd.pickTask(t.id)">
+              <span class="row">
+                <TaskRef :issue="t.issue" />
+                <span class="title">{{ t.title }}</span>
+              </span>
+              <StatusBadge :kind="t.status.kind" :label="t.status.label" />
+            </button>
+            <button v-if="awaitingMerge(t)" class="arch" :title="`Archive: PR #${t.pr} is open and no fix is in progress`" aria-label="Archive task" @click="archive(t)"><Icon name="archive" :size="15" /></button>
+          </div>
         </template>
       </template>
       <div v-if="!groups.length" class="none">
@@ -138,6 +153,27 @@ aside {
   font-size: 13px;
   color: var(--text);
 }
+.cardw {
+  position: relative;
+}
+.arch {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 26px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+.arch:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 .card:hover {
   background: var(--hover);
 }
@@ -163,5 +199,12 @@ aside {
 }
 .none p {
   margin: 0 0 10px;
+}
+.gone {
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
 }
 </style>

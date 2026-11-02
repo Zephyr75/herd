@@ -125,12 +125,19 @@ type Comment struct {
 	Body string `json:"body"`
 }
 
-// CopilotReview returns the Copilot review body and comments on a PR, and
-// whether the review has arrived.
-func (g GH) CopilotReview(ctx context.Context, repo string, n int) (string, []Comment, bool, error) {
+// Review is one Copilot review: its summary and inline comments.
+type Review struct {
+	ID       int64
+	Body     string
+	Comments []Comment
+}
+
+// CopilotReviews returns the Copilot reviews on a PR newer than review id
+// after, oldest first. Copilot reviews again each time it is asked.
+func (g GH) CopilotReviews(ctx context.Context, repo string, n int, after int64) ([]Review, error) {
 	out, err := g.run(ctx, "", "api", fmt.Sprintf("repos/%s/pulls/%d/reviews", repo, n))
 	if err != nil {
-		return "", nil, false, err
+		return nil, err
 	}
 	var reviews []struct {
 		ID   int64
@@ -138,25 +145,22 @@ func (g GH) CopilotReview(ctx context.Context, repo string, n int) (string, []Co
 		User struct{ Login string }
 	}
 	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
-		return "", nil, false, err
+		return nil, err
 	}
-	var id int64
-	body := ""
+	var rs []Review
 	for _, r := range reviews {
-		if isCopilot(r.User.Login) {
-			id, body = r.ID, r.Body
+		if !isCopilot(r.User.Login) || r.ID <= after {
+			continue
 		}
+		out, err := g.run(ctx, "", "api", fmt.Sprintf("repos/%s/pulls/%d/reviews/%d/comments", repo, n, r.ID))
+		if err != nil {
+			return rs, err
+		}
+		x := Review{ID: r.ID, Body: r.Body}
+		_ = json.Unmarshal([]byte(out), &x.Comments)
+		rs = append(rs, x)
 	}
-	if id == 0 {
-		return "", nil, false, nil
-	}
-	out, err = g.run(ctx, "", "api", fmt.Sprintf("repos/%s/pulls/%d/reviews/%d/comments", repo, n, id))
-	if err != nil {
-		return body, nil, true, err
-	}
-	var cs []Comment
-	_ = json.Unmarshal([]byte(out), &cs)
-	return body, cs, true, nil
+	return rs, nil
 }
 
 func isCopilot(login string) bool {

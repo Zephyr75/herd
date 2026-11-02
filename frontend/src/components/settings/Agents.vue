@@ -5,7 +5,7 @@ import { computed, ref } from 'vue'
 import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
 import { herd } from '../../lib/state'
-import type { Agent } from '../../lib/types'
+import { afterOf, type Agent } from '../../lib/types'
 
 const agents = computed(() => herd.settings?.agents ?? [])
 const selId = ref(herd.settings?.agents[1]?.id ?? herd.settings?.agents[0]?.id ?? '')
@@ -34,12 +34,15 @@ function set<K extends keyof Agent>(k: K, v: Agent[K]) {
 const val = (e: Event) => (e.target as HTMLInputElement).value
 const checked = (e: Event) => (e.target as HTMLInputElement).checked
 
-const afterName = (a: Agent) => agents.value.find((x) => 'after:' + x.id === a.trigger)?.name ?? a.trigger.slice(6)
+const afterName = (a: Agent) => {
+  const id = afterOf(a.trigger)
+  return agents.value.find((x) => x.id === id)?.name ?? id
+}
 // "Starts after X" would loop when X (or what X waits for) starts after this agent.
 function loops(a: Agent, target: string) {
   for (let cur = target, n = 0; cur && n <= agents.value.length; n++) {
     if (cur === a.id) return true
-    cur = agents.value.find((x) => x.id === cur)?.trigger.replace(/^after:/, '').replace(/^manual$/, '') ?? ''
+    cur = afterOf(agents.value.find((x) => x.id === cur)?.trigger ?? '')
   }
   return false
 }
@@ -47,7 +50,8 @@ const triggers = computed(() => {
   const a = A.value
   const out = [{ value: 'manual', label: 'Manually, with play', loop: false }]
   for (const x of agents.value) {
-    if (a && x.id !== a.id) out.push({ value: 'after:' + x.id, label: 'Automatically after ' + x.name, loop: loops(a, x.id) })
+    if (!a || x.id === a.id) continue
+    out.push({ value: 'after:' + x.id, label: 'Automatically when ' + x.name + ' succeeds', loop: loops(a, x.id) })
   }
   return out
 })
@@ -70,7 +74,7 @@ function addAgent() {
   const id = idFor(name)
   s.agents.push({
     id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
-    done: 'status: done', commit: false, push: false, ignoreRules: false,
+    commit: false, push: false, ignoreRules: false,
     instructions: 'Describe what this agent does and what it writes.',
   })
   selId.value = id
@@ -96,7 +100,7 @@ function remove() {
   }
   const id = A.value.id
   s.agents = s.agents.filter((a) => a.id !== id)
-  for (const a of s.agents) if (a.trigger === 'after:' + id) a.trigger = 'manual' // nothing to wait for any more
+  for (const a of s.agents) if (afterOf(a.trigger) === id) a.trigger = 'manual' // nothing to wait for any more
   selId.value = s.agents[0]?.id ?? ''
   confirmDelete.value = false
   changed()
@@ -161,10 +165,9 @@ function pick(id: string) {
           <option v-for="o in triggers" :key="o.value" :value="o.value" :disabled="o.loop">{{ o.label }}{{ o.loop ? ' (would loop)' : '' }}</option>
         </select>
       </div>
-      <label class="field">Done when<input class="input mono" :value="A.done" @input="set('done', val($event))" /></label>
       <div class="checks">
-        <label><input type="checkbox" :checked="A.commit" @change="set('commit', checked($event))" /> Commit the worktree when done</label>
-        <label><input type="checkbox" :checked="A.push" @change="set('push', checked($event))" /> Push and open the PR when done</label>
+        <label><input type="checkbox" :checked="A.commit" @change="set('commit', checked($event))" /> Commit the worktree when it finishes</label>
+        <label><input type="checkbox" :checked="A.push" @change="set('push', checked($event))" /> Push and open the PR when it succeeds</label>
         <label title="The Rules in Settings > Context are not given to this agent"><input type="checkbox" :checked="A.ignoreRules" @change="set('ignoreRules', checked($event))" /> Ignore the common rules</label>
       </div>
       <label class="field">Instructions (the agent's skill)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>

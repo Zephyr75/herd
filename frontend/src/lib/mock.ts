@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import type { PRTitle, Agent, Artifact, Context, Next, Project, Settings, Step, Task, StatusKind } from './types'
+import { afterOf, unsuccessful, type PRTitle, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -24,13 +24,15 @@ const projects: Project[] = [
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
 const agents: Agent[] = [
-  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', done: 'status: done', commit: false, push: false, ignoreRules: false,
+  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
-  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', done: 'status: done', commit: false, push: false, ignoreRules: false,
+  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', done: 'verdict: approve | changes', commit: true, push: false, ignoreRules: false,
-    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md with front matter verdict: approve or changes.\nNever edit code: herd commits the reviewed changes when you finish.' },
-  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', done: 'status: done', commit: false, push: true, ignoreRules: true,
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: true, push: false, ignoreRules: false,
+    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code: herd commits the reviewed changes when you finish.' },
+  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'after:review', writes: 'TEST-{n}.md', commit: true, push: false, ignoreRules: false,
+    instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
+  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: false, push: true, ignoreRules: true,
     instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
@@ -46,7 +48,7 @@ let mockSynced = false
 const settings: Settings = {
   config: {
     appearance: { theme: 'dark', uiFont: 'IBM Plex Sans', uiFontSize: 13, termFont: 'IBM Plex Mono', termFontSize: 12.5 },
-    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, copilotTimeoutMinutes: 30, notifications: true, maxTabs: 5, branchPrefix: 'ar-',
+    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, notifications: true, maxTabs: 5, branchPrefix: 'ar-',
     rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.', projects,
   },
   agents, context,
@@ -78,7 +80,7 @@ const T: MockTask[] = [
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', guide: 'focus on scooters with old firmware', session: '1a9e42c0' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '5d02ab17' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: 'b7c41d9', verdict: 'changes', session: 'c83f0e55' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: 'b7c41d9', verdict: 'failed', session: 'c83f0e55' },
       { key: 'impl-2', agent: 'impl', n: 2, state: 'running', guide: 'keep the retry budget configurable, default 3', session: '7f3c91d4' },
     ] },
   { id: 'core:4361', project: 'core', issue: '4361', slug: '4361', title: 'Per-minute pricing rounding', description: 'Keep the per-minute rule identical to the B2B tariff.',
@@ -89,7 +91,7 @@ const T: MockTask[] = [
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '2b77e010' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '44e1c9b2' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '91aa0f3', verdict: 'approve', session: 'e0c5d7a8' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '91aa0f3', verdict: '', session: 'e0c5d7a8' },
     ] },
   { id: 'core:4370', project: 'core', issue: '4370', slug: '4370', title: 'Batch battery telemetry ingestion', description: '',
     fx: { goal: 'Telemetry rows are inserted one by one. Batch them per vehicle every 5 seconds to cut database writes.', files: ['internal/telemetry/ingest.go', 'internal/telemetry/batch.go'],
@@ -120,6 +122,13 @@ const T: MockTask[] = [
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: 'b5c0d9e1' },
       { key: 'review-1', agent: 'review', n: 1, state: 'running', session: '0d9c3b74' },
     ] },
+  { id: 'infra:219', project: 'infra', issue: '219', slug: '219', title: 'Alert on ingestion lag', description: '', pr: 71, prState: 'open', fx: {},
+    steps: [
+      { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '2e3f4a5b' },
+      { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '3f4a5b6c' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', session: '4a5b6c7d' },
+      { key: 'push-1', agent: 'push', n: 1, state: 'done', session: '5b6c7d8e' },
+    ] },
   { id: 'core:4349', project: 'core', issue: '4349', slug: '4349', title: 'Geofence import from city GeoJSON', description: '', archived: true, pr: 812, prState: 'merged', archivedOn: '2026-10-28',
     fx: { goal: 'Import parking and no-ride zones from the city open-data GeoJSON instead of the manual CSV.', files: ['internal/zones/geojson.go', 'internal/zones/import.go'], test: 'go test ./internal/zones/...',
       testOut: 'ok   pony-core/internal/zones   1.12s', flow: ['Fetch GeoJSON', 'Validate polygons', 'Upsert zones'], diff: [['+', 'func ParseGeoJSON(r io.Reader) ([]Zone, error) {']],
@@ -128,21 +137,21 @@ const T: MockTask[] = [
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '0f4b8a21' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '3e9a77c0' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '6d3e20b', verdict: 'approve', session: '71bc04de' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '6d3e20b', verdict: '', session: '71bc04de' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: 'd2a6f5e9' },
     ] },
   { id: 'infra:207', project: 'infra', issue: '207', slug: '207', title: 'Rotate SP certificates through Horizon', description: '', archived: true, pr: 64, prState: 'merged', archivedOn: '2026-10-21', fx: {},
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '5a1b2c3d' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '6b2c3d4e' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '2c8e7f1', verdict: 'approve', session: '7c3d4e5f' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: '2c8e7f1', verdict: '', session: '7c3d4e5f' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: '8d4e5f60' },
     ] },
   { id: 'rider:1170', project: 'rider', issue: '1170', slug: '1170', title: 'Dark mode for ride summary', description: '', archived: true, pr: 301, prState: 'closed', archivedOn: '2026-10-17', fx: {},
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '9e5f6071' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: 'af607182' },
-      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: 'a4f0b12', verdict: 'approve', session: 'b0718293' },
+      { key: 'review-1', agent: 'review', n: 1, state: 'done', sha: 'a4f0b12', verdict: '', session: 'b0718293' },
       { key: 'push-1', agent: 'push', n: 1, state: 'done', session: 'c1829304' },
     ] },
 ]
@@ -178,7 +187,8 @@ function derive(t: MockTask): Task {
   else if (steps.some((s) => s.state === 'approval')) status = st('approval', 'Needs approval · ' + steps.find((s) => s.state === 'approval')!.name, 'approval')
   else if (steps.some((s) => s.state === 'running')) status = st('running', 'Running · ' + steps.find((s) => s.state === 'running')!.name, 'running')
   else if (last.state === 'idle') status = st('waiting', 'Waiting for input · ' + last.name, 'waiting')
-  else if (last.state === 'failed') status = st('waiting', `Waiting for input · ${last.name} failed`, 'failed')
+  else if (last.state === 'failed') status = st('waiting', `Waiting for input · ${last.name} ended early`, 'failed')
+  else if (unsuccessful(last)) status = st('waiting', `Waiting for input · ${last.name} failed`, 'failed')
   else if (t.pr && t.prState === 'open') status = st('done', `PR #${t.pr} open`, 'PR open')
   else status = st('waiting', 'Waiting for input · after ' + last.name, 'waiting')
 
@@ -190,26 +200,31 @@ function derive(t: MockTask): Task {
   } else if (!last) next.options.push(opt(agents[0], 1))
   else {
     const la = agent(last.agent)
-    const autoNext = agents.find((a) => a.trigger === 'after:' + last.agent)
+    const autoNext = agents.find((a) => afterOf(a.trigger) === last.agent && !unsuccessful(last))
     if (autoNext && last.state !== 'done') next.ghost = { name: displayName(autoNext, count(autoNext.id) + 1), after: last.name, manual: false, start: null }
     const manualNext = autoNext && last.manual && last.state !== 'failed' ? opt(autoNext, count(autoNext.id) + 1) : undefined
     if (manualNext) next.ghost = { name: manualNext.label, after: last.name, manual: true, start: manualNext }
     const appr = steps.find((s) => s.state === 'approval')
     const run = steps.find((s) => s.state === 'running')
+    const idx = agents.indexOf(la)
+    const fixA = agents.slice(0, Math.max(0, idx)).reverse().find((a) => !afterOf(a.trigger) && !a.push)
+    const fix = fixA ? opt(fixA, count(fixA.id) + 1) : undefined
     if (appr) { next.approval = appr.id; next.text = 'Claude Code wants to run a command. Answer in the terminal, or allow it once here.' }
-    else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically when it finishes.` : 'You will be asked for the next step when it finishes.')
+    else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically if it succeeds.` : 'You will be asked for the next step when it finishes.')
     else if (manualNext) { next.options.push(manualNext); next.text = `${last.name} is yours: use its session outside herd (copy the claude command in its toolbar) or Resume it here. Start ${manualNext.label} when you are done.` }
     else if (last.state === 'idle') { next.text = `Claude is waiting for you in the ${last.name} terminal. Mark it done if ${last.artifact} is complete.`; next.markDone = last.id }
     else if (last.state === 'failed') { next.text = `${last.name} ended before ${last.artifact} was done.`; next.options.push(opt(la, last.n, 'Retry ')); next.markDone = last.id }
-    else if (la.push) next.text = `PR #${t.pr} is open. The task moves to Archive when the PR is merged or closed.`
-    else {
-      const idx = agents.indexOf(la)
+    else if (unsuccessful(last)) {
+      next.text = `${last.name} failed: ${last.artifact} says why.`
+      const again = opt(la, count(la.id) + 1)
+      next.options = !fix ? [again] : afterOf(la.trigger) ? [fix, again] : [again, fix]
+    } else if (la.push) {
+      next.text = `PR #${t.pr} is open. The task moves to Archive when the PR is merged or closed.`
+      if (fix) { next.text += ` If Copilot or the CI checks ask for changes, start ${fix.label}, then push again.`; next.options.push(fix) }
+    } else {
       const nextA = agents.slice(idx + 1).find((a) => !a.trigger.startsWith('after:'))
-      const loopId = la.trigger.startsWith('after:') ? la.trigger.slice(6) : ''
-      const loopA = last.verdict ? agents.find((a) => a.id === loopId) : undefined
-      const opts = nextA ? [opt(nextA, count(nextA.id) + 1)] : []
-      if (loopA) { const lo = opt(loopA, count(loopA.id) + 1); if (last.verdict === 'approve') opts.push(lo); else opts.unshift(lo) }
-      next.options = opts
+      next.options = nextA ? [opt(nextA, count(nextA.id) + 1)] : []
+      if (fix && afterOf(la.trigger)) next.options.push(fix)
     }
   }
   return {
@@ -218,7 +233,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next,
+    status, steps, next, projectGone: !projects.some((x) => x.id === t.project),
   }
 }
 
@@ -270,7 +285,7 @@ export function mockTerminal(stepId: string): string {
     const sha = prevSha(t, s.key)
     L(`⏺ Bash(git show --stat ${sha})`); L(`  ⎿ ${files.length} files changed, +41 −9`, C.grey); L(`⏺ Read(${run}/PLAN.md)`)
     if (s.state === 'running') { L(''); L(`✻ Reviewing ${sha}…  (esc to interrupt)`, C.yellow) }
-    else { (fx.findings ?? []).forEach((f) => L('  · ' + f, C.grey)); L(`⏺ Write(${run}/REVIEW-${s.n}.md)`); L('  ⎿ verdict: ' + s.verdict, s.verdict === 'approve' ? C.cyan : C.yellow) }
+    else { (fx.findings ?? []).forEach((f) => L('  · ' + f, C.grey)); L(`⏺ Write(${run}/REVIEW-${s.n}.md)`); L('  ⎿ status: ' + (s.verdict === 'failed' ? 'failed' : 'done'), s.verdict === 'failed' ? C.yellow : C.cyan) }
   } else {
     L(`⏺ Write(${run}/PR.md)`); L(`● herd: git push -u origin agent/${t.slug}`, C.cyan); L(`● herd: gh pr create --body-file PR.md  →  #${t.pr}`, C.cyan)
     L(`● herd: Copilot review, ${(fx.copilot ?? []).length} comments appended to FEEDBACK.md`, C.cyan)
@@ -293,8 +308,8 @@ function mockArtifact(stepId: string): Artifact {
   }
   if (s.agent === 'impl') return { ...base, exists: true, front: [{ k: 'status', v: 'done' }, { k: 'commit', v: s.sha ?? '' }],
     body: `## Changes\n\n${list(fx.changes?.length ? fx.changes : ['Implemented the plan'])}\n\n## Tests\n\n\`\`\`console\n$ ${fx.test ?? 'make test'}\n${fx.testOut ?? 'ok'}\n\`\`\`\n\n## Notes for the reviewer\n\nBehaviour outside the files listed in PLAN.md is unchanged.\n` }
-  if (s.agent === 'review') return { ...base, exists: true, front: [{ k: 'verdict', v: s.verdict ?? '' }, { k: 'reviewed', v: prevSha(t, s.key) }],
-    body: `## Findings\n\n${list(fx.findings?.length ? fx.findings : ['No blocking findings'])}\n\n## Verdict\n\n${s.verdict === 'approve' ? 'Ready to push.' : 'Address the findings above in the next implement step.'}\n` }
+  if (s.agent === 'review') return { ...base, exists: true, front: [{ k: 'status', v: s.verdict === 'failed' ? 'failed' : 'done' }, { k: 'reviewed', v: prevSha(t, s.key) }],
+    body: `## Findings\n\n${list(fx.findings?.length ? fx.findings : ['No blocking findings'])}\n\n## Verdict\n\n${s.verdict === 'failed' ? 'Address the findings above in the next implement step.' : 'Ready to push.'}\n` }
   return { ...base, exists: true, front: [{ k: 'pr', v: '#' + t.pr }], body: `## Copilot review (PR #${t.pr})\n\n${list(fx.copilot ?? ['No comments'])}\n` }
 }
 
@@ -335,11 +350,10 @@ export const api: Api = {
     later(4000, () => {
       s.state = 'done'
       if (agentId === 'review') s.sha = Math.random().toString(16).slice(2, 9)
-      if (agentId === 'review') s.verdict = 'approve'
       if (agentId === 'push') { t.pr = 800 + Math.floor(Math.random() * 99); t.prState = 'open' }
       changed(t)
       emit('artifact:changed', { taskId: t.id, file: '' })
-      const auto = agents.find((a) => a.trigger === 'after:' + agentId)
+      const auto = agents.find((a) => afterOf(a.trigger) === agentId)
       if (auto) api.StartStep(t.id, auto.id, '', 0)
     })
     return ok(derive(t).steps.find((x) => x.key === key)!)
@@ -372,8 +386,10 @@ export const api: Api = {
   StopStep: () => ok(undefined),
   ArchiveTask: (id) => { const t = find(id); t.archived = true; t.archivedOn = new Date().toISOString(); changed(t); return ok(undefined) },
   RestoreTask: (id) => { const t = find(id); if (t.removed) return Promise.reject('the worktree was removed'); t.archived = false; changed(t); return ok(undefined) },
+  DeleteTask: (id) => { const i = T.findIndex((t) => t.id === id); if (i < 0 || !T[i].archived) return Promise.reject('archive the task before deleting it'); T.splice(i, 1); emit('task:removed', { id }); return ok(['removed the task']) },
   RemoveWorktree: (id) => { const t = find(id), p = proj(t.project); t.removed = true; changed(t)
     return ok([`$ git -C ${p.path} worktree remove --force ${p.path}/.worktrees/${t.slug}`, `$ git -C ${p.path} branch -D agent/${t.slug}`]) },
+  OpenRunDir: () => ok(undefined),
   OpenInZed: (id, sid) => {
     const t = find(id), p = proj(t.project), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
     if (s?.sha) return ok([`$ zed zed://git/commit/${s.sha}?repo=${p.path}/.worktrees/${t.slug}`])
@@ -406,7 +422,13 @@ export const api: Api = {
     ] })
     return ok({ source: '', sha: '', via: '', files: [] })
   },
-  OpenFileInZed: () => ok(undefined),
+  FileDiff: (_sid, path) => ok({ path, binary: false, truncated: false, diff: [
+    `diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`,
+    '@@ -12,7 +12,12 @@ func (c *Conn) Unlock(ctx context.Context) error {',
+    ' \tif c.closed {', ' \t\treturn ErrClosed', ' \t}', '-\treturn c.send(ctx, cmdUnlock)',
+    '+\treturn withRetry(ctx, c.cfg.RetryBudget, func() error {', '+\t\treturn c.send(ctx, cmdUnlock)', '+\t})',
+    ' }', ' ', '@@ -40,3 +45,4 @@ func dial(addr string) (*Conn, error) {', ' \tc := &Conn{addr: addr}', '+\tc.cfg = defaultConfig()', ' \treturn c, nil',
+  ].join('\n') }),
   SetFocused: () => ok(undefined),
   SetNotifications: (on) => { settings.config.notifications = on; return ok(undefined) },
   SetMaxTabs: (n) => { settings.config.maxTabs = n; emit('settings:changed', settings); return ok(undefined) },

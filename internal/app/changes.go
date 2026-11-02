@@ -2,17 +2,13 @@ package app
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-
-	"herd/internal/zed"
 )
 
 // FileChange is one file a step changed.
@@ -108,6 +104,74 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 	return out, nil
 }
 
+// FileDiff is one file's unified diff in a step's changes.
+type FileDiff struct {
+	Path      string `json:"path"`
+	Diff      string `json:"diff"` // git's unified diff, headers included
+	Binary    bool   `json:"binary"`
+	Truncated bool   `json:"truncated"`
+}
+
+const maxDiff = 400 << 10
+
+// FileDiff returns the diff of one file the step changed, from the same
+// source as StepChanges: the step's commit (or its Review's), or the
+// uncommitted worktree.
+func (a *App) FileDiff(stepID, rel string) (FileDiff, error) {
+	ch, err := a.StepChanges(stepID)
+	if err != nil {
+		return FileDiff{}, err
+	}
+	var fc *FileChange
+	for i := range ch.Files {
+		if ch.Files[i].Path == rel {
+			fc = &ch.Files[i]
+		}
+	}
+	if fc == nil {
+		return FileDiff{}, fmt.Errorf("%s is not among this step's changes", rel)
+	}
+	out := FileDiff{Path: rel, Binary: fc.Binary}
+	if fc.Binary {
+		return out, nil
+	}
+	s, _ := a.db.Step(stepID)
+	t, _ := a.db.Task(s.TaskID)
+	p := a.projectOf(t)
+	switch {
+	case ch.Source == "commit":
+		out.Diff, err = a.git.Run(a.ctx, p.Path, "-c", "core.quotePath=false", "show", "--format=", "--no-renames", "--no-color", ch.SHA, "--", rel)
+	case fc.Status == "?":
+		out.Diff, err = untrackedDiff(worktreePath(p, t), rel)
+	default:
+		out.Diff, err = a.git.Run(a.ctx, worktreePath(p, t), "-c", "core.quotePath=false", "diff", "--no-renames", "--no-color", "HEAD", "--", rel)
+	}
+	if len(out.Diff) > maxDiff {
+		cut := strings.LastIndexByte(out.Diff[:maxDiff], '\n')
+		out.Diff, out.Truncated = out.Diff[:max(cut, 0)], true
+	}
+	return out, err
+}
+
+// untrackedDiff shows a new, untracked file as all added lines.
+func untrackedDiff(wt, rel string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(wt, rel))
+	if err != nil {
+		return "", err
+	}
+	body := strings.TrimSuffix(string(b), "\n")
+	lines := strings.Split(body, "\n")
+	if body == "" {
+		lines = nil
+	}
+	var d strings.Builder
+	fmt.Fprintf(&d, "--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", rel, len(lines))
+	for _, l := range lines {
+		d.WriteString("+" + l + "\n")
+	}
+	return d.String(), nil
+}
+
 // parseChanges joins git's --numstat and --name-status outputs.
 func parseChanges(numstat, nameStatus string) []FileChange {
 	status := map[string]string{}
@@ -135,47 +199,6 @@ func parseChanges(numstat, nameStatus string) []FileChange {
 		files = append(files, fc)
 	}
 	return files
-}
-
-// OpenFileInZed opens one changed file in Zed. With a commit sha it opens a
-// read-only copy of the file as it was in that commit (under ~/.herd/views,
-// pruned at startup), or the commit's diff when the commit deleted it.
-// Without one it opens the file in the worktree.
-func (a *App) OpenFileInZed(taskID, rel, sha string) error {
-	t, err := a.db.Task(taskID)
-	if err != nil {
-		return err
-	}
-	p := a.projectOf(t)
-	wt := worktreePath(p, t)
-	path := filepath.Join(wt, rel)
-	if r, err := filepath.Rel(wt, path); err != nil || strings.HasPrefix(r, "..") {
-		return errors.New("the file is outside the worktree")
-	}
-	zedCmd := a.settings.Config().ZedCommand
-	if sha == "" {
-		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("%s no longer exists in the worktree", rel)
-		}
-		return zed.OpenFile(zedCmd, path)
-	}
-	full, err := a.git.Run(a.ctx, p.Path, "rev-parse", "--verify", sha+"^{commit}")
-	if err != nil {
-		return err
-	}
-	body, err := a.git.FileAt(a.ctx, p.Path, full, filepath.ToSlash(rel))
-	if err != nil { // deleted in this commit: show the commit instead
-		return zed.Open(zedCmd, "zed://git/commit/"+full+"?repo="+url.QueryEscape(wt))
-	}
-	snap := filepath.Join(a.Home, "views", p.Name, full[:12], rel)
-	if err := os.MkdirAll(filepath.Dir(snap), 0o755); err != nil {
-		return err
-	}
-	_ = os.Chmod(snap, 0o644)
-	if err := os.WriteFile(snap, body, 0o444); err != nil {
-		return err
-	}
-	return zed.OpenFile(zedCmd, snap)
 }
 
 // Proc is a process running a Claude Code session.

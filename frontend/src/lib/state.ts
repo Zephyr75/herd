@@ -8,7 +8,7 @@ import { actionFor } from './keymap'
 import { copyText } from './window'
 import type { Option, PRTitle, Proc, Settings, Step, TabRef, Task } from './types'
 
-export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push'
+export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push' | 'diff' | 'artifact'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
 export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts'
 
@@ -69,6 +69,7 @@ class Herd {
   systemLight = false
   artifactRev = 0
   confirmRemove = ''
+  confirmDelete = ''
   leftWidth = savedWidth('left')
   rightWidth = savedWidth('right')
   /** Hidden side panels (the toggles in the status bar). */
@@ -81,6 +82,15 @@ class Herd {
 
   get projects() {
     return this.settings?.config.projects ?? []
+  }
+  /** The left panel's groups: every project, then projects removed from
+   *  Settings that still have tasks (so they can be found and deleted). */
+  get groups(): { id: string; name: string; gone: boolean }[] {
+    const out = this.projects.map((p) => ({ id: p.id, name: p.name, gone: false }))
+    for (const t of this.tasks) {
+      if (!out.some((g) => g.id === t.project)) out.push({ id: t.project, name: t.projectName || t.project, gone: true })
+    }
+    return out
   }
   get selTask(): Task | null {
     return this.tasks.find((t) => t.id === this.sel) ?? null
@@ -133,6 +143,7 @@ class Herd {
     }
     if (!isDesktop) this.applyPreviewParams()
     on('task:changed', (t: Task) => this.upsert(t))
+    on('task:removed', ({ id }: { id: string }) => this.forget(id))
     on('settings:changed', (s: Settings) => {
       // While the user is typing in Settings, the local copy is newer than
       // the echo of the previous save.
@@ -210,6 +221,22 @@ class Herd {
       this.trimTabs()
       this.persistTabs()
     }
+  }
+
+  /** forget drops a deleted task, its tabs and its selection. */
+  private forget(id: string) {
+    const i = this.tasks.findIndex((t) => t.id === id)
+    if (i < 0) return
+    const next = this.visibleTasks().find((t) => t.id !== id)
+    this.tasks.splice(i, 1)
+    const active = this.tabs[this.active]
+    this.tabs = this.tabs.filter((tb) => tb.task !== id)
+    this.active = active && active.task !== id ? this.tabs.indexOf(active) : Math.min(this.active, this.tabs.length - 1)
+    if (this.sel === id) {
+      this.sel = ''
+      if (next) this.pickTask(next.id)
+    }
+    this.persistTabs()
   }
 
   toast(title: string, body = '', error = false) {
@@ -321,6 +348,7 @@ class Herd {
     this.view = 'board'
     this.left = t.archived ? 'archive' : 'tasks'
     this.confirmRemove = ''
+    this.confirmDelete = ''
     if (!t.steps.length) {
       this.sel = id
       this.active = -1
@@ -363,7 +391,7 @@ class Herd {
   /** The tasks in the left panel, in display order. */
   visibleTasks(): Task[] {
     const out: Task[] = []
-    for (const p of this.projects) {
+    for (const p of this.groups) {
       if (this.collapsed[p.id]) continue
       out.push(...this.tasks.filter((t) => t.project === p.id && (this.left === 'archive' ? t.archived : !t.archived)))
     }
@@ -397,6 +425,22 @@ class Herd {
     if (!ok) return
     this.termRev++
     this.openStep(step.taskId, step.id)
+  }
+
+  /** The step whose artifact the artifact pop-up shows. */
+  artifactOf = ''
+
+  openArtifactPopup(step: string) {
+    this.artifactOf = step
+    this.overlay = 'artifact'
+  }
+
+  /** The step and file shown in the diff pop-up. */
+  diffOf: { step: string; path: string } | null = null
+
+  openDiffPopup(step: string, path: string) {
+    this.diffOf = { step, path }
+    this.overlay = 'diff'
   }
 
   /** The push step waiting for its PR title (the Push popup). */
@@ -466,6 +510,12 @@ class Herd {
 
   stopStep(step: Step) {
     return this.attempt('Could not stop Claude', () => api.StopStep(step.id))
+  }
+
+  /** Stop Claude in herd and copy the command to continue it elsewhere. */
+  async stopAndCopy(step: Step) {
+    await this.copyResume(step)
+    await this.stopStep(step)
   }
 
   /** Resume, unless another process (e.g. claude --resume in Zed) still

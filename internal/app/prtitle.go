@@ -12,7 +12,7 @@ import (
 )
 
 // PRTitle is the pull request title chosen in the Push popup:
-// "<kind>(<scope>): <desc> - #<issue>".
+// "<kind>(<scope>): <desc> #<issue>".
 type PRTitle struct {
 	Kind  string `json:"kind"`  // feat | fix | perf | test
 	Scope string `json:"scope"` // the main part of the code it changes, e.g. vehicles
@@ -27,7 +27,7 @@ var scopeChars = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 func (p PRTitle) Format(issue string) string {
 	s := fmt.Sprintf("%s(%s): %s", p.Kind, p.Scope, p.Desc)
 	if issue != "" {
-		s += " - #" + issue
+		s += " #" + issue
 	}
 	return s
 }

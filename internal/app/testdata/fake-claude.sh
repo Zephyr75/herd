@@ -21,11 +21,11 @@ echo "fake claude: ${@: -1}"
 case "$HERD_STEP" in
   impl-*) echo "change $HERD_N" >> "file-$HERD_N.txt"
           printf -- '---\nstatus: done\n---\n# Changes\n- edited\n' > "$HERD_ARTIFACT" ;;
-  review-*) printf -- "---\nverdict: ${FAKE_VERDICT:-changes}\n---\n# Findings\n- one\n" > "$HERD_ARTIFACT" ;;
+  review-*) printf -- "---\nstatus: ${FAKE_REVIEW:-done}\n---\n# Findings\n- one\n" > "$HERD_ARTIFACT" ;;
   ask-*) post Notification '{"notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}'
          read -r answer; post PostToolUse '{}'
          printf -- '---\nstatus: done\n---\n' > "$HERD_ARTIFACT" ;;
-  *) printf -- '---\nstatus: done\n---\n# Goal\nx\n' > "$HERD_ARTIFACT" ;;
+  *) printf -- "---\nstatus: ${FAKE_STATUS:-done}\n---\n# Goal\nx\n" > "$HERD_ARTIFACT" ;;
 esac
 post Stop '{}'
 read -r line

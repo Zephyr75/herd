@@ -23,14 +23,8 @@ function meta(s: Step): { text: string; cls: string } {
 }
 const dotCls = (s: Step) => (unsuccessful(s) ? 'd-failed' : s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' || s.state === 'idle' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-approval')
 
-// The task's latest step, when it commits and is finished (Review), gets
-// Rerun: review again in the same session, folding hand edits (Edit opens the
-// worktree in Zed) into its commit.
-function canRerun(s: Step) {
-  const task = t.value
-  if (!task || task.archived || task.worktreeRemoved || !s.commits) return false
-  return task.steps[task.steps.length - 1]?.id === s.id && (s.state === 'done' || s.state === 'failed')
-}
+// Rerun (set by herd): the latest step when it commits, and the cycle's
+// Review once you changed the worktree by hand (Edit opens it in Zed).
 
 // Drag the line above the preview to give it more or less room.
 const timeline = ref<HTMLDivElement>()
@@ -102,7 +96,7 @@ async function archive() {
             <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
           <span class="acts">
-            <button v-if="canRerun(s)" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="play" :size="12" />Rerun</button>
+            <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="play" :size="12" />Rerun</button>
             <button v-if="s.sha && s.commits" class="act" aria-label="Open this step's commit in Zed" title="Open this step's commit in Zed" @click="herd.openDiff(s)">Diff</button>
           </span>
         </div>

@@ -53,7 +53,8 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
 
     <template v-if="nx.options.length && !t.archived">
       <label for="guide" class="sr-only">Guidance for Claude</label>
-      <textarea id="guide" v-model="herd.guidance" rows="3" placeholder="Guidance for Claude (optional)"></textarea>
+      <p v-if="nx.warning" class="warn"><Icon name="warn" :size="14" />{{ nx.warning }}</p>
+      <textarea id="guide" v-model="herd.guidance" rows="3" :class="{ need: nx.warning && !herd.guidance.trim() }" :placeholder="nx.warning ? 'Which option? e.g. take option B, because…' : 'Guidance for Claude (optional)'"></textarea>
       <div class="opts">
         <template v-for="(o, i) in nx.options" :key="o.agent + o.n">
           <button class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)"><Icon name="play" :size="13" />{{ o.label }}</button>
@@ -128,6 +129,26 @@ textarea {
   padding: 7px 9px;
   font-size: 13px;
   line-height: 1.45;
+}
+.warn {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--waiting-bg);
+  color: var(--waiting);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.warn :deep(svg) {
+  flex: none;
+  margin-top: 2px;
+  color: var(--waiting-dot);
+}
+textarea.need {
+  border-color: var(--waiting-dot);
 }
 textarea:focus {
   outline: none;

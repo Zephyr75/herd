@@ -52,19 +52,13 @@ const settings: Settings = {
     rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.', projects,
   },
   agents, context,
-  keymap: {
-    palette: ['Mod+P'], scope: ['Mod+Alt+O'], newTask: ['Mod+N'], runPrimary: ['Mod+Enter'], toggleArchive: ['Mod+Shift+A'],
-    nextTask: ['Alt+ArrowDown'], prevTask: ['Alt+ArrowUp'], tab1: ['Alt+1'], tab2: ['Alt+2'], tab3: ['Alt+3'], tab4: ['Alt+4'],
-    tab5: ['Alt+5'], tab6: ['Alt+6'], tab7: ['Alt+7'], tab8: ['Alt+8'], tab9: ['Alt+9'], closeTab: ['Mod+W'],
-    nextTab: ['Ctrl+PageDown', 'Ctrl+Tab'], prevTab: ['Ctrl+PageUp', 'Ctrl+Shift+Tab'],
-    openWorktree: ['Mod+Shift+E'], openDiff: ['Mod+Shift+D'], toggleLeft: ['Mod+Shift+B'], toggleRight: ['Mod+Alt+B'], settings: ['Mod+,'], close: ['Escape'],
-  },
+  keymap: { toggleLeft: ['Alt+E'], toggleRight: ['Alt+A'], close: ['Escape'] },
   dir: '~/.herd',
 }
 
 interface Fx {
   goal?: string; files?: string[]; grep?: string; test?: string; testOut?: string; flow?: string[]
-  diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]
+  diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]; options?: boolean // the plan lists options
 }
 interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
 interface MockTask { id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
@@ -110,7 +104,7 @@ const T: MockTask[] = [
   { id: 'rider:local-map-sdk', project: 'rider', issue: '', slug: 'local-map-sdk', title: 'Remove deprecated map SDK calls',
     description: 'Replace MapView.setCamera calls deprecated in map SDK 11 with the new camera API. No visual change.',
     fx: { goal: 'Map SDK 11 deprecates MapView.setCamera. Move every call to the camera API without changing what riders see.', files: ['src/map/RideMap.tsx', 'src/map/camera.ts'], grep: 'setCamera',
-      test: 'pnpm test map', testOut: 'Tests  8 passed', flow: ['Find setCamera calls', 'Swap to camera API', 'Snapshot tests'] },
+      test: 'pnpm test map', testOut: 'Tests  8 passed', flow: ['Find setCamera calls', 'Swap to camera API', 'Snapshot tests'], options: true },
     steps: [{ key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '3c72aa05' }] },
   { id: 'infra:214', project: 'infra', issue: '214', slug: '214', title: 'AKS node pool for telemetry ingestion', description: 'Use spot instances where possible.',
     fx: { goal: 'Telemetry ingestion shares the default node pool. Give it a dedicated autoscaling pool, on spot instances where possible.', files: ['modules/aks/nodepool.tf', 'envs/prod/aks.tf'],
@@ -171,6 +165,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     name: displayName(a, s.n), live: s.state !== 'done' && !paused, auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit,
     paused, manual: !!s.manual, fresh: !!s.manual && open,
+    rerun: i === t.steps.length - 1 && a.commit && !open,
   }
 }
 
@@ -192,7 +187,7 @@ function derive(t: MockTask): Task {
   else if (t.pr && t.prState === 'open') status = st('done', `PR #${t.pr} open`, 'PR open')
   else status = st('waiting', 'Waiting for input · after ' + last.name, 'waiting')
 
-  const next: Next = { options: [], text: '', approval: '', markDone: '', ghost: null as Next['ghost'] }
+  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
   if (t.archived) {
@@ -227,6 +222,8 @@ function derive(t: MockTask): Task {
       if (fix && afterOf(la.trigger)) next.options.push(fix)
     }
   }
+  if (t.fx.options && last?.agent === 'plan' && last.state === 'done' && next.options.length)
+    next.warning = `${last.artifact} lists several options. Read them, then name the one to take in the guidance before starting ${next.options[0].label}.`
   return {
     id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, createdAt: '',
     archived: !!t.archived, archivedAt: t.archivedOn ?? '', pr: t.pr ?? 0, prUrl: '', prState: t.prState ?? '', worktreeRemoved: !!t.removed,
@@ -324,6 +321,9 @@ export const api: Api = {
   }),
   SaveTabs: () => ok(undefined),
   ListTasks: () => ok(T.map(derive)),
+  MyIssues: (p) => (projects.find((x) => x.id === p)?.repo ? ok([
+    { number: 1190, title: ISSUE_TITLES['1190'] }, { number: 4356, title: ISSUE_TITLES['4356'] }, { number: 4388, title: 'Export ride receipts as PDF' },
+  ]) : Promise.reject('the project has no GitHub repo')),
   IssueTitle: (_p, issue) => (ISSUE_TITLES[issue] ? ok(ISSUE_TITLES[issue]) : Promise.reject('issue not found')),
   CreateTask: (project, issue, description, branch, runPlan) => {
     if (!issue && !description) return Promise.reject('add a GitHub issue number, a description, or both')

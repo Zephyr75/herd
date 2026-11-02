@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"herd/internal/settings"
@@ -27,6 +28,7 @@ type StepView struct {
 	Paused   bool   `json:"paused"` // stopped by the user until Resume
 	Manual   bool   `json:"manual"` // created without running: the user drives its session
 	Fresh    bool   `json:"fresh"`  // its session has no transcript yet: claude --session-id, not --resume
+	Rerun    bool   `json:"rerun"`  // Rerun applies (see markRerun)
 }
 
 // Option is one next-step button.
@@ -51,6 +53,7 @@ type Next struct {
 	Text     string   `json:"text"`
 	Approval string   `json:"approval"` // step id waiting for permission
 	MarkDone string   `json:"markDone"` // step id that can be marked done
+	Warning  string   `json:"warning"`  // e.g. the plan lists options: pick one in the guidance
 	Ghost    *Ghost   `json:"ghost"`
 }
 
@@ -157,9 +160,86 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	}
 	_, known := a.settings.Project(t.Project)
 	v.ProjectGone = !known
+	a.markRerun(t, v.Steps, agents)
 	v.Status = statusOf(t, v.Steps)
 	v.Next = nextOf(t, v.Steps, agents)
+	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
 	return v, nil
+}
+
+var optionsHeading = regexp.MustCompile(`(?mi)^#{1,6}\s*options\b`)
+
+// optionsWarning asks the user to choose when the latest step's artifact (a
+// plan) lists Options and the next step is to be started by hand.
+func (a *App) optionsWarning(t store.Task, steps []StepView, nx Next) string {
+	if len(steps) == 0 || len(nx.Options) == 0 || t.Archived {
+		return ""
+	}
+	last := steps[len(steps)-1]
+	if !last.Succeeded() {
+		return ""
+	}
+	art, _ := a.artifactFor(last.Step)
+	if !art.Exists || !optionsHeading.MatchString(art.Body) {
+		return ""
+	}
+	return fmt.Sprintf("%s lists several options. Read them, then name the one to take in the guidance before starting %s.", last.Artifact, nx.Options[0].Label)
+}
+
+// markRerun sets Rerun on the steps that can run again: the latest step when
+// it commits (amending its commit), and the Review of the current cycle (the
+// first automatic step after the latest manual one) once you changed the
+// worktree after the latest step finished.
+func (a *App) markRerun(t store.Task, steps []StepView, agents []settings.Agent) {
+	if t.Archived || t.WorktreeRemoved || len(steps) == 0 {
+		return
+	}
+	finished := func(s StepView) bool { return s.State == store.Done || s.State == store.Failed }
+	for _, s := range steps {
+		if !finished(s) {
+			return
+		}
+	}
+	last := &steps[len(steps)-1]
+	last.Rerun = last.Commits
+	cand := -1
+	for i := len(steps) - 1; i >= 0 && agentFor(agents, steps[i].Agent).AfterAgent() != ""; i-- {
+		cand = i
+	}
+	latest := last // the step that finished last (a rerun Review may end after the Test)
+	for i := range steps {
+		if steps[i].EndedAt.After(latest.EndedAt) {
+			latest = &steps[i]
+		}
+	}
+	if cand > 0 && !steps[cand].Rerun && a.changedSince(t, latest.ID) {
+		steps[cand].Rerun = true
+	}
+}
+
+// treeKey holds the worktree content hash when a step finished.
+func treeKey(stepID string) string { return "tree:" + stepID }
+
+func (a *App) worktreeTree(t store.Task) (string, error) {
+	p := a.projectOf(t)
+	return a.git.Tree(a.ctx, worktreePath(p, t), filepath.Join(a.runDir(p, t), ".tree-index"))
+}
+
+// snapshotTree records the worktree content as a step finishes.
+func (a *App) snapshotTree(t store.Task, stepID string) {
+	if tree, err := a.worktreeTree(t); err == nil {
+		_ = a.db.Set(treeKey(stepID), tree)
+	}
+}
+
+// changedSince reports whether the worktree changed after step id finished.
+func (a *App) changedSince(t store.Task, stepID string) bool {
+	was, _ := a.db.Get(treeKey(stepID))
+	if was == "" {
+		return false
+	}
+	now, err := a.worktreeTree(t)
+	return err == nil && now != was
 }
 
 func sourceText(t store.Task, p settings.Project) string {

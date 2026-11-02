@@ -863,3 +863,49 @@ func withoutAgent(t *testing.T, a *App, id string) {
 		t.Fatal(err)
 	}
 }
+
+func TestRerunReviewAfterHandEdit(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "edit after the tests", "", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	rev, test := store.StepID(tv.ID, "review-1"), store.StepID(tv.ID, "test-1")
+	waitFor(t, "test snapshot", func() bool { v, _ := a.db.Get(treeKey(test)); return v != "" })
+	rerun := func() bool {
+		v, _ := a.GetTask(tv.ID)
+		for _, s := range v.Steps {
+			if s.ID == rev {
+				return s.Rerun
+			}
+		}
+		return false
+	}
+	if rerun() {
+		t.Fatal("Rerun offered on the review before any hand edit")
+	}
+	os.WriteFile(filepath.Join(repo, ".worktrees", tv.Slug, "by-hand.txt"), []byte("x\n"), 0o644)
+	if !rerun() {
+		t.Fatal("no Rerun on the review after a hand edit")
+	}
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
+	os.MkdirAll(proj, 0o755)
+	s, _ := a.db.Step(rev)
+	os.WriteFile(filepath.Join(proj, s.SessionID+".jsonl"), []byte("{}\n"), 0o644)
+	if err := a.RerunStep(rev); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "test 2 after the rerun", func() bool { return stepState(a, store.StepID(tv.ID, "test-2")) == store.Done })
+}
+
+func TestPlanOptionsWarning(t *testing.T) {
+	t.Setenv("FAKE_OPTIONS", "1")
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "two ways to do it", "", true)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	v, _ := a.GetTask(tv.ID)
+	if !strings.Contains(v.Next.Warning, "PLAN.md lists several options") || !strings.Contains(v.Next.Warning, "Implement 1") {
+		t.Fatalf("warning %q", v.Next.Warning)
+	}
+}

@@ -25,7 +25,8 @@ case "$HERD_STEP" in
   ask-*) post Notification '{"notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}'
          read -r answer; post PostToolUse '{}'
          printf -- '---\nstatus: done\n---\n' > "$HERD_ARTIFACT" ;;
-  *) printf -- "---\nstatus: ${FAKE_STATUS:-done}\n---\n# Goal\nx\n" > "$HERD_ARTIFACT" ;;
+  *) printf -- "---\nstatus: ${FAKE_STATUS:-done}\n---\n# Goal\nx\n" > "$HERD_ARTIFACT"
+     [ -n "$FAKE_OPTIONS" ] && printf -- '## Options\n- A\n- B\n' >> "$HERD_ARTIFACT" ;;
 esac
 post Stop '{}'
 read -r line

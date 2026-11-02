@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"herd/internal/artifacts"
+	"herd/internal/github"
 	"herd/internal/gitops"
 	"herd/internal/settings"
 	"herd/internal/store"
@@ -73,6 +74,18 @@ func (a *App) IssueTitle(projectID, issue string) (string, error) {
 		return "", errors.New("the project has no GitHub repo")
 	}
 	return a.gh.IssueTitle(a.ctx, p.Repo, issue)
+}
+
+// MyIssues lists the project's open issues assigned to you (the gh user).
+func (a *App) MyIssues(projectID string) ([]github.Issue, error) {
+	p, ok := a.settings.Project(projectID)
+	if !ok {
+		return nil, fmt.Errorf("unknown project %q", projectID)
+	}
+	if p.Repo == "" {
+		return nil, errors.New("the project has no GitHub repo")
+	}
+	return a.gh.MyIssues(a.ctx, p.Repo)
 }
 
 var nonWord = regexp.MustCompile(`[^a-z0-9 ]+`)

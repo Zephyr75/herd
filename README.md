@@ -89,6 +89,13 @@ after it waits for you to Start it.
 An archived task can be deleted for good (Delete task, two clicks): herd forgets it and removes its
 worktree, local branch and run files; the pushed branch and the PR stay on GitHub.
 
+New task lists the project's open issues assigned to you (`gh issue list --assignee @me`); the #
+field takes any other issue. When a plan lists Options, Next step asks you to name one in the
+guidance before Implement. Rerun appears on the cycle's Review when you changed the worktree by
+hand after the last step finished (herd keeps a content hash of the worktree per step), even
+after Test. Shortcuts: Alt+E and Alt+A hide the task list and the steps panel, Escape closes
+popups; Settings > Shortcuts lists the other actions keymap.json can bind.
+
 New tasks get the branch you name in New task, from the project's base branch (Settings > Projects); it must start with the prefix in Settings >
 Projects (`ar-` by default). Push first asks for the PR title, `type(scope): description #issue`
 (type feat, fix, perf or test; the description defaults to the branch without its prefix).

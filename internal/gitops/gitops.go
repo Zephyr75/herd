@@ -252,3 +252,19 @@ func (g Git) Push(ctx context.Context, worktree, branch string) error {
 	_, err := g.Run(ctx, worktree, "push", "-u", "origin", branch)
 	return err
 }
+
+// Tree returns the hash of the worktree's content, untracked files included,
+// without touching its index: index is a private index file, kept between
+// calls so only changed files are hashed again.
+func (g Git) Tree(ctx context.Context, worktree, index string) (string, error) {
+	run := func(args ...string) (string, error) {
+		cmd := exec.CommandContext(ctx, g.bin(), append([]string{"-C", worktree}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+index, "GIT_TERMINAL_PROMPT=0")
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	if _, err := run("add", "-A"); err != nil {
+		return "", fmt.Errorf("git add -A (private index): %w", err)
+	}
+	return run("write-tree")
+}

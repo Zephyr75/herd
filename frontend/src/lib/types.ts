@@ -122,6 +122,7 @@ export interface Step {
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume
+  rerun: boolean // Rerun applies: the latest committing step, or the Review after hand edits
 }
 
 export interface Option {
@@ -135,6 +136,7 @@ export interface Next {
   text: string
   approval: string
   markDone: string
+  warning: string // e.g. the plan lists options: name one in the guidance
   ghost: { name: string; after: string; manual: boolean; start: Option | null } | null
 }
 
@@ -199,6 +201,12 @@ export interface Check {
 export interface TabRef {
   task: string
   step: string
+}
+
+/** An open GitHub issue assigned to you, for New task. */
+export interface Issue {
+  number: number
+  title: string
 }
 
 export interface Bootstrap {

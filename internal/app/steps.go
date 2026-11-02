@@ -564,7 +564,10 @@ func (a *App) RerunStep(stepID string) error {
 	ag := agentFor(a.settings.Agents(), s.Agent)
 	steps, _ := a.db.Steps(t.ID)
 	if len(steps) == 0 || steps[len(steps)-1].ID != s.ID {
-		return fmt.Errorf("only the latest step can be rerun; start a new %s instead", ag.Name)
+		v, _ := a.view(t)
+		if !slices.ContainsFunc(v.Steps, func(x StepView) bool { return x.ID == s.ID && x.Rerun }) {
+			return fmt.Errorf("only the latest step, or the review after you changed the worktree, can be rerun; start a new %s instead", ag.Name)
+		}
 	}
 	if s.State != store.Done && s.State != store.Failed {
 		return fmt.Errorf("%s has not finished", ag.DisplayName(s.N))
@@ -642,6 +645,7 @@ func (a *App) afterDone(s store.Step) {
 	}
 	p := a.projectOf(t)
 	ag := agentFor(a.settings.Agents(), s.Agent)
+	a.snapshotTree(t, s.ID)
 	sess, _ := a.run.Get(s.ID)
 	say := func(line string) {
 		if sess != nil {

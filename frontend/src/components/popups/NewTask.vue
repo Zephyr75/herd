@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // New task (⌘N): a project, then an issue, a description, or both.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorText } from '../../lib/api'
 import { herd } from '../../lib/state'
 import { isMac } from '../../lib/keymap'
 import Icon from '../ui/Icon.vue'
+import type { Issue } from '../../lib/types'
 
 // herd.previewNew pre-fills the preview's artboards 4 to 6 in the browser mock.
 const presets: Record<string, { p: string; i: string; d: string }> = {
@@ -83,6 +84,36 @@ async function fetchTitle() {
   }
 }
 
+// Open issues assigned to you; the # field takes any other issue.
+const mine = ref<Issue[] | null>(null)
+const mineError = ref('')
+let mseq = 0
+watch(
+  project,
+  async (id) => {
+    const want = ++mseq
+    mine.value = null
+    mineError.value = ''
+    if (!herd.project(id)?.repo) return
+    try {
+      const is = await api.MyIssues(id)
+      if (want === mseq) mine.value = is
+    } catch (e) {
+      if (want === mseq) (mineError.value = errorText(e)), (mine.value = [])
+    }
+  },
+  { immediate: true },
+)
+const hasTask = (n: number) => herd.tasks.some((t) => t.project === project.value && t.issue === String(n))
+function pickMine(e: Event) {
+  const el = e.target as HTMLSelectElement
+  const is = mine.value?.find((x) => String(x.number) === el.value)
+  if (!is) return
+  issue.value = String(is.number)
+  issueTitle.value = is.title
+  titleError.value = ''
+}
+
 function pickProject(id: string) {
   project.value = id
   issueTitle.value = ''
@@ -130,8 +161,13 @@ function key(e: KeyboardEvent) {
         </div>
       </div>
       <div class="group">
-        <label for="nfissue" class="lbl">GitHub issue <span class="faint">optional</span></label>
+        <label for="nfmine" class="lbl">GitHub issue <span class="faint">optional</span></label>
+        <select v-if="p?.repo" id="nfmine" class="input mine" :value="mine?.some((x) => String(x.number) === nIssue) ? nIssue : ''" :disabled="!mine?.length" @change="pickMine">
+          <option value="">{{ mine === null ? 'Loading the issues assigned to you…' : mineError ? 'Could not list your issues: ' + mineError : mine.length ? `Assigned to you (${mine.length} open)` : 'No open issues assigned to you' }}</option>
+          <option v-for="is in mine ?? []" :key="is.number" :value="String(is.number)" :disabled="hasTask(is.number)">#{{ is.number }} {{ is.title }}{{ hasTask(is.number) ? ' (has a task)' : '' }}</option>
+        </select>
         <div class="issue-row">
+          <span v-if="p?.repo" class="muted small">or any issue</span>
           <div class="issue">
             <span class="muted mono">#</span>
             <input id="nfissue" ref="issueInput" :value="issue" placeholder="1190" inputmode="numeric" autocomplete="off" @input="onIssue" @blur="fetchTitle" />
@@ -224,6 +260,11 @@ function key(e: KeyboardEvent) {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+  }
+  .mine {
+    height: 30px;
+    width: 100%;
+    margin-bottom: 8px;
   }
   .issue-row {
     display: flex;

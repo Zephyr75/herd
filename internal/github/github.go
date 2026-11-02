@@ -62,6 +62,25 @@ func (g GH) IssueTitle(ctx context.Context, repo, issue string) (string, error) 
 	return g.run(ctx, "", "issue", "view", issue, "--repo", repo, "--json", "title", "-q", ".title")
 }
 
+// Issue is an open issue, for the New task picker.
+type Issue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+}
+
+// MyIssues lists the open issues of repo assigned to the gh user, newest first.
+func (g GH) MyIssues(ctx context.Context, repo string) ([]Issue, error) {
+	out, err := g.run(ctx, "", "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title")
+	if err != nil {
+		return nil, err
+	}
+	is := []Issue{}
+	if err := json.Unmarshal([]byte(out), &is); err != nil {
+		return nil, err
+	}
+	return is, nil
+}
+
 // CanAccess reports whether gh can read repo.
 func (g GH) CanAccess(ctx context.Context, repo string) bool {
 	_, err := g.run(ctx, "", "repo", "view", repo, "--json", "name")

@@ -82,36 +82,14 @@ Do not push: herd pushes, opens the PR and collects the Copilot review. End with
 	}
 }
 
-// DefaultKeymap lists every action and its bindings, following Zed's Linux
-// keymap where an equivalent exists (Alt+1 for tab 1, Ctrl+Alt+O for recent
-// projects, Ctrl+PageDown for the next tab). "Mod" is Cmd on macOS and Ctrl
+// DefaultKeymap binds only what is needed every day: hiding the side panels,
+// and Escape for popups. keymap.json can bind any other action the Shortcuts
+// page lists (palette, newTask, tab1…tab9, …). "Mod" is Cmd on macOS and Ctrl
 // elsewhere.
 func DefaultKeymap() Keymap {
 	return Keymap{
-		"palette":       {"Mod+P"},
-		"scope":         {"Mod+Alt+O"},
-		"newTask":       {"Mod+N"},
-		"runPrimary":    {"Mod+Enter"},
-		"toggleArchive": {"Mod+Shift+A"},
-		"nextTask":      {"Alt+ArrowDown"},
-		"prevTask":      {"Alt+ArrowUp"},
-		"tab1":          {"Alt+1"},
-		"tab2":          {"Alt+2"},
-		"tab3":          {"Alt+3"},
-		"tab4":          {"Alt+4"},
-		"tab5":          {"Alt+5"},
-		"tab6":          {"Alt+6"},
-		"tab7":          {"Alt+7"},
-		"tab8":          {"Alt+8"},
-		"tab9":          {"Alt+9"},
-		"closeTab":      {"Mod+W"},
-		"nextTab":       {"Ctrl+PageDown", "Ctrl+Tab"},
-		"prevTab":       {"Ctrl+PageUp", "Ctrl+Shift+Tab"},
-		"openWorktree":  {"Mod+Shift+E"},
-		"openDiff":      {"Mod+Shift+D"},
-		"toggleLeft":    {"Mod+Shift+B"}, // Zed's Ctrl+B is Claude Code's "run in background"
-		"toggleRight":   {"Mod+Alt+B"},
-		"settings":      {"Mod+,"},
-		"close":         {"Escape"},
+		"toggleLeft":  {"Alt+E"},
+		"toggleRight": {"Alt+A"},
+		"close":       {"Escape"},
 	}
 }

@@ -8,7 +8,7 @@ import { actionFor } from './keymap'
 import { copyText } from './window'
 import { unsuccessful, type Option, type PRTitle, type Proc, type Settings, type Step, type TabRef, type Task } from './types'
 
-export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push' | 'diff' | 'artifact'
+export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push' | 'views'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
 export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts' | 'about'
 
@@ -427,20 +427,45 @@ class Herd {
     this.openStep(step.taskId, step.id)
   }
 
-  /** The step whose artifact the artifact pop-up shows. */
+  /** The step whose artifact the artifact pop-up shows; '' when closed. */
   artifactOf = ''
-
-  openArtifactPopup(step: string) {
-    this.artifactOf = step
-    this.overlay = 'artifact'
-  }
-
-  /** The step and file shown in the diff pop-up. */
+  /** The step and file shown in the changes pop-up; null when closed. */
   diffOf: { step: string; path: string } | null = null
 
+  /** Opens the artifact pop-up alone. */
+  openArtifactPopup(step: string) {
+    this.artifactOf = step
+    this.diffOf = null
+    this.overlay = 'views'
+  }
+
+  /** Opens the changes pop-up alone, on a file. */
   openDiffPopup(step: string, path: string) {
     this.diffOf = { step, path }
-    this.overlay = 'diff'
+    this.artifactOf = ''
+    this.overlay = 'views'
+  }
+
+  /** Opens the artifact pop-up beside the changes, or the reverse ('' path: the first file). */
+  showArtifactToo(step: string) {
+    this.artifactOf = step
+  }
+  showDiffToo(step: string) {
+    this.diffOf = { step, path: '' }
+  }
+
+  closeArtifactPopup() {
+    this.artifactOf = ''
+    if (!this.diffOf) this.overlay = 'none'
+  }
+  closeDiffPopup() {
+    this.diffOf = null
+    if (!this.artifactOf) this.overlay = 'none'
+  }
+  closeViews() {
+    this.artifactOf = ''
+    this.diffOf = null
+    this.overlay = 'none'
   }
 
   /** The push step waiting for its PR title (the Push popup). */

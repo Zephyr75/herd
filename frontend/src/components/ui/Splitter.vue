@@ -1,13 +1,21 @@
 <script setup lang="ts">
 // Drag handle on a side panel's inner edge. Drag to resize, double-click to
-// reset, or focus it and use the arrow keys.
+// reset, or focus it and use the arrow keys. Without `width` it sizes herd's
+// side panels; with it (and min, max, def) it emits resize for any other one.
 import { ref } from 'vue'
 import { herd, PANELS, type PanelSide } from '../../lib/state'
 
-const props = defineProps<{ side: PanelSide }>()
+const props = defineProps<{ side: PanelSide; width?: number; min?: number; max?: number; def?: number; label?: string }>()
+const emit = defineEmits<{ resize: [width: number] }>()
 const dragging = ref(false)
 
-const width = () => (props.side === 'left' ? herd.leftWidth : herd.rightWidth)
+const own = () => props.width !== undefined
+const width = () => props.width ?? (props.side === 'left' ? herd.leftWidth : herd.rightWidth)
+const lim = () => (own() ? { min: props.min ?? 0, max: props.max ?? Infinity, def: props.def ?? props.width! } : PANELS[props.side])
+function set(w: number) {
+  if (own()) emit('resize', Math.round(Math.min(lim().max, Math.max(lim().min, w))))
+  else herd.setPanelWidth(props.side, w)
+}
 
 function down(e: PointerEvent) {
   if (e.button !== 0) return
@@ -19,7 +27,7 @@ function down(e: PointerEvent) {
   const startW = width()
   const move = (ev: PointerEvent) => {
     const dx = ev.clientX - startX
-    herd.setPanelWidth(props.side, props.side === 'left' ? startW + dx : startW - dx)
+    set(props.side === 'left' ? startW + dx : startW - dx)
   }
   const up = () => {
     dragging.value = false
@@ -36,8 +44,8 @@ function key(e: KeyboardEvent) {
   const step = e.shiftKey ? 40 : 10
   const grow = props.side === 'left' ? 'ArrowRight' : 'ArrowLeft'
   const shrink = props.side === 'left' ? 'ArrowLeft' : 'ArrowRight'
-  if (e.key === grow) herd.setPanelWidth(props.side, width() + step)
-  else if (e.key === shrink) herd.setPanelWidth(props.side, width() - step)
+  if (e.key === grow) set(width() + step)
+  else if (e.key === shrink) set(width() - step)
   else return
   e.preventDefault()
 }
@@ -49,14 +57,14 @@ function key(e: KeyboardEvent) {
     :class="[side, { dragging }]"
     role="separator"
     aria-orientation="vertical"
-    :aria-label="side === 'left' ? 'Resize the tasks panel' : 'Resize the steps panel'"
+    :aria-label="label ?? (side === 'left' ? 'Resize the tasks panel' : 'Resize the steps panel')"
     :aria-valuenow="width()"
-    :aria-valuemin="PANELS[side].min"
-    :aria-valuemax="PANELS[side].max"
+    :aria-valuemin="lim().min"
+    :aria-valuemax="lim().max"
     tabindex="0"
     title="Drag to resize · double-click to reset"
     @pointerdown="down"
-    @dblclick="herd.setPanelWidth(side, PANELS[side].def)"
+    @dblclick="set(lim().def)"
     @keydown="key"
   ></div>
 </template>

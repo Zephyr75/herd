@@ -12,8 +12,7 @@ import ScopePicker from './components/popups/ScopePicker.vue'
 import NewTask from './components/popups/NewTask.vue'
 import Activity from './components/popups/Activity.vue'
 import PushTitle from './components/popups/PushTitle.vue'
-import DiffPopup from './components/popups/DiffPopup.vue'
-import ArtifactPopup from './components/popups/ArtifactPopup.vue'
+import ViewPopups from './components/popups/ViewPopups.vue'
 
 watchEffect(() => {
   document.documentElement.dataset.theme = herd.theme
@@ -50,8 +49,7 @@ watchEffect(() => {
     <NewTask v-if="herd.overlay === 'new'" />
     <Activity v-if="herd.overlay === 'activity'" />
     <PushTitle v-if="herd.overlay === 'push' && herd.pushOpt" />
-    <DiffPopup v-if="herd.overlay === 'diff' && herd.diffOf" />
-    <ArtifactPopup v-if="herd.overlay === 'artifact' && herd.artifactOf" />
+    <ViewPopups v-if="herd.overlay === 'views' && (herd.diffOf || herd.artifactOf)" />
   </div>
 </template>
 

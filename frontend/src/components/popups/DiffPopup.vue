@@ -8,6 +8,8 @@ import type { Changes, FileDiff } from '../../lib/types'
 import Icon from '../ui/Icon.vue'
 import DiffView from '../Diff.vue'
 import ChangedFiles, { split, statusCls, statusTitle } from '../ChangedFiles.vue'
+import Splitter from '../ui/Splitter.vue'
+import { SIDEBAR, useSidebar } from '../../lib/sidebar'
 
 const stepId = computed(() => herd.diffOf?.step ?? '')
 const step = computed(() => herd.tasks.flatMap((t) => t.steps).find((s) => s.id === stepId.value))
@@ -54,10 +56,8 @@ watch(
 )
 
 const pick = (path: string) => herd.diffOf && (herd.diffOf.path = path)
-const close = () => {
-  herd.overlay = 'none'
-  herd.diffOf = null
-}
+const sb = useSidebar('diff', 300)
+const close = () => herd.closeDiffPopup()
 
 // Zed shows this step's own diff: its commit (an Implement's is its
 // Review's), in the task's worktree; uncommitted work opens the worktree.
@@ -83,18 +83,22 @@ function key(e: KeyboardEvent) {
 </script>
 
 <template>
-  <button class="scrim dim" aria-label="Close changes" @click="close"></button>
   <div ref="box" class="box popup" role="dialog" aria-label="Changes" tabindex="-1" @keydown="key">
     <div class="head">
+      <button class="toggle" :aria-label="sb.hidden.value ? 'Show the side bar' : 'Hide the side bar'" :title="sb.hidden.value ? 'Show the side bar' : 'Hide the side bar'" @click="sb.hidden.value = !sb.hidden.value"><Icon :name="sb.hidden.value ? 'panel-left-off' : 'panel-left'" :size="16" /></button>
       <span class="title">{{ step?.name ?? 'Step' }} changes</span>
       <span class="grow"></span>
-      <button class="x" aria-label="Close" title="Close (Esc)" @click="close"><Icon name="close" :size="14" /></button>
+      <button v-if="!herd.artifactOf" class="other" title="Open this step's artifact beside the changes" @click="herd.showArtifactToo(stepId)"><Icon name="file" :size="13" />Preview</button>
+      <button class="x" aria-label="Close" title="Close (Esc closes both)" @click="close"><Icon name="close" :size="14" /></button>
     </div>
     <div class="body">
-      <div class="side">
-        <p v-if="!changes" class="empty">Loading…</p>
-        <p v-else-if="!changes.files.length" class="empty">No changed files.</p>
-        <ChangedFiles v-else :changes="changes" :selected="sel" :task="stepId.slice(0, stepId.lastIndexOf('/'))" @pick="pick" />
+      <div v-if="!sb.hidden.value" class="side-wrap" :style="{ width: sb.width.value + 'px' }">
+        <div class="side">
+          <p v-if="!changes" class="empty">Loading…</p>
+          <p v-else-if="!changes.files.length" class="empty">No changed files.</p>
+          <ChangedFiles v-else :changes="changes" :selected="sel" :task="stepId.slice(0, stepId.lastIndexOf('/'))" @pick="pick" />
+        </div>
+        <Splitter side="left" :width="sb.width.value" :min="SIDEBAR.min" :max="SIDEBAR.max" :def="sb.def" label="Resize the side bar" @resize="(w) => (sb.width.value = w)" />
       </div>
       <div class="main">
         <div v-if="file" class="fhead">
@@ -119,16 +123,29 @@ function key(e: KeyboardEvent) {
 
 <style scoped>
   .box {
-    position: absolute;
-    z-index: 21;
-    top: 48px;
-    bottom: 40px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(1400px, calc(100% - 48px));
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 1400px;
     display: flex;
     flex-direction: column;
     outline: none;
+  }
+  .other {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    margin-right: 4px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .other:hover {
+    background: var(--hover);
   }
   .head {
     display: flex;
@@ -164,12 +181,31 @@ function key(e: KeyboardEvent) {
     min-height: 0;
     display: flex;
   }
-  .side {
+  .side-wrap {
+    position: relative;
     flex: none;
-    width: 300px;
-    max-width: 35%;
-    padding: 12px 14px;
+    max-width: 50%;
     border-right: 1px solid var(--border);
+  }
+  .toggle {
+    width: 26px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 4px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+  }
+  .toggle:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .side {
+    height: 100%;
+    padding: 12px 14px;
     overflow: auto;
     display: flex;
     flex-direction: column;

@@ -69,7 +69,7 @@ async function archive() {
         <div class="title-row">
           <TaskRef :issue="t.issue" />
           <span class="title">{{ t.title }}</span>
-          <button v-if="t.issue && t.repo" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue"><Icon name="external" :size="13" />GitHub</button>
+          <button v-if="t.issue && t.repo" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue">GitHub</button>
           <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()">Edit</button>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>

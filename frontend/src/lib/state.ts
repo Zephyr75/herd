@@ -486,17 +486,23 @@ class Herd {
     if (t && opt && !t.archived) void this.run(opt)
   }
 
-  /** readyLabel: 'offer' once the latest Copilot step found nothing on the
-   *  open PR, 'done' when the PR has the ready label, else ''. */
-  readyLabel(t: Task | null): '' | 'offer' | 'done' {
+  /** prReady: '' without an open PR, 'draft' while herd's draft PR waits
+   *  for the Mark ready button, 'ready' once it is ready for review. */
+  prReady(t: Task | null): '' | 'draft' | 'ready' {
     if (!t || t.archived || !t.pr || t.prState !== 'open') return ''
-    if (t.labels.includes('ready')) return 'done'
+    return t.draft ? 'draft' : 'ready'
+  }
+
+  /** copilotClean: the latest step is a Copilot review that found nothing. */
+  copilotClean(t: Task): boolean {
     const last = t.steps[t.steps.length - 1]
-    return last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped' ? 'offer' : ''
+    return !!last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped'
   }
 
   async markReady(t: Task) {
-    if ((await this.attempt('Could not add the label', () => api.MarkPRReady(t.id).then(() => true))) && !t.labels.includes('ready')) t.labels.push('ready')
+    if (!(await this.attempt('Could not mark the PR ready', () => api.MarkPRReady(t.id).then(() => true)))) return
+    t.draft = false
+    if (!t.labels.includes('ready')) t.labels.push('ready')
   }
 
   async openWorktree() {

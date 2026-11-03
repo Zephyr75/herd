@@ -77,6 +77,7 @@ type TaskView struct {
 	ProjectGone bool           `json:"projectGone"` // its project was removed from Settings > Projects
 	Checks      []github.Check `json:"checks"`      // CI checks of the open PR, refreshed every minute
 	Labels      []string       `json:"labels"`      // labels of the open PR
+	Draft       bool           `json:"draft"`       // the open PR is a draft (herd opens them so)
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -170,6 +171,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Labels == nil {
 		v.Labels = []string{}
 	}
+	v.Draft = a.draftOf(t.ID)
 	v.Checks = a.checksOf(t.ID)
 	if v.Checks == nil {
 		v.Checks = []github.Check{}

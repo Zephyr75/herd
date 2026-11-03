@@ -50,8 +50,8 @@ const stop = () => herd.attempt('Could not stop waiting', () => api.MarkDone(pro
         <span v-else>Reviewed: nothing to fix.</span>
         <span class="grow"></span>
         <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
-        <button v-else-if="herd.readyLabel(task) === 'offer'" class="act" title="Add the ready label: nothing pending, ready for a human review" @click="herd.markReady(task)"><Icon name="check" :size="13" />Label ready</button>
-        <span v-else-if="herd.readyLabel(task) === 'done'" class="muted small">labelled ready</span>
+        <button v-else-if="herd.prReady(task) === 'draft'" class="act" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(task)"><Icon name="check" :size="13" />Mark ready</button>
+        <span v-else-if="herd.prReady(task) === 'ready'" class="muted small">ready for review</span>
       </div>
     </section>
 

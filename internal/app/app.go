@@ -82,11 +82,12 @@ type App struct {
 	checksMu sync.Mutex
 	checks   map[string][]github.Check // CI checks of each open PR, by task id
 	labels   map[string][]string       // labels of each open PR, by task id
+	drafts   map[string]bool           // whether each open PR is a draft, by task id
 }
 
 // New creates the service; call Start before use.
 func New(home string, plugin fs.FS) *App {
-	return &App{Home: home, PluginSrc: plugin, checks: map[string][]github.Check{}, labels: map[string][]string{}}
+	return &App{Home: home, PluginSrc: plugin, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}}
 }
 
 // DefaultHome returns ~/.herd, or $HERD_HOME when set.

@@ -170,6 +170,7 @@ export interface Task {
   projectGone: boolean // its project was removed from Settings > Projects
   checks: CICheck[] // CI checks of the open PR
   labels: string[] // labels of the open PR
+  draft: boolean // the open PR is a draft (herd opens them so)
 }
 
 export type PRKind = 'feat' | 'fix' | 'perf' | 'test'

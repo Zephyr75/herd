@@ -71,8 +71,8 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
     </template>
 
     <p v-if="nx.text">{{ nx.text }}</p>
-    <button v-if="herd.readyLabel(t) === 'offer'" class="btn" title="Add the ready label: nothing pending, ready for a human review" @click="herd.markReady(t)"><Icon name="check" :size="13" />Label PR #{{ t.pr }} ready</button>
-    <p v-else-if="herd.readyLabel(t) === 'done'" class="muted small">PR #{{ t.pr }} has the ready label.</p>
+    <button v-if="herd.prReady(t) === 'draft' && herd.copilotClean(t)" class="btn" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(t)"><Icon name="check" :size="13" />Mark PR #{{ t.pr }} ready for review</button>
+    <p v-else-if="herd.prReady(t) === 'ready'" class="muted small">PR #{{ t.pr }} is ready for review.</p>
 
     <button v-if="nx.approval" class="btn allow" @click="allow(nx.approval)">Allow once</button>
     <button v-if="nx.markDone" class="btn ghost-border" @click="markDone(nx.markDone)">Mark done</button>

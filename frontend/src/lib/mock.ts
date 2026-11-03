@@ -61,7 +61,7 @@ interface Fx {
   diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]; options?: boolean // the plan lists options
 }
 interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
-interface MockTask { labels?: string[]; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
+interface MockTask { labels?: string[]; draft?: boolean; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
 
 const T: MockTask[] = [
   { id: 'core:4356', project: 'core', issue: '4356', slug: '4356', title: 'Retry BLE unlock on flaky connections', description: '',
@@ -116,7 +116,7 @@ const T: MockTask[] = [
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: 'b5c0d9e1' },
       { key: 'review-1', agent: 'review', n: 1, state: 'running', session: '0d9c3b74' },
     ] },
-  { id: 'core:4390', project: 'core', issue: '4390', slug: '4390', title: 'Cache region config lookups', description: '', pr: 902, prState: 'open', fx: { copilot: [] },
+  { id: 'core:4390', project: 'core', issue: '4390', slug: '4390', title: 'Cache region config lookups', description: '', pr: 902, prState: 'open', draft: true, fx: { copilot: [] },
     steps: [
       { key: 'plan-1', agent: 'plan', n: 1, state: 'done', session: '6c7d8e9f' },
       { key: 'impl-1', agent: 'impl', n: 1, state: 'done', session: '7d8e9fa0' },
@@ -259,7 +259,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [],
+    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false,
   }
 }
 
@@ -379,7 +379,7 @@ export const api: Api = {
     later(4000, () => {
       s.state = 'done'
       if (agentId === 'review') s.sha = Math.random().toString(16).slice(2, 9)
-      if (agentId === 'push') { t.pr = 800 + Math.floor(Math.random() * 99); t.prState = 'open' }
+      if (agentId === 'push') { t.pr = 800 + Math.floor(Math.random() * 99); t.prState = 'open'; t.draft = true }
       changed(t)
       emit('artifact:changed', { taskId: t.id, file: '' })
       const auto = agents.find((a) => afterOf(a.trigger) === agentId)
@@ -420,7 +420,7 @@ export const api: Api = {
     return ok([`$ git -C ${p.path} worktree remove --force ${p.path}/.worktrees/${t.slug}`, `$ git -C ${p.path} branch -D agent/${t.slug}`]) },
   OpenRunDir: () => ok(undefined),
   OpenURL: () => ok(undefined),
-  MarkPRReady: (id) => { const t = find(id); t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },
+  MarkPRReady: (id) => { const t = find(id); t.draft = false; t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },
   OpenInZed: (id, sid) => {
     const t = find(id), p = proj(t.project), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
     if (s?.sha) return ok([`$ zed zed://git/commit/${s.sha}?repo=${p.path}/.worktrees/${t.slug}`])

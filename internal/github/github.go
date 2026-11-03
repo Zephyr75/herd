@@ -185,9 +185,10 @@ func (g GH) CanAccess(ctx context.Context, repo string) bool {
 
 var prNum = regexp.MustCompile(`/pull/(\d+)`)
 
-// CreatePR opens a pull request and returns its number and URL.
+// CreatePR opens a draft pull request and returns its number and URL.
+// It stays a draft until MarkReady: repo bots then leave it alone.
 func (g GH) CreatePR(ctx context.Context, worktree, repo, base, head, title, bodyFile string) (int, string, error) {
-	out, err := g.run(ctx, worktree, "pr", "create", "--repo", repo, "--base", base, "--head", head, "--title", title, "--body-file", bodyFile)
+	out, err := g.run(ctx, worktree, "pr", "create", "--draft", "--repo", repo, "--base", base, "--head", head, "--title", title, "--body-file", bodyFile)
 	if err != nil {
 		// An existing PR for the branch is fine.
 		if v, e2 := g.run(ctx, worktree, "pr", "view", head, "--repo", repo, "--json", "number,url"); e2 == nil {
@@ -210,33 +211,46 @@ func (g GH) CreatePR(ctx context.Context, worktree, repo, base, head, title, bod
 	return n, url, nil
 }
 
-// PRState returns open, merged or closed, and when it changed.
-// It also returns the PR's labels.
-func (g GH) PRState(ctx context.Context, repo string, n int) (string, time.Time, []string, error) {
-	out, err := g.run(ctx, "", "pr", "view", strconv.Itoa(n), "--repo", repo, "--json", "state,mergedAt,closedAt,labels")
+// PR is what herd polls of an open pull request.
+type PR struct {
+	State  string    // open, merged or closed
+	At     time.Time // when it was merged or closed
+	Labels []string
+	Draft  bool
+}
+
+// PRState returns a PR's state, labels and draft flag.
+func (g GH) PRState(ctx context.Context, repo string, n int) (PR, error) {
+	out, err := g.run(ctx, "", "pr", "view", strconv.Itoa(n), "--repo", repo, "--json", "state,mergedAt,closedAt,labels,isDraft")
 	if err != nil {
-		return "", time.Time{}, nil, err
+		return PR{}, err
 	}
 	var v struct {
 		State    string
 		MergedAt *time.Time
 		ClosedAt *time.Time
 		Labels   []struct{ Name string }
+		IsDraft  bool
 	}
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
-		return "", time.Time{}, nil, err
+		return PR{}, err
 	}
-	labels := []string{}
+	pr := PR{State: strings.ToLower(v.State), At: time.Now(), Labels: []string{}, Draft: v.IsDraft}
 	for _, l := range v.Labels {
-		labels = append(labels, l.Name)
+		pr.Labels = append(pr.Labels, l.Name)
 	}
-	at := time.Now()
 	if v.MergedAt != nil {
-		at = *v.MergedAt
+		pr.At = *v.MergedAt
 	} else if v.ClosedAt != nil {
-		at = *v.ClosedAt
+		pr.At = *v.ClosedAt
 	}
-	return strings.ToLower(v.State), at, labels, nil
+	return pr, nil
+}
+
+// MarkReady turns a draft PR into one ready for review.
+func (g GH) MarkReady(ctx context.Context, repo string, n int) error {
+	_, err := g.run(ctx, "", "pr", "ready", strconv.Itoa(n), "--repo", repo)
+	return err
 }
 
 // AddLabel adds a label to a PR, e.g. ready.

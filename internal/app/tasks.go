@@ -468,10 +468,11 @@ func (a *App) collectChecks(t store.Task) {
 	}
 }
 
-// readyLabel marks a PR whose Copilot review found nothing: ready for a human.
+// readyLabel marks a PR ready for a human review.
 const readyLabel = "ready"
 
-// MarkPRReady adds the ready label to the task's open PR.
+// MarkPRReady turns the task's draft PR into one ready for review and adds
+// the ready label.
 func (a *App) MarkPRReady(taskID string) error {
 	t, err := a.db.Task(taskID)
 	if err != nil {
@@ -480,22 +481,38 @@ func (a *App) MarkPRReady(taskID string) error {
 	if t.PRNumber == 0 || t.PRState != "open" {
 		return errors.New("the task has no open pull request")
 	}
-	if err := a.gh.AddLabel(a.ctx, a.projectOf(t).Repo, t.PRNumber, readyLabel); err != nil {
+	repo := a.projectOf(t).Repo
+	if err := a.gh.MarkReady(a.ctx, repo, t.PRNumber); err != nil {
 		return err
 	}
-	a.setLabels(t.ID, append(slices.Clone(a.labelsOf(t.ID)), readyLabel))
+	labels := a.labelsOf(t.ID)
+	a.setPR(t.ID, labels, false)
+	if slices.Contains(labels, readyLabel) {
+		return nil
+	}
+	if err := a.gh.AddLabel(a.ctx, repo, t.PRNumber, readyLabel); err != nil {
+		return err
+	}
+	a.setPR(t.ID, append(slices.Clone(labels), readyLabel), false)
 	return nil
 }
 
-// setLabels caches a PR's labels, for the task view.
-func (a *App) setLabels(taskID string, labels []string) {
+// setPR caches a PR's labels and draft flag, for the task view.
+func (a *App) setPR(taskID string, labels []string, draft bool) {
 	a.checksMu.Lock()
 	old, had := a.labels[taskID]
-	a.labels[taskID] = labels
+	wasDraft := a.drafts[taskID]
+	a.labels[taskID], a.drafts[taskID] = labels, draft
 	a.checksMu.Unlock()
-	if !had || !slices.Equal(old, labels) {
+	if !had || !slices.Equal(old, labels) || wasDraft != draft {
 		a.emitTask(taskID)
 	}
+}
+
+func (a *App) draftOf(taskID string) bool {
+	a.checksMu.Lock()
+	defer a.checksMu.Unlock()
+	return a.drafts[taskID]
 }
 
 func (a *App) labelsOf(taskID string) []string {
@@ -535,21 +552,21 @@ func (a *App) pollPRs() {
 			continue
 		}
 		p := a.projectOf(t)
-		state, at, labels, err := a.gh.PRState(a.ctx, p.Repo, t.PRNumber)
+		pr, err := a.gh.PRState(a.ctx, p.Repo, t.PRNumber)
 		if err == nil {
-			a.setLabels(t.ID, labels)
+			a.setPR(t.ID, pr.Labels, pr.Draft)
 		}
-		if err != nil || state == "open" || state == "" {
+		if err != nil || pr.State == "open" || pr.State == "" {
 			a.collectChecks(t)
 			a.collectCopilot(t)
 			continue
 		}
 		a.stopTaskSessions(t.ID)
 		_ = a.updateTask(t.ID, func(t *store.Task) error {
-			t.PRState, t.Archived, t.ArchivedAt = state, true, at
+			t.PRState, t.Archived, t.ArchivedAt = pr.State, true, pr.At
 			return nil
 		})
-		a.toast("Archived "+refOf(t), fmt.Sprintf("PR #%d was %s", t.PRNumber, state), false)
+		a.toast("Archived "+refOf(t), fmt.Sprintf("PR #%d was %s", t.PRNumber, pr.State), false)
 	}
 }
 

@@ -71,8 +71,9 @@ failed step changes nothing; Next step offers to go back (Implement after a fail
 After each push herd asks Copilot for a review (`gh pr edit --add-reviewer @copilot`) and adds a
 Copilot step that herd runs itself: its tab shows the PR's CI checks by workflow and the review
 state, refreshed every minute; the review lands in COPILOT-n.md (Preview tab) and FEEDBACK.md, and
-the step fails when Copilot left comments. When it succeeds, "Label ready" (Next step and the
-Copilot tab) adds the `ready` label to the PR. Task cards show the CI state (CI running, passed,
+the step fails when Copilot left comments. herd opens PRs as drafts, so repo bots (e.g. a `ready`
+label sweep) leave them alone; "Mark ready" (Copilot tab, and Next step once Copilot found nothing)
+runs `gh pr ready` and adds the `ready` label. Task cards show the CI state (CI running, passed,
 failed). Implement again (offered after Push and Copilot) reads FEEDBACK.md and fixes failing CI
 checks, then Push updates the PR. Once the PR is open and nothing is left to fix, an archive button appears on the
 task in the task list. The folder icon next to Steps opens the task's run folder (its markdown files). Diff on a step with a commit opens that commit in Zed's

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// An artifact rendered: its front matter as chips, then the markdown with
-// mermaid diagrams. Used by the Preview tab and the artifact pop-up.
+// An artifact rendered: its markdown with mermaid diagrams (the front matter
+// is left out: the step list already shows it). Used by the Preview tab and the artifact pop-up.
 import { computed, nextTick, ref, watch } from 'vue'
 import { herd } from '../lib/state'
 import { render, renderMermaid } from '../lib/markdown'
@@ -31,35 +31,13 @@ watch(
   },
   { immediate: true },
 )
-const vcls = (v: string) => (v === 'failed' || v === 'changes' ? 'c-approval' : v === 'done' || v === 'approve' ? 'c-done' : 'c-text')
 </script>
 
 <template>
-  <div v-if="art.front?.length" class="front">
-    <span v-for="f in art.front" :key="f.k" class="fm">{{ f.k }}: <span :class="vcls(f.v)">{{ f.v }}</span></span>
-  </div>
   <div ref="body" class="md"></div>
 </template>
 
 <style scoped>
-  .front {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .fm {
-    font-family: var(--mono);
-    font-size: 11.5px;
-    padding: 2px 7px;
-    border-radius: 4px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--muted);
-  }
-  .c-approval { color: var(--approval); }
-  .c-done { color: var(--done); }
-  .c-text { color: var(--text); }
-
   .md {
     font-size: 13px;
     line-height: 1.6;

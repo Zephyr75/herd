@@ -9,6 +9,7 @@ import Splitter from './ui/Splitter.vue'
 import { unsuccessful, type Step } from '../lib/types'
 
 const t = computed(() => herd.selTask)
+const openIssue = () => t.value && herd.attempt('Could not open the issue', () => api.OpenURL(`https://github.com/${t.value!.repo}/issues/${t.value!.issue}`))
 
 function meta(s: Step): { text: string; cls: string } {
   if (s.paused && s.state !== 'done' && s.state !== 'failed') return { text: s.manual ? 'manual' : 'paused', cls: s.manual ? 'c-waiting' : '' }
@@ -68,6 +69,7 @@ async function archive() {
         <div class="title-row">
           <TaskRef :issue="t.issue" />
           <span class="title">{{ t.title }}</span>
+          <button v-if="t.issue && t.repo" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue"><Icon name="external" :size="13" />GitHub</button>
           <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()">Edit</button>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>

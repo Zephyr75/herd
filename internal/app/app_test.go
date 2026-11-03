@@ -15,6 +15,7 @@ import (
 
 	"herd/internal/github"
 	"herd/internal/holder"
+	"herd/internal/hooks"
 	"herd/internal/settings"
 	"herd/internal/store"
 )
@@ -973,5 +974,45 @@ func TestCreateTaskAttachments(t *testing.T) {
 		if !strings.Contains(string(md), p) {
 			t.Fatalf("TASK.md does not list %s:\n%s", p, md)
 		}
+	}
+}
+
+func TestExternalChanges(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "edit outside the worktree", "", true, nil)
+	id := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "plan", func() bool { return stepState(a, id) == store.Done })
+
+	main := filepath.Join(repo, "README.md") // the project's main checkout, not the worktree
+	os.WriteFile(main, []byte("hi\nchanged\n"), 0o644)
+	hook := func(tool, path string) {
+		raw, _ := json.Marshal(map[string]any{"tool_name": tool, "tool_input": map[string]string{"file_path": path}})
+		a.onHook(hooks.Event{Name: "PostToolUse", StepID: id, Raw: raw})
+	}
+	hook("Read", filepath.Join(repo, "other.md"))          // not an edit
+	hook("Write", filepath.Join(tv.Worktree, "README.md")) // inside the worktree
+	hook("Edit", main)
+
+	ch, err := a.StepChanges(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Files) != 1 || ch.Files[0].Path != main || ch.Files[0].Repo != repo || ch.Files[0].Added != 1 {
+		t.Fatalf("files: %+v", ch.Files)
+	}
+	if len(ch.Repos) != 1 || ch.Repos[0].Name != "pony-core (main checkout)" {
+		t.Fatalf("repos: %+v", ch.Repos)
+	}
+	d, err := a.FileDiff(id, main)
+	if err != nil || !strings.Contains(d.Diff, "+changed") {
+		t.Fatalf("diff %q: %v", d.Diff, err)
+	}
+	task, _ := a.db.Task(tv.ID)
+	if rs := a.taskExternal(task); len(rs) != 1 || rs[0].Root != repo {
+		t.Fatalf("task repos: %+v", rs)
+	}
+	run(t, repo, "git", "checkout", "README.md") // nothing left uncommitted
+	if rs := a.taskExternal(task); len(rs) != 0 {
+		t.Fatalf("clean repo still listed: %+v", rs)
 	}
 }

@@ -46,6 +46,13 @@ export interface FileChange {
   added: number
   deleted: number
   binary: boolean
+  repo?: string // a repository outside the worktree: path is then absolute
+}
+
+/** A repository outside the task's worktree that the task changed. */
+export interface ExternalRepo {
+  root: string
+  name: string
 }
 
 export interface Changes {
@@ -53,6 +60,7 @@ export interface Changes {
   sha: string
   via: string // the step that made the commit, when not this one
   files: FileChange[]
+  repos: ExternalRepo[] // repositories outside the worktree, in files' order
 }
 
 /** The user's ~/.claude/CLAUDE.md compared with General context + Rules. */
@@ -138,6 +146,7 @@ export interface Next {
   approval: string
   markDone: string
   warning: string // e.g. the plan lists options: name one in the guidance
+  elsewhere: ExternalRepo[] // before a Push: other repositories the task left uncommitted changes in
   ghost: { name: string; after: string; manual: boolean; start: Option | null } | null
 }
 

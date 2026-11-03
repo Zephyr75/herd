@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"herd/internal/store"
 )
 
 // FileChange is one file a step changed.
@@ -18,20 +20,43 @@ type FileChange struct {
 	Added   int    `json:"added"`
 	Deleted int    `json:"deleted"`
 	Binary  bool   `json:"binary"`
+	Repo    string `json:"repo,omitempty"` // a repository outside the worktree (Path is then absolute)
 }
 
 // Changes is what a step changed: its commit, the commit of the step right
 // after it (Implement's work is committed by its Review), or the uncommitted
 // work in the worktree while it is the task's latest step.
 type Changes struct {
-	Source string       `json:"source"` // commit | worktree | "" (nothing to show)
-	SHA    string       `json:"sha"`
-	Via    string       `json:"via"` // the step that made the commit, when not this one
-	Files  []FileChange `json:"files"`
+	Source string         `json:"source"` // commit | worktree | "" (nothing to show)
+	SHA    string         `json:"sha"`
+	Via    string         `json:"via"` // the step that made the commit, when not this one
+	Files  []FileChange   `json:"files"`
+	Repos  []ExternalRepo `json:"repos"` // repositories outside the worktree, in Files' order
 }
 
-// StepChanges lists the files a step changed, with line counts.
+// StepChanges lists the files a step changed, with line counts: in the
+// worktree (or its commit), then the files it edited in other repositories.
 func (a *App) StepChanges(stepID string) (Changes, error) {
+	out, err := a.worktreeChanges(stepID)
+	if err != nil {
+		return out, err
+	}
+	s, _ := a.db.Step(stepID)
+	t, _ := a.db.Task(s.TaskID)
+	all, _ := a.db.Externals(t.ID)
+	var mine []store.ExternalFile
+	for _, f := range all {
+		if f.StepID == stepID {
+			mine = append(mine, f)
+		}
+	}
+	files, repos := a.externalChanges(t, mine)
+	out.Files, out.Repos = append(out.Files, files...), repos
+	return out, nil
+}
+
+// worktreeChanges lists the files a step changed in the task's worktree.
+func (a *App) worktreeChanges(stepID string) (Changes, error) {
 	s, err := a.db.Step(stepID)
 	if err != nil {
 		return Changes{}, err
@@ -41,7 +66,7 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 		return Changes{}, err
 	}
 	p := a.projectOf(t)
-	out := Changes{Files: []FileChange{}}
+	out := Changes{Files: []FileChange{}, Repos: []ExternalRepo{}}
 	steps, _ := a.db.Steps(t.ID)
 	sha := s.SHA
 	for i, x := range steps {
@@ -71,25 +96,43 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 		return out, nil
 	}
 	out.Source = "worktree"
-	num, err := a.git.Run(a.ctx, wt, "-c", "core.quotePath=false", "diff", "--no-renames", "--numstat", "HEAD")
+	files, err := a.uncommitted(wt)
 	if err != nil {
 		return out, err
 	}
-	names, err := a.git.Run(a.ctx, wt, "-c", "core.quotePath=false", "diff", "--no-renames", "--name-status", "HEAD")
-	if err != nil {
-		return out, err
+	out.Files = files
+	return out, nil
+}
+
+// uncommitted lists the uncommitted changes in the repository at dir,
+// limited to paths when given.
+func (a *App) uncommitted(dir string, paths ...string) ([]FileChange, error) {
+	git := func(args ...string) (string, error) {
+		args = append([]string{"--literal-pathspecs", "-c", "core.quotePath=false"}, args...)
+		if len(paths) > 0 {
+			args = append(append(args, "--"), paths...)
+		}
+		return a.git.Run(a.ctx, dir, args...)
 	}
-	out.Files = parseChanges(num, names)
-	untracked, err := a.git.Run(a.ctx, wt, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard")
+	num, err := git("diff", "--no-renames", "--numstat", "HEAD")
 	if err != nil {
-		return out, err
+		return nil, err
+	}
+	names, err := git("diff", "--no-renames", "--name-status", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	files := parseChanges(num, names)
+	untracked, err := git("ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
 	}
 	for _, rel := range strings.Split(untracked, "\n") {
 		if rel == "" {
 			continue
 		}
 		fc := FileChange{Path: rel, Status: "?"}
-		if b, err := os.ReadFile(filepath.Join(wt, rel)); err == nil && len(b) < 4<<20 {
+		if b, err := os.ReadFile(filepath.Join(dir, rel)); err == nil && len(b) < 4<<20 {
 			if bytes.IndexByte(b, 0) >= 0 {
 				fc.Binary = true
 			} else {
@@ -99,9 +142,9 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 				}
 			}
 		}
-		out.Files = append(out.Files, fc)
+		files = append(files, fc)
 	}
-	return out, nil
+	return files, nil
 }
 
 // FileDiff is one file's unified diff in a step's changes.
@@ -139,6 +182,13 @@ func (a *App) FileDiff(stepID, rel string) (FileDiff, error) {
 	t, _ := a.db.Task(s.TaskID)
 	p := a.projectOf(t)
 	switch {
+	case fc.Repo != "":
+		rel := strings.TrimPrefix(rel, fc.Repo+string(filepath.Separator))
+		if fc.Status == "?" {
+			out.Diff, err = untrackedDiff(fc.Repo, rel)
+		} else {
+			out.Diff, err = a.git.Run(a.ctx, fc.Repo, "--literal-pathspecs", "-c", "core.quotePath=false", "diff", "--no-renames", "--no-color", "HEAD", "--", rel)
+		}
 	case ch.Source == "commit":
 		out.Diff, err = a.git.Run(a.ctx, p.Path, "-c", "core.quotePath=false", "show", "--format=", "--no-renames", "--no-color", ch.SHA, "--", rel)
 	case fc.Status == "?":

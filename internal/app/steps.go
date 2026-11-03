@@ -411,6 +411,9 @@ func (a *App) artifactDone(s store.Step) (bool, string) {
 
 // onHook turns Claude Code hook events into step states.
 func (a *App) onHook(ev hooks.Event) {
+	if ev.Name == "PostToolUse" {
+		a.recordExternal(ev)
+	}
 	var finish, shell bool
 	var verdict string
 	if ev.Name == "Stop" {

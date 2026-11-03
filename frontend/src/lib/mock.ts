@@ -209,7 +209,7 @@ function derive(t: MockTask): Task {
   const cs = t.checks ?? []
   if (cs.length && t.pr && t.prState === 'open' && !t.archived)
     status = { ...status, label: status.label + ' · ' + (cs.some((c) => c.bucket === 'fail' || c.bucket === 'cancel') ? 'CI failed' : cs.some((c) => c.bucket === 'pending') ? 'CI running' : 'CI passed') }
-  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', ghost: null as Next['ghost'] }
+  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
   if (t.archived) {
@@ -441,18 +441,19 @@ export const api: Api = {
     const i = s ? t.steps.indexOf(s) : -1, last = i === t.steps.length - 1
     const next = t.steps[i + 1], via = !s?.sha && next?.sha ? next : undefined
     const sha = s?.sha || via?.sha
-    if (sha) return ok({ source: 'commit', sha, via: via ? displayName(agent(via.agent), via.n) : '', files: [
+    if (sha) return ok({ source: 'commit', sha, via: via ? displayName(agent(via.agent), via.n) : '', repos: [], files: [
       { path: 'internal/unlock/ble.go', status: 'M', added: 42, deleted: 9, binary: false },
       { path: 'internal/unlock/retry.go', status: 'A', added: 61, deleted: 0, binary: false },
       { path: 'internal/unlock/retry_test.go', status: 'A', added: 88, deleted: 0, binary: false },
       { path: 'config/defaults.yaml', status: 'M', added: 2, deleted: 1, binary: false },
     ] })
-    if (last && s) return ok({ source: 'worktree', sha: '', via: '', files: [
+    if (last && s) return ok({ source: 'worktree', sha: '', via: '', repos: [], files: [
       { path: 'internal/unlock/ble.go', status: 'M', added: 18, deleted: 4, binary: false },
       { path: 'internal/unlock/budget.go', status: '?', added: 27, deleted: 0, binary: false },
     ] })
-    return ok({ source: '', sha: '', via: '', files: [] })
+    return ok({ source: '', sha: '', via: '', files: [], repos: [] })
   },
+  OpenRepoInZed: () => ok(undefined),
   FileDiff: (_sid, path) => ok({ path, binary: false, truncated: false, diff: [
     `diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`,
     '@@ -12,7 +12,12 @@ func (c *Conn) Unlock(ctx context.Context) error {',

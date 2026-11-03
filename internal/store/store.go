@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS steps (
 );
 CREATE INDEX IF NOT EXISTS steps_task ON steps(task_id, seq);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS external_files (
+  step_id TEXT NOT NULL REFERENCES steps(id) ON DELETE CASCADE, path TEXT NOT NULL, root TEXT NOT NULL,
+  PRIMARY KEY (step_id, path)
+);
 `
 
 // Open opens (and migrates) the database at path.
@@ -300,6 +304,39 @@ func (d *DB) Get(key string) (string, error) {
 func (d *DB) Set(key, value string) error {
 	_, err := d.db.Exec(`INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
 	return err
+}
+
+// ExternalFile is a file a step edited outside its task's worktree, in the
+// git repository at Root.
+type ExternalFile struct {
+	StepID string
+	Path   string
+	Root   string
+}
+
+// AddExternal records a file a step edited outside its worktree.
+func (d *DB) AddExternal(f ExternalFile) error {
+	_, err := d.db.Exec(`INSERT OR IGNORE INTO external_files (step_id, path, root) VALUES (?, ?, ?)`, f.StepID, f.Path, f.Root)
+	return err
+}
+
+// Externals lists the files a task's steps edited outside its worktree.
+func (d *DB) Externals(taskID string) ([]ExternalFile, error) {
+	rows, err := d.db.Query(`SELECT e.step_id, e.path, e.root FROM external_files e JOIN steps s ON s.id = e.step_id
+		WHERE s.task_id = ? ORDER BY e.root, e.path`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExternalFile
+	for rows.Next() {
+		var f ExternalFile
+		if err := rows.Scan(&f.StepID, &f.Path, &f.Root); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // StepID builds a step id from its task and key.

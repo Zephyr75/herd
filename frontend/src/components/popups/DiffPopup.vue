@@ -94,7 +94,7 @@ function key(e: KeyboardEvent) {
       <div class="side">
         <p v-if="!changes" class="empty">Loading…</p>
         <p v-else-if="!changes.files.length" class="empty">No changed files.</p>
-        <ChangedFiles v-else :changes="changes" :selected="sel" @pick="pick" />
+        <ChangedFiles v-else :changes="changes" :selected="sel" :task="stepId.slice(0, stepId.lastIndexOf('/'))" @pick="pick" />
       </div>
       <div class="main">
         <div v-if="file" class="fhead">

@@ -46,7 +46,7 @@ function loadChanges(id: string | undefined, delay: number) {
   ctimer = setTimeout(() => {
     api.StepChanges(id).then(
       (c) => mine === cseq && (changes.value = c),
-      () => mine === cseq && (changes.value = { source: '', sha: '', via: '', files: [] }),
+      () => mine === cseq && (changes.value = { source: '', sha: '', via: '', files: [], repos: [] }),
     )
   }, delay)
 }

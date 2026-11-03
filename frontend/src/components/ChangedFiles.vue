@@ -1,11 +1,22 @@
 <script setup lang="ts">
 // The files a step changed, with a summary line: used by the Changes tab and
-// the diff pop-up. A click picks a file.
+// the diff pop-up. A click picks a file. Files edited in other repositories
+// come after the worktree's, under their repository's name.
 import { computed } from 'vue'
-import type { Changes } from '../lib/types'
+import { api } from '../lib/api'
+import { herd } from '../lib/state'
+import type { Changes, ExternalRepo, FileChange } from '../lib/types'
 
-const props = defineProps<{ changes: Changes; selected?: string }>()
+// task: shows "Open in Zed" on the other repositories.
+const props = defineProps<{ changes: Changes; selected?: string; task?: string }>()
 defineEmits<{ pick: [path: string] }>()
+
+const groups = computed<{ repo: ExternalRepo | null; files: FileChange[] }[]>(() => [
+  { repo: null, files: props.changes.files.filter((f) => !f.repo) },
+  ...props.changes.repos.map((r) => ({ repo: r, files: props.changes.files.filter((f) => f.repo === r.root) })),
+])
+const shown = (f: FileChange) => (f.repo ? f.path.slice(f.repo.length + 1) : f.path)
+const openRepo = (root: string) => props.task && herd.attempt('Could not open Zed', () => api.OpenRepoInZed(props.task!, root))
 
 const totals = computed(() => {
   const f = props.changes.files
@@ -21,7 +32,7 @@ export const split = (p: string) => {
 export const statusCls = (s: string) => ({ A: 'c-add', '?': 'c-add', D: 'c-del', M: 'c-mod' })[s] ?? 'c-mod'
 export const statusTitle = (s: string) => ({ A: 'Added', '?': 'New, not committed yet', D: 'Deleted', M: 'Modified' })[s] ?? s
 export const sourceLabel = (c: Changes) =>
-  c.source === 'worktree' ? 'Uncommitted in the worktree' : c.via ? `Committed by ${c.via} · ${c.sha}` : `Commit ${c.sha}`
+  !c.source ? 'Changed outside the worktree' : c.source === 'worktree' ? 'Uncommitted in the worktree' : c.via ? `Committed by ${c.via} · ${c.sha}` : `Commit ${c.sha}`
 </script>
 
 <template>
@@ -32,10 +43,14 @@ export const sourceLabel = (c: Changes) =>
     <span class="c-add">+{{ totals.add }}</span>
     <span class="c-del">−{{ totals.del }}</span>
   </div>
-  <div class="files">
-    <button v-for="f in changes.files" :key="f.path" class="file" :class="{ on: f.path === selected }" title="Show the diff" @click="$emit('pick', f.path)">
+  <div v-for="g in groups.filter((x) => x.files.length)" :key="g.repo?.root ?? ''" class="files">
+    <div v-if="g.repo" class="repo" :title="g.repo.root">
+      <span class="grow">Outside the worktree: {{ g.repo.name }} <span class="muted">· uncommitted</span></span>
+      <button v-if="task" class="open" @click="openRepo(g.repo.root)">Open in Zed</button>
+    </div>
+    <button v-for="f in g.files" :key="f.path" class="file" :class="{ on: f.path === selected }" title="Show the diff" @click="$emit('pick', f.path)">
       <span :class="['st', statusCls(f.status)]" :title="statusTitle(f.status)">{{ f.status === '?' ? 'U' : f.status }}</span>
-      <span class="path"><span class="dir">{{ split(f.path).dir }}</span>{{ split(f.path).name }}</span>
+      <span class="path"><span class="dir">{{ split(shown(f)).dir }}</span>{{ split(shown(f)).name }}</span>
       <span v-if="f.binary" class="muted small">binary</span>
       <template v-else>
         <span v-if="f.added" class="c-add small">+{{ f.added }}</span>
@@ -66,6 +81,30 @@ export const sourceLabel = (c: Changes) =>
   display: flex;
   flex-direction: column;
   margin: 0 -8px;
+}
+.repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--waiting);
+}
+.open {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.open:hover {
+  background: var(--hover);
+}
+.muted {
+  color: var(--muted);
 }
 .file {
   display: flex;

@@ -80,6 +80,10 @@ task in the task list. The folder icon next to Steps opens the task's run folder
 commit view, inside the task's worktree. A file in the Changes tab opens a large pop-up with every changed
 file and the selected one's read-only diff; Zed diff opens that step's own commit in Zed's diff view
 (an Implement's is the one its Review made), or the worktree for uncommitted work.
+Files an agent edits outside the worktree (another repository, or the project's main checkout) are
+recorded from its Edit/Write tools and listed under their repository in Changes, with their
+uncommitted diff and an Open in Zed button. Before Push, Next step warns about them: Push only
+pushes the worktree's branch. Edits made through shell commands are not detected.
 
 To continue a session in Zed: press Edit in the task header (opens the worktree in Zed),
 press "Stop and copy" in the terminal toolbar (herd's claude ends, so only one process uses the

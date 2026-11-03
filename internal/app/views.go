@@ -56,7 +56,10 @@ type Next struct {
 	Approval string   `json:"approval"` // step id waiting for permission
 	MarkDone string   `json:"markDone"` // step id that can be marked done
 	Warning  string   `json:"warning"`  // e.g. the plan lists options: pick one in the guidance
-	Ghost    *Ghost   `json:"ghost"`
+	// Elsewhere: before a Push, the repositories outside the worktree with
+	// uncommitted changes from the task (Push only pushes the worktree).
+	Elsewhere []ExternalRepo `json:"elsewhere"`
+	Ghost     *Ghost         `json:"ghost"`
 }
 
 // TaskView is a task with its steps and derived state.
@@ -182,6 +185,13 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	}
 	v.Next = nextOf(t, v.Steps, agents)
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
+	v.Next.Elsewhere = []ExternalRepo{}
+	for _, o := range v.Next.Options {
+		if agentFor(agents, o.Agent).Push {
+			v.Next.Elsewhere = a.taskExternal(t)
+			break
+		}
+	}
 	return v, nil
 }
 

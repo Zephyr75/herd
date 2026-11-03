@@ -40,6 +40,7 @@ async function deleteTask() {
 }
 const allow = (id: string) => herd.attempt('Allow once failed', () => api.AllowOnce(id))
 const markDone = (id: string) => herd.attempt('Mark done failed', () => api.MarkDone(id))
+const openRepo = (root: string) => t.value && herd.attempt('Could not open Zed', () => api.OpenRepoInZed(t.value!.id, root))
 </script>
 
 <template>
@@ -54,6 +55,14 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
     <template v-if="nx.options.length && !t.archived">
       <label for="guide" class="sr-only">Guidance for Claude</label>
       <p v-if="nx.warning" class="warn"><Icon name="warn" :size="14" />{{ nx.warning }}</p>
+      <template v-if="nx.elsewhere.length">
+        <p class="warn">
+          <Icon name="warn" :size="14" />This task also changed files outside its worktree, in {{ nx.elsewhere.map((r) => r.name).join(', ') }}. Push only pushes {{ t.branch }}: commit and push those repositories yourself.
+        </p>
+        <div class="opts">
+          <button v-for="r in nx.elsewhere" :key="r.root" class="btn" :title="r.root" @click="openRepo(r.root)">Open {{ r.name }} in Zed</button>
+        </div>
+      </template>
       <textarea id="guide" v-model="herd.guidance" rows="3" :class="{ need: nx.warning && !herd.guidance.trim() }" :placeholder="nx.warning ? 'Which option? e.g. take option B, because…' : 'Guidance for Claude (optional)'"></textarea>
       <div class="opts">
         <template v-for="(o, i) in nx.options" :key="o.agent + o.n">

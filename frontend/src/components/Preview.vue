@@ -64,24 +64,26 @@ watch(
 )
 
 const file = computed(() => art.value?.file || step.value?.artifact || '')
+// The Changes tab only shows when the step changed files; Preview stands in otherwise.
+const tab = computed(() => (step.value && changes.value?.files.length && herd.rightTab === 'changes' ? 'changes' : 'preview'))
 </script>
 
 <template>
   <div class="wrap">
     <div class="bar">
-      <div class="tab" role="tab" tabindex="0" :class="{ on: herd.rightTab === 'preview' }" @click="herd.rightTab = 'preview'" @keydown.enter="herd.rightTab = 'preview'">
+      <div class="tab" role="tab" tabindex="0" :class="{ on: tab === 'preview' }" @click="herd.rightTab = 'preview'" @keydown.enter="herd.rightTab = 'preview'">
         <Icon name="file" />Preview {{ file }}
         <button v-if="step && art?.exists" class="big" aria-label="Open in a large pop-up" title="Open in a large pop-up" @click.stop="herd.openArtifactPopup(step.id)">
           <Icon name="maximize" :size="16" />
         </button>
       </div>
-      <button v-if="step" class="tab" :class="{ on: herd.rightTab === 'changes' }" @click="herd.rightTab = 'changes'">
-        Changes<span v-if="changes?.files.length" class="count">{{ changes.files.length }}</span>
+      <button v-if="step && changes?.files.length" class="tab" :class="{ on: tab === 'changes' }" @click="herd.rightTab = 'changes'">
+        Changes<span class="count">{{ changes.files.length }}</span>
       </button>
       <span class="grow"></span>
     </div>
     <div class="content">
-      <ChangesView v-if="step && herd.rightTab === 'changes'" :changes="changes" />
+      <ChangesView v-if="tab === 'changes'" :changes="changes" />
       <p v-else-if="!step" class="empty">Open a step to preview the artifact it wrote.</p>
       <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as {{ step.external ? "Copilot's review arrives" : 'Claude writes it' }}.</p>
       <ArtifactView v-else :art="art" />

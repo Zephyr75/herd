@@ -37,6 +37,8 @@ import (
 type Platform interface {
 	Emit(event string, data any)
 	PickFolder(title string) (string, error)
+	// PickFiles opens a native picker for several files; nil when cancelled.
+	PickFiles(title string) ([]string, error)
 	// Notify shows a desktop notification; a click on it should focus
 	// taskID in herd.
 	Notify(title, body, taskID string)
@@ -492,6 +494,11 @@ func (a *App) SetRules(rules string) error {
 // ChooseFolder opens the native folder picker; "" when cancelled.
 func (a *App) ChooseFolder(title string) (string, error) {
 	return a.plat.PickFolder(title)
+}
+
+// ChooseFiles opens the native picker for several files; empty when cancelled.
+func (a *App) ChooseFiles(title string) ([]string, error) {
+	return a.plat.PickFiles(title)
 }
 
 // SetFocused is called by the frontend when the window gains or loses

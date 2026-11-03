@@ -12,6 +12,51 @@ import (
 	"herd/internal/store"
 )
 
+// attachDir holds the files attached at task creation, in the run dir.
+const attachDir = "attachments"
+
+// copyAttachments copies files to dir/attachments, renaming duplicates.
+func copyAttachments(dir string, files []string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	dst := filepath.Join(dir, attachDir)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		ext := filepath.Ext(f)
+		base := strings.TrimSuffix(filepath.Base(f), ext)
+		name := base + ext
+		for i := 2; ; i++ {
+			if _, err := os.Stat(filepath.Join(dst, name)); os.IsNotExist(err) {
+				break
+			}
+			name = fmt.Sprintf("%s-%d%s", base, i, ext)
+		}
+		if err := os.WriteFile(filepath.Join(dst, name), b, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// attachments lists the attached files' names, sorted.
+func attachments(dir string) []string {
+	es, _ := os.ReadDir(filepath.Join(dir, attachDir))
+	var names []string
+	for _, e := range es {
+		if e.Type().IsRegular() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
 // writeTaskFile writes TASK.md to the run dir: the task source every agent
 // reads first.
 func (a *App) writeTaskFile(p settings.Project, t store.Task) error {
@@ -44,6 +89,12 @@ func (a *App) writeTaskFile(p settings.Project, t store.Task) error {
 		b.WriteString("## Description\n\n")
 		b.WriteString(strings.TrimSpace(t.Description))
 		b.WriteString("\n")
+	}
+	if names := attachments(dir); len(names) > 0 {
+		b.WriteString("\n## Attachments\n\nFiles the user attached to the task: read each one (images too) before planning.\n\n")
+		for _, n := range names {
+			fmt.Fprintf(&b, "- %s\n", filepath.Join(dir, attachDir, n))
+		}
 	}
 	return os.WriteFile(filepath.Join(dir, "TASK.md"), []byte(b.String()), 0o644)
 }

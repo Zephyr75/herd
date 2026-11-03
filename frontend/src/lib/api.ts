@@ -10,7 +10,7 @@ export interface Api {
   ListTasks(): Promise<Task[]>
   IssueTitle(project: string, issue: string): Promise<string>
   MyIssues(project: string): Promise<Issue[]>
-  CreateTask(project: string, issue: string, description: string, branch: string, runPlan: boolean): Promise<Task>
+  CreateTask(project: string, issue: string, description: string, branch: string, runPlan: boolean, files: string[]): Promise<Task>
   StartStep(task: string, agent: string, guidance: string, n: number): Promise<Step>
   AllowOnce(step: string): Promise<void>
   MarkDone(step: string): Promise<void>
@@ -42,6 +42,7 @@ export interface Api {
   SystemClaudeMd(): Promise<SystemMemory>
   OverrideSystemClaudeMd(): Promise<string>
   ChooseFolder(title: string): Promise<string>
+  ChooseFiles(title: string): Promise<string[] | null>
   GetSettings(): Promise<Settings>
   SaveAgents(agents: Agent[]): Promise<void>
   SaveContext(c: Context): Promise<void>

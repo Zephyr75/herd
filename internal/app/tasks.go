@@ -136,7 +136,8 @@ var digits = regexp.MustCompile(`^[0-9]+$`)
 // CreateTask creates a task, its branch and worktree, and optionally starts
 // the first agent. branch must start with the prefix in Settings; "" picks
 // prefix + the task's slug.
-func (a *App) CreateTask(projectID, issue, description, branch string, runPlan bool) (TaskView, error) {
+// files are copied to the run dir's attachments/, which TASK.md lists.
+func (a *App) CreateTask(projectID, issue, description, branch string, runPlan bool, files []string) (TaskView, error) {
 	issue = strings.TrimPrefix(strings.TrimSpace(issue), "#")
 	description = strings.TrimSpace(description)
 	branch = strings.TrimSpace(branch)
@@ -152,6 +153,11 @@ func (a *App) CreateTask(projectID, issue, description, branch string, runPlan b
 	}
 	if issue != "" && p.Repo == "" {
 		return TaskView{}, fmt.Errorf("%s has no GitHub repo: leave the issue empty for a LOCAL task", p.Name)
+	}
+	for _, f := range files {
+		if st, err := os.Stat(f); err != nil || !st.Mode().IsRegular() {
+			return TaskView{}, fmt.Errorf("cannot attach %s: not a readable file", f)
+		}
 	}
 
 	all, err := a.db.Tasks()
@@ -207,6 +213,9 @@ func (a *App) CreateTask(projectID, issue, description, branch string, runPlan b
 		return TaskView{}, err
 	}
 	if err := a.db.SaveTask(t); err != nil {
+		return TaskView{}, err
+	}
+	if err := copyAttachments(a.runDir(p, t), files); err != nil {
 		return TaskView{}, err
 	}
 	if err := a.writeTaskFile(p, t); err != nil {

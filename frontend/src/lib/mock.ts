@@ -467,6 +467,7 @@ export const api: Api = {
   SystemClaudeMd: () => ok({ path: '~/.claude/CLAUDE.md', exists: true, synced: mockSynced }),
   OverrideSystemClaudeMd: () => { mockSynced = true; return ok('~/.claude/CLAUDE.md.bak-20261102-101500') },
   ChooseFolder: () => ok('~/notes/pony-kb'),
+  ChooseFiles: () => ok(['~/Pictures/ride-summary.png', '~/Downloads/crash.log']),
   GetSettings: () => ok(settings),
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },
   SaveContext: (c) => { settings.context[c.id] = c; emit('settings:changed', settings); return ok(undefined) },

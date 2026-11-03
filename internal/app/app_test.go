@@ -37,7 +37,8 @@ func (f *fakePlatform) Emit(ev string, _ any) {
 	f.events = append(f.events, ev)
 	f.mu.Unlock()
 }
-func (f *fakePlatform) PickFolder(string) (string, error) { return "", nil }
+func (f *fakePlatform) PickFolder(string) (string, error)  { return "", nil }
+func (f *fakePlatform) PickFiles(string) ([]string, error) { return nil, nil }
 func (f *fakePlatform) Notify(title, body, _ string) {
 	f.mu.Lock()
 	f.events = append(f.events, "notify:"+title+": "+body)
@@ -123,7 +124,7 @@ func stepState(a *App, id string) string {
 
 func TestPlanImplementReview(t *testing.T) {
 	a, repo := newTestApp(t)
-	tv, err := a.CreateTask("core", "", "Add a fleet heatmap endpoint for ops", "", true)
+	tv, err := a.CreateTask("core", "", "Add a fleet heatmap endpoint for ops", "", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestApprovalAndAllowOnce(t *testing.T) {
 	if err := a.SaveAgents(ags); err != nil {
 		t.Fatal(err)
 	}
-	tv, err := a.CreateTask("core", "", "approve things please", "", true)
+	tv, err := a.CreateTask("core", "", "approve things please", "", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +219,7 @@ func TestApprovalAndAllowOnce(t *testing.T) {
 func TestExitWithoutArtifactFails(t *testing.T) {
 	a, _ := newTestApp(t)
 	t.Setenv("FAKE_STATUS", "working") // the plan never says it finished
-	tv, err := a.CreateTask("core", "", "fail me", "", true)
+	tv, err := a.CreateTask("core", "", "fail me", "", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +296,7 @@ func TestLocalSlug(t *testing.T) {
 
 func TestPauseAndResume(t *testing.T) {
 	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "pause me", "", true)
+	tv, _ := a.CreateTask("core", "", "pause me", "", true, nil)
 	id := store.StepID(tv.ID, "plan-1")
 	waitFor(t, "plan done", func() bool { return stepState(a, id) == store.Done })
 	step, _ := a.db.Step(id)
@@ -335,7 +336,7 @@ func addAskAgent(t *testing.T, a *App) {
 func TestSessionSurvivesRestart(t *testing.T) {
 	a, _ := newTestApp(t)
 	addAskAgent(t, a)
-	tv, _ := a.CreateTask("core", "", "survive a restart", "", true)
+	tv, _ := a.CreateTask("core", "", "survive a restart", "", true, nil)
 	id := store.StepID(tv.ID, "ask-1")
 	waitFor(t, "approval", func() bool { return stepState(a, id) == store.Approval })
 
@@ -363,7 +364,7 @@ func TestSessionSurvivesRestart(t *testing.T) {
 
 func TestStepChanges(t *testing.T) {
 	a, repo := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "change some files", "", true)
+	tv, _ := a.CreateTask("core", "", "change some files", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	impl := store.StepID(tv.ID, "impl-1")
 	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
@@ -395,7 +396,7 @@ func TestStepChanges(t *testing.T) {
 
 func TestResumeGuard(t *testing.T) {
 	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "guard the session", "", true)
+	tv, _ := a.CreateTask("core", "", "guard the session", "", true, nil)
 	id := store.StepID(tv.ID, "plan-1")
 	waitFor(t, "plan", func() bool { return stepState(a, id) == store.Done })
 	step, _ := a.db.Step(id)
@@ -429,7 +430,7 @@ func TestResumeGuard(t *testing.T) {
 func TestNotifications(t *testing.T) {
 	a, _ := newTestApp(t)
 	a.SetFocused(false)
-	tv, _ := a.CreateTask("core", "", "notify me", "", true)
+	tv, _ := a.CreateTask("core", "", "notify me", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	f := a.plat.(*fakePlatform)
 	waitFor(t, "notification", func() bool {
@@ -462,7 +463,7 @@ func TestNotifications(t *testing.T) {
 func TestEachReviewCommitsItsOwnDiff(t *testing.T) {
 	a, repo := newTestApp(t)
 	a.settings.UpdateConfig(func(c *settings.Config) { c.ZedCommand = "true" })
-	tv, _ := a.CreateTask("core", "", "two review rounds", "", true)
+	tv, _ := a.CreateTask("core", "", "two review rounds", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	wt := filepath.Join(repo, ".worktrees", tv.Slug)
 	shas := map[string]string{}
@@ -520,7 +521,7 @@ func TestRulesAndKnowledge(t *testing.T) {
 	if err := a.SaveContext(c); err != nil {
 		t.Fatal(err)
 	}
-	tv, err := a.CreateTask("core", "", "rules apply", "", false)
+	tv, err := a.CreateTask("core", "", "rules apply", "", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +544,7 @@ func TestRulesAndKnowledge(t *testing.T) {
 func TestManualStep(t *testing.T) {
 	a, _ := newTestApp(t)
 	os.MkdirAll(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects"), 0o755) // transcripts are tracked
-	tv, _ := a.CreateTask("core", "", "implement it myself", "", true)
+	tv, _ := a.CreateTask("core", "", "implement it myself", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	sv, err := a.StartManualStep(tv.ID, "impl", "", 0)
 	if err != nil {
@@ -582,7 +583,7 @@ func TestManualStep(t *testing.T) {
 
 func TestManualStepClosedByNextStep(t *testing.T) {
 	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "manual then review", "", true)
+	tv, _ := a.CreateTask("core", "", "manual then review", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	sv, _ := a.StartManualStep(tv.ID, "impl", "", 0)
 	if _, err := a.StartStep(tv.ID, "review", "", 0); err != nil {
@@ -596,7 +597,7 @@ func TestManualStepClosedByNextStep(t *testing.T) {
 func TestRerunAmendsTheReviewCommit(t *testing.T) {
 	a, repo := newTestApp(t)
 	withoutAgent(t, a, "test") // the review stays the latest step
-	tv, _ := a.CreateTask("core", "", "rerun the review", "", true)
+	tv, _ := a.CreateTask("core", "", "rerun the review", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
 		t.Fatal(err)
@@ -629,27 +630,27 @@ func TestRerunAmendsTheReviewCommit(t *testing.T) {
 
 func TestTaskBranch(t *testing.T) {
 	a, repo := newTestApp(t)
-	if _, err := a.CreateTask("core", "", "no prefix", "fix-it", false); err == nil {
+	if _, err := a.CreateTask("core", "", "no prefix", "fix-it", false, nil); err == nil {
 		t.Fatal("accepted a branch without the prefix")
 	}
-	if _, err := a.CreateTask("core", "", "bad name", "ar-bad..name", false); err == nil {
+	if _, err := a.CreateTask("core", "", "bad name", "ar-bad..name", false, nil); err == nil {
 		t.Fatal("accepted an invalid branch name")
 	}
-	tv, err := a.CreateTask("core", "", "take a vehicle out of QA", "ar-take-a-vehicle-out-of-qa", false)
+	tv, err := a.CreateTask("core", "", "take a vehicle out of QA", "ar-take-a-vehicle-out-of-qa", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tv.Branch != "ar-take-a-vehicle-out-of-qa" || run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "branch", "--show-current") != tv.Branch {
 		t.Fatalf("branch %q", tv.Branch)
 	}
-	if _, err := a.CreateTask("core", "", "same branch", "ar-take-a-vehicle-out-of-qa", false); err == nil {
+	if _, err := a.CreateTask("core", "", "same branch", "ar-take-a-vehicle-out-of-qa", false, nil); err == nil {
 		t.Fatal("two tasks on one branch")
 	}
 }
 
 func TestPRTitle(t *testing.T) {
 	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "pr title", "ar-take-a-vehicle-sent-back-to-prod-out-of-QA", false)
+	tv, _ := a.CreateTask("core", "", "pr title", "ar-take-a-vehicle-sent-back-to-prod-out-of-QA", false, nil)
 	task, _ := a.db.Task(tv.ID)
 	p, err := a.normalizePRTitle(task, PRTitle{Kind: "fix", Scope: "vehicles"})
 	if err != nil {
@@ -736,7 +737,7 @@ func TestTestAgentRunsOnlyAfterReviewSucceeds(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Setenv("FAKE_REVIEW", status)
 			a, _ := newTestApp(t)
-			tv, _ := a.CreateTask("core", "", "test after review "+status, "", true)
+			tv, _ := a.CreateTask("core", "", "test after review "+status, "", true, nil)
 			waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 			if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
 				t.Fatal(err)
@@ -765,7 +766,7 @@ func TestTestAgentRunsOnlyAfterReviewSucceeds(t *testing.T) {
 
 func TestDeleteTask(t *testing.T) {
 	a, repo := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "delete me for good", "", true)
+	tv, _ := a.CreateTask("core", "", "delete me for good", "", true, nil)
 	plan := store.StepID(tv.ID, "plan-1")
 	waitFor(t, "plan", func() bool { return stepState(a, plan) == store.Done })
 	a.setPaused(plan, true)
@@ -797,7 +798,7 @@ func TestDeleteTask(t *testing.T) {
 
 func TestDeleteTaskOfRemovedProject(t *testing.T) {
 	a, repo := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "project goes away", "", false)
+	tv, _ := a.CreateTask("core", "", "project goes away", "", false, nil)
 	a.ArchiveTask(tv.ID)
 	if err := a.RemoveProject("core"); err != nil {
 		t.Fatal(err)
@@ -872,7 +873,7 @@ func withoutAgent(t *testing.T, a *App, id string) {
 
 func TestRerunReviewAfterHandEdit(t *testing.T) {
 	a, repo := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "edit after the tests", "", true)
+	tv, _ := a.CreateTask("core", "", "edit after the tests", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
 		t.Fatal(err)
@@ -908,7 +909,7 @@ func TestRerunReviewAfterHandEdit(t *testing.T) {
 func TestPlanOptionsWarning(t *testing.T) {
 	t.Setenv("FAKE_OPTIONS", "1")
 	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "two ways to do it", "", true)
+	tv, _ := a.CreateTask("core", "", "two ways to do it", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	v, _ := a.GetTask(tv.ID)
 	if !strings.Contains(v.Next.Warning, "PLAN.md lists several options") || !strings.Contains(v.Next.Warning, "Implement 1") {
@@ -918,7 +919,7 @@ func TestPlanOptionsWarning(t *testing.T) {
 
 func TestCopilotStep(t *testing.T) {
 	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "wait for copilot", "", false)
+	tv, _ := a.CreateTask("core", "", "wait for copilot", "", false, nil)
 	_ = a.updateTask(tv.ID, func(t *store.Task) error { t.PRNumber, t.PRState = 7, "open"; return nil })
 	a.startCopilotStep(tv.ID)
 	id := store.StepID(tv.ID, "copilot-1")
@@ -946,6 +947,31 @@ func TestCISummary(t *testing.T) {
 		}
 		if got := ciSummary(cs); got != want {
 			t.Errorf("%v: %q, want %q", buckets, got, want)
+		}
+	}
+}
+
+func TestCreateTaskAttachments(t *testing.T) {
+	a, _ := newTestApp(t)
+	src := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(src, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CreateTask("core", "", "missing file", "", false, []string{src + ".nope"}); err == nil {
+		t.Fatal("a missing file should fail the task creation")
+	}
+	tv, err := a.CreateTask("core", "", "fix the screen in the shot", "", false, []string{src, src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"shot.png", "shot-2.png"} {
+		p := filepath.Join(tv.RunDir, attachDir, n)
+		if b, err := os.ReadFile(p); err != nil || string(b) != "png" {
+			t.Fatalf("%s not copied: %v", n, err)
+		}
+		md, _ := os.ReadFile(filepath.Join(tv.RunDir, "TASK.md"))
+		if !strings.Contains(string(md), p) {
+			t.Fatalf("TASK.md does not list %s:\n%s", p, md)
 		}
 	}
 }

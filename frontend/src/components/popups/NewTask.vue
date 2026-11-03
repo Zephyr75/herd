@@ -18,6 +18,7 @@ const pre = presets[herd.previewNew]
 const project = ref(pre?.p ?? herd.selTask?.project ?? herd.projects[0]?.id ?? '')
 const issue = ref(pre?.i ?? '')
 const desc = ref(pre?.d ?? '')
+const files = ref<string[]>([])
 const issueTitle = ref('')
 const titleError = ref('')
 const busy = ref(false)
@@ -114,6 +115,21 @@ function pickMine(e: Event) {
   titleError.value = ''
 }
 
+// Files attached to the task: herd copies them to the run folder and TASK.md lists them.
+const baseName = (f: string) => f.split(/[\\/]/).pop() ?? f
+async function addFiles() {
+  const picked = await herd.attempt('Could not open the file picker', () => api.ChooseFiles('Attach files to the task'))
+  for (const f of picked ?? []) if (!files.value.includes(f)) files.value.push(f)
+}
+
+// Adds a project without leaving the pop-up, then selects it.
+async function addProject() {
+  const pr = await herd.attempt('Could not add the project', () => api.AddProject())
+  if (!pr) return
+  herd.toast('Added ' + pr.name, pr.path)
+  pickProject(pr.id)
+}
+
 function pickProject(id: string) {
   project.value = id
   issueTitle.value = ''
@@ -125,7 +141,7 @@ async function create(run: boolean) {
   busy.value = true
   error.value = ''
   try {
-    const t = await api.CreateTask(project.value, nIssue.value, nDesc.value, branch.value, run)
+    const t = await api.CreateTask(project.value, nIssue.value, nDesc.value, branch.value, run, files.value)
     herd.overlay = 'none'
     // The task:changed event may arrive after the call returns.
     if (!herd.task(t.id)) herd.tasks.push(t)
@@ -157,7 +173,7 @@ function key(e: KeyboardEvent) {
         <span class="lbl">Project</span>
         <div class="chips">
           <button v-for="pr in herd.projects" :key="pr.id" class="seg" :class="{ on: pr.id === project }" @click="pickProject(pr.id)">{{ pr.name }}</button>
-          <span v-if="!herd.projects.length" class="muted">Add a project in Settings first.</span>
+          <button class="seg add" title="Pick a git repository to add as a project" @click="addProject"><Icon name="plus" :size="12" />Add project</button>
         </div>
       </div>
       <div class="group">
@@ -180,6 +196,16 @@ function key(e: KeyboardEvent) {
       <div class="group">
         <label for="nfdesc" class="lbl">Description <span class="faint">optional</span></label>
         <textarea id="nfdesc" v-model="desc" rows="4" placeholder="What should Claude do? Added on top of the issue, or used alone for a LOCAL task."></textarea>
+      </div>
+      <div class="group">
+        <span class="lbl">Files <span class="faint">optional: screenshots, logs, specs… Claude reads them with the task</span></span>
+        <div class="chips">
+          <span v-for="f in files" :key="f" class="file" :title="f">
+            {{ baseName(f) }}
+            <button class="x" :aria-label="`Remove ${baseName(f)}`" @click="files = files.filter((x) => x !== f)"><Icon name="close" :size="11" /></button>
+          </span>
+          <button class="seg add" @click="addFiles"><Icon name="plus" :size="12" />Add files</button>
+        </div>
       </div>
       <div class="group">
         <label for="nfbranch" class="lbl">Branch <span class="faint">starts with {{ prefix }}</span></label>
@@ -260,6 +286,35 @@ function key(e: KeyboardEvent) {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+  }
+  .add {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--muted);
+  }
+  .file {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 4px 0 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 12px;
+  }
+  .x {
+    display: flex;
+    padding: 3px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+  }
+  .x:hover {
+    background: var(--hover);
+    color: var(--text);
   }
   .mine {
     height: 30px;

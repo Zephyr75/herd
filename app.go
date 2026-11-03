@@ -77,6 +77,11 @@ func (s *Shell) Emit(event string, data any) {
 
 func (s *Shell) emit(event string, data any) { s.Emit(event, data) }
 
+// PickFiles opens the native picker for several files.
+func (s *Shell) PickFiles(title string) ([]string, error) {
+	return wruntime.OpenMultipleFilesDialog(s.ctx, wruntime.OpenDialogOptions{Title: title})
+}
+
 // PickFolder opens the native folder picker.
 func (s *Shell) PickFolder(title string) (string, error) {
 	return wruntime.OpenDirectoryDialog(s.ctx, wruntime.OpenDialogOptions{Title: title, CanCreateDirectories: false})

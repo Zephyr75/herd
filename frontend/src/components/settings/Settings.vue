@@ -7,10 +7,11 @@ import ContextPane from './Context.vue'
 import Projects from './Projects.vue'
 import Appearance from './Appearance.vue'
 import Shortcuts from './Shortcuts.vue'
+import About from './About.vue'
 
-const nav: [SettingsTab, string][] = [['context', 'Context'], ['agents', 'Agents'], ['projects', 'Projects'], ['appearance', 'Appearance'], ['shortcuts', 'Shortcuts']]
+const nav: [SettingsTab, string][] = [['about', 'About'], ['context', 'Context'], ['agents', 'Agents'], ['projects', 'Projects'], ['appearance', 'Appearance'], ['shortcuts', 'Shortcuts']]
 const file = computed(
-  () => ({ agents: 'agents.toml', context: 'context/', projects: 'config.toml', appearance: 'config.toml', shortcuts: 'keymap.json' })[herd.settingsTab],
+  () => ({ agents: 'agents.toml', context: 'context/', projects: 'config.toml', appearance: 'config.toml', shortcuts: 'keymap.json', about: '' })[herd.settingsTab],
 )
 </script>
 
@@ -19,7 +20,7 @@ const file = computed(
     <span class="head">Settings</span>
     <button v-for="[id, label] in nav" :key="id" class="item" :class="{ on: herd.settingsTab === id }" @click="herd.settingsTab = id">{{ label }}</button>
     <span class="grow"></span>
-    <span class="path">{{ herd.settings?.dir ?? '~/.herd' }}/{{ file }}</span>
+    <span v-if="file" class="path">{{ herd.settings?.dir ?? '~/.herd' }}/{{ file }}</span>
     <button class="back" @click="herd.view = 'board'">Back to board</button>
   </aside>
 
@@ -29,7 +30,8 @@ const file = computed(
       <ContextPane v-else-if="herd.settingsTab === 'context'" />
       <Projects v-else-if="herd.settingsTab === 'projects'" />
       <Appearance v-else-if="herd.settingsTab === 'appearance'" />
-      <Shortcuts v-else />
+      <Shortcuts v-else-if="herd.settingsTab === 'shortcuts'" />
+      <About v-else />
     </div>
     <Toasts />
   </section>

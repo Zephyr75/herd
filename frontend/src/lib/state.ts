@@ -10,7 +10,7 @@ import { unsuccessful, type Option, type PRTitle, type Proc, type Settings, type
 
 export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push' | 'diff' | 'artifact'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
-export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts'
+export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts' | 'about'
 
 export interface Toast {
   id: number

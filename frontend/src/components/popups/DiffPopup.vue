@@ -12,7 +12,9 @@ import Splitter from '../ui/Splitter.vue'
 import { SIDEBAR, useSidebar } from '../../lib/sidebar'
 
 const stepId = computed(() => herd.diffOf?.step ?? '')
-const step = computed(() => herd.tasks.flatMap((t) => t.steps).find((s) => s.id === stepId.value))
+const task = computed(() => herd.tasks.find((t) => t.steps.some((s) => s.id === stepId.value)))
+const step = computed(() => task.value?.steps.find((s) => s.id === stepId.value))
+const pickStep = (id: string) => herd.diffOf && (herd.diffOf = { step: id, path: '' })
 const changes = ref<Changes | null>(null)
 const diff = ref<FileDiff | null>(null)
 const error = ref('')
@@ -24,6 +26,19 @@ async function loadChanges() {
   const mine = ++cseq
   const c = await api.StepChanges(stepId.value).catch(() => null)
   if (mine !== cseq) return
+  // Opened from the artifact pop-up on a step without changes (Plan, an
+  // earlier Review…): show the newest step that has some instead.
+  if (herd.diffOf?.auto) {
+    herd.diffOf.auto = false
+    if (!c?.files.length) {
+      for (const s of [...(task.value?.steps ?? [])].reverse()) {
+        if (s.id === stepId.value) continue
+        const o = await api.StepChanges(s.id).catch(() => null)
+        if (mine !== cseq) return
+        if (o?.files.length) return pickStep(s.id)
+      }
+    }
+  }
   changes.value = c
   // The file left the changes (e.g. reverted): show the first one instead.
   if (c && c.files.length && !c.files.some((f) => f.path === sel.value) && herd.diffOf) herd.diffOf.path = c.files[0].path
@@ -86,7 +101,11 @@ function key(e: KeyboardEvent) {
   <div ref="box" class="box popup" role="dialog" aria-label="Changes" tabindex="-1" @keydown="key">
     <div class="head">
       <button class="toggle" :aria-label="sb.hidden.value ? 'Show the side bar' : 'Hide the side bar'" :title="sb.hidden.value ? 'Show the side bar' : 'Hide the side bar'" @click="sb.hidden.value = !sb.hidden.value"><Icon :name="sb.hidden.value ? 'panel-left-off' : 'panel-left'" :size="16" /></button>
-      <span class="title">{{ step?.name ?? 'Step' }} changes</span>
+      <label class="sr-only" for="diffstep">Step whose changes to show</label>
+      <select id="diffstep" class="input pick" :value="stepId" title="Show the changes of another step" @change="pickStep(($event.target as HTMLSelectElement).value)">
+        <option v-for="s in task?.steps ?? []" :key="s.id" :value="s.id">{{ s.name }}</option>
+      </select>
+      <span class="title">changes</span>
       <span class="grow"></span>
       <button v-if="!herd.artifactOf" class="other" title="Open this step's artifact beside the changes" @click="herd.showArtifactToo(stepId)"><Icon name="file" :size="13" />Preview</button>
       <button class="x" aria-label="Close" title="Close (Esc closes both)" @click="close"><Icon name="close" :size="14" /></button>
@@ -156,6 +175,11 @@ function key(e: KeyboardEvent) {
     border-bottom: 1px solid var(--border);
   }
   .title {
+    font-weight: 600;
+  }
+  .pick {
+    height: 26px;
+    margin-right: 8px;
     font-weight: 600;
   }
   .grow {

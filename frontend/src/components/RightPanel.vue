@@ -14,7 +14,7 @@ const openIssue = () => t.value && herd.attempt('Could not open the issue', () =
 function meta(s: Step): { text: string; cls: string } {
   if (s.paused && s.state !== 'done' && s.state !== 'failed') return { text: s.manual ? 'manual' : 'paused', cls: s.manual ? 'c-waiting' : '' }
   if (s.state === 'running') return { text: s.external ? 'waiting for Copilot' : 'running', cls: 'c-running' }
-  if (s.state === 'approval') return { text: 'needs approval', cls: 'c-approval' }
+  if (s.state === 'approval') return { text: 'needs approval', cls: 'c-waiting' }
   if (s.state === 'idle') return { text: 'waiting for you', cls: 'c-waiting' }
   if (s.state === 'failed') return { text: 'ended early', cls: 'c-approval' }
   if (unsuccessful(s)) return { text: 'failed', cls: 'c-approval' }
@@ -22,7 +22,7 @@ function meta(s: Step): { text: string; cls: string } {
   if (task && s.state === 'done' && task.pr && herd.settings?.agents.find((a) => a.id === s.agent)?.push) return { text: 'PR #' + task.pr, cls: '' }
   return { text: '', cls: '' }
 }
-const dotCls = (s: Step) => (unsuccessful(s) ? 'd-failed' : s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' || s.state === 'idle' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-approval')
+const dotCls = (s: Step) => (unsuccessful(s) ? 'd-failed' : s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-waiting')
 
 // Rerun (set by herd): the latest step when it commits, and the cycle's
 // Review once you changed the worktree by hand (Edit opens it in Zed).
@@ -256,7 +256,7 @@ async function archive() {
   .d-done { background: var(--done-dot); }
   .d-paused { background: var(--faint); }
   .d-running { background: var(--running-dot); }
-  .d-approval,
+  .d-waiting { background: var(--waiting-dot); } /* Claude waits for an answer */
   .d-failed { background: var(--approval-dot); }
   .pending {
     border: 1px dashed var(--muted);

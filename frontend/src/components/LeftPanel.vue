@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { herd } from '../lib/state'
 import { api } from '../lib/api'
-import { unsuccessful, type Task } from '../lib/types'
+import type { Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
@@ -22,12 +22,6 @@ const groups = computed(() =>
     .filter((g) => !g.p.gone || g.tasks.length),
 )
 const toggle = (id: string) => (herd.collapsed[id] = !herd.collapsed[id])
-// PR open and its Push is the latest step: nothing left but the merge.
-function awaitingMerge(t: Task) {
-  const last = t.steps[t.steps.length - 1]
-  const isPush = !!last && (last.external || !!herd.settings?.agents.find((a) => a.id === last.agent)?.push)
-  return !t.archived && t.pr > 0 && t.prState === 'open' && isPush && last.state === 'done' && !unsuccessful(last)
-}
 const archive = (t: Task) => herd.attempt('Could not archive', () => api.ArchiveTask(t.id))
 function addProject() {
   herd.view = 'settings'
@@ -64,7 +58,7 @@ function addProject() {
               </span>
               <StatusBadge :kind="t.status.kind" :label="t.status.label" />
             </button>
-            <button v-if="awaitingMerge(t)" class="arch" :title="`Archive: PR #${t.pr} is open and no fix is in progress`" aria-label="Archive task" @click="archive(t)"><Icon name="archive" :size="15" /></button>
+            <button v-if="!t.archived" class="arch" title="Archive the task (stops its running steps; Restore brings it back)" aria-label="Archive task" @click="archive(t)"><Icon name="archive" :size="15" /></button>
           </div>
         </template>
       </template>

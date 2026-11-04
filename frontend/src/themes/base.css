@@ -122,7 +122,8 @@ button:disabled {
 
 .s-running { color: var(--running); background: var(--running-bg); --dot: var(--running-dot); }
 .s-waiting { color: var(--waiting); background: var(--waiting-bg); --dot: var(--waiting-dot); }
-.s-approval { color: var(--approval); background: var(--approval-bg); --dot: var(--approval-dot); }
+/* Claude waits for an answer: yellow like any wait, red stays for failures. */
+.s-approval { color: var(--waiting); background: var(--waiting-bg); --dot: var(--waiting-dot); }
 .s-idle { color: var(--idle); background: var(--idle-bg); --dot: var(--idle-dot); }
 .s-done { color: var(--done); background: var(--done-bg); --dot: var(--done-dot); }
 .s-local { color: var(--local); background: var(--local-bg); }

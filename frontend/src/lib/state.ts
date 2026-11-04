@@ -428,7 +428,7 @@ class Herd {
   /** The step whose artifact the artifact pop-up shows; '' when closed. */
   artifactOf = ''
   /** The step and file shown in the changes pop-up; null when closed. */
-  diffOf: { step: string; path: string } | null = null
+  diffOf: { step: string; path: string; auto?: boolean } | null = null
 
   /** Opens the artifact pop-up alone. */
   openArtifactPopup(step: string) {
@@ -449,7 +449,7 @@ class Herd {
     this.artifactOf = step
   }
   showDiffToo(step: string) {
-    this.diffOf = { step, path: '' }
+    this.diffOf = { step, path: '', auto: true } // auto: another step's changes when this one has none
   }
 
   closeArtifactPopup() {

@@ -145,7 +145,7 @@ section {
   background: var(--running-dot);
 }
 .k-approval {
-  background: var(--approval-dot);
+  background: var(--waiting-dot);
 }
 .k-off {
   background: var(--faint);

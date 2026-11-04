@@ -99,3 +99,13 @@ func (a *App) StartPush(taskID, agentID, guidance string, n int, title PRTitle) 
 	}
 	return a.StartStep(taskID, agentID, guidance, n)
 }
+
+// prBody ends a PR description with the issue it closes; a sister task's
+// issue lives in another repository and its main task closes it, so the
+// sister's PR only says it is part of it.
+func prBody(t store.Task, body string) string {
+	if t.IssueRepo == "" || t.Issue == "" {
+		return withCloses(body, t.Issue)
+	}
+	return strings.TrimLeft(strings.TrimRight(body, " \n")+fmt.Sprintf("\n\nPart of %s#%s", t.IssueRepo, t.Issue), "\n") + "\n"
+}

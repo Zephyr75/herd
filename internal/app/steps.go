@@ -66,7 +66,7 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	fmt.Fprintf(&b, "- task: %s (%s), project %s\n", l.task.ID, l.task.Title, l.proj.Name)
 	fmt.Fprintf(&b, "- step: %s ({n} = %d)\n", l.agent.DisplayName(l.step.N), l.step.N)
 	if l.task.Issue != "" {
-		fmt.Fprintf(&b, "- {issue} = %s (%s)\n", l.task.Issue, l.proj.Repo)
+		fmt.Fprintf(&b, "- {issue} = %s (%s)\n", l.task.Issue, a.issueRepo(l.task))
 	} else {
 		b.WriteString("- LOCAL task: no GitHub issue\n")
 	}
@@ -80,8 +80,9 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 		b.WriteString("- rerun: you already ran this step in this conversation. The user changed the worktree since; do the step again on the current state and rewrite your artifact\n")
 	}
 	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s; {base} = %s (the base branch)\n", wt, branchName(l.task), l.proj.BaseBranch)
-	for _, r := range a.linkedRepos(l.task.ID) {
-		fmt.Fprintf(&b, "- this task also changes %s: make its changes in its worktree %s (branch %s), never in %s\n", r.Name, r.Worktree, branchName(l.task), r.Repo)
+	for _, x := range a.sisters(l.task.ID) {
+		xp := a.projectOf(x)
+		fmt.Fprintf(&b, "- sister task %s handles the %s part of this work, in %s; its run directory %s holds its PLAN.md and IMPLEMENT files: keep what both share consistent with it, and change only this repository\n", x.ID, xp.Name, worktreePath(xp, x), a.runDir(xp, x))
 	}
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
@@ -128,8 +129,8 @@ func (a *App) spec(l launch) runner.Spec {
 	for _, dir := range a.knowledgeDirs(l.proj) {
 		args = append(args, "--add-dir", dir)
 	}
-	for _, r := range a.linkedRepos(l.task.ID) {
-		args = append(args, "--add-dir", r.Worktree)
+	for _, x := range a.sisters(l.task.ID) {
+		args = append(args, "--add-dir", a.runDir(a.projectOf(x), x)) // its plan, to stay consistent
 	}
 	if l.agent.Model != "" {
 		args = append(args, "--model", l.agent.Model)
@@ -737,7 +738,7 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 	if title == "" {
 		title = t.Title
 	}
-	title, body = withIssue(title, t.Issue), withCloses(body, t.Issue)
+	title, body = withIssue(title, t.Issue), prBody(t, body)
 	msg := strings.TrimSpace(title + "\n\n" + strings.TrimSpace(body))
 	if sha, err := g.CommitAll(a.ctx, wt, msg); err != nil {
 		say("commit failed: " + err.Error())

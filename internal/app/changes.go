@@ -22,36 +22,20 @@ type FileChange struct {
 	Added   int    `json:"added"`
 	Deleted int    `json:"deleted"`
 	Binary  bool   `json:"binary"`
-	Repo    string `json:"repo,omitempty"` // a repository outside the worktree (Path is then absolute)
 }
 
 // Changes is what a step changed. Steps between two commits of the branch
 // share the later one (Implement, Review and Test share their Commit and
 // push); steps after the last commit share the uncommitted work.
 type Changes struct {
-	Source string         `json:"source"` // commit | worktree | "" (nothing to show)
-	SHA    string         `json:"sha"`
-	Via    string         `json:"via"` // the step that made the commit, when not this one
-	Files  []FileChange   `json:"files"`
-	Repos  []ExternalRepo `json:"repos"` // repositories outside the worktree, in Files' order
+	Source string       `json:"source"` // commit | worktree | "" (nothing to show)
+	SHA    string       `json:"sha"`
+	Via    string       `json:"via"` // the step that made the commit, when not this one
+	Files  []FileChange `json:"files"`
 }
 
-// StepChanges lists the files a step changed, with line counts: in the
-// worktree (or its commit), then the files it edited in other repositories.
+// StepChanges lists the files a step changed, with line counts.
 func (a *App) StepChanges(stepID string) (Changes, error) {
-	out, err := a.worktreeChanges(stepID)
-	if err != nil {
-		return out, err
-	}
-	s, _ := a.db.Step(stepID)
-	t, _ := a.db.Task(s.TaskID)
-	files, repos := a.externalChanges(t, a.segmentExternals(t)[stepID])
-	out.Files, out.Repos = append(out.Files, files...), repos
-	return out, nil
-}
-
-// worktreeChanges lists the files a step changed in the task's worktree.
-func (a *App) worktreeChanges(stepID string) (Changes, error) {
 	s, err := a.db.Step(stepID)
 	if err != nil {
 		return Changes{}, err
@@ -61,7 +45,7 @@ func (a *App) worktreeChanges(stepID string) (Changes, error) {
 		return Changes{}, err
 	}
 	p := a.projectOf(t)
-	out := Changes{Files: []FileChange{}, Repos: []ExternalRepo{}}
+	out := Changes{Files: []FileChange{}}
 	steps, _ := a.db.Steps(t.ID)
 	sha := ""
 	i := slices.IndexFunc(steps, func(x store.Step) bool { return x.ID == s.ID })
@@ -235,13 +219,6 @@ func (a *App) FileDiff(stepID, rel string) (FileDiff, error) {
 	t, _ := a.db.Task(s.TaskID)
 	p := a.projectOf(t)
 	switch {
-	case fc.Repo != "":
-		rel := strings.TrimPrefix(rel, fc.Repo+string(filepath.Separator))
-		if fc.Status == "?" {
-			out.Diff, err = untrackedDiff(fc.Repo, rel)
-		} else {
-			out.Diff, err = a.git.Run(a.ctx, fc.Repo, "--literal-pathspecs", "-c", "core.quotePath=false", "diff", "--no-renames", "--no-color", "HEAD", "--", rel)
-		}
 	case ch.Source == "commit":
 		out.Diff, err = a.git.Run(a.ctx, p.Path, "-c", "core.quotePath=false", "show", "--format=", "--no-renames", "--no-color", ch.SHA, "--", rel)
 	case fc.Status == "?":

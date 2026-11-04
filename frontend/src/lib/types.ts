@@ -46,13 +46,6 @@ export interface FileChange {
   added: number
   deleted: number
   binary: boolean
-  repo?: string // a repository outside the worktree: path is then absolute
-}
-
-/** A repository outside the task's worktree that the task changed. */
-export interface ExternalRepo {
-  root: string
-  name: string
 }
 
 export interface Changes {
@@ -60,7 +53,6 @@ export interface Changes {
   sha: string
   via: string // the step that made the commit, when not this one
   files: FileChange[]
-  repos: ExternalRepo[] // repositories outside the worktree, in files' order
 }
 
 /** The user's ~/.claude/CLAUDE.md compared with General context + Rules. */
@@ -128,7 +120,6 @@ export interface Step {
   artifact: string
   commits: boolean
   diff: boolean // Diff has something to open: its segment's commit, or the uncommitted work
-  repos: ExternalRepo[] // other repositories with changes in its segment (a Diff each)
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume
@@ -142,13 +133,21 @@ export interface Option {
   label: string
 }
 
+/** A repository the plan also needs; project is '' until it is a herd project. */
+export interface SisterOffer {
+  repo: string
+  scope: string
+  project: string
+}
+
 export interface Next {
   options: Option[]
   text: string
   approval: string
   markDone: string
   warning: string // e.g. the plan lists options: name one in the guidance
-  elsewhere: ExternalRepo[] // before a Push: other repositories the task left uncommitted changes in
+  elsewhere: string[] // before Commit and push: repositories outside the worktree with uncommitted agent edits
+  sisters: SisterOffer[] // repositories the plan also needs, with no sister task yet
   ghost: { name: string; after: string; manual: boolean; start: Option | null } | null
 }
 
@@ -157,6 +156,8 @@ export interface Task {
   project: string
   slug: string
   issue: string
+  issueRepo: string // the repository holding the issue, when not the project's (a sister task)
+  sisters: { id: string; project: string }[] // tasks for the other repositories of the same work
   title: string
   description: string
   createdAt: string
@@ -181,7 +182,6 @@ export interface Task {
   projectGone: boolean // its project was removed from Settings > Projects
   checks: CICheck[] // CI checks of the open PR
   labels: string[] // labels of the open PR
-  otherRepos: ExternalRepo[] // other repositories the task changes (linked worktrees first)
   draft: boolean // the open PR is a draft (herd opens them so)
 }
 

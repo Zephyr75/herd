@@ -21,18 +21,17 @@ type Status struct {
 // StepView is a step as the frontend shows it.
 type StepView struct {
 	store.Step
-	Name     string         `json:"name"`
-	Live     bool           `json:"live"`
-	Auto     bool           `json:"auto"`
-	Artifact string         `json:"artifact"`
-	Commits  bool           `json:"commits"`
-	Diff     bool           `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
-	Repos    []ExternalRepo `json:"repos"`    // other repositories with changes in its segment (a Diff each)
-	Paused   bool           `json:"paused"`   // stopped by the user until Resume
-	Manual   bool           `json:"manual"`   // created without running: the user drives its session
-	Fresh    bool           `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
-	Rerun    bool           `json:"rerun"`    // Rerun applies (see markRerun)
-	External bool           `json:"external"` // run by herd, not Claude: the Copilot review step
+	Name     string `json:"name"`
+	Live     bool   `json:"live"`
+	Auto     bool   `json:"auto"`
+	Artifact string `json:"artifact"`
+	Commits  bool   `json:"commits"`
+	Diff     bool   `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
+	Paused   bool   `json:"paused"`   // stopped by the user until Resume
+	Manual   bool   `json:"manual"`   // created without running: the user drives its session
+	Fresh    bool   `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
+	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
+	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
 }
 
 // Option is one next-step button.
@@ -58,10 +57,12 @@ type Next struct {
 	Approval string   `json:"approval"` // step id waiting for permission
 	MarkDone string   `json:"markDone"` // step id that can be marked done
 	Warning  string   `json:"warning"`  // e.g. the plan lists options: pick one in the guidance
-	// Elsewhere: before a Push, the repositories outside the worktree with
-	// uncommitted changes from the task (Push only pushes the worktree).
-	Elsewhere []ExternalRepo `json:"elsewhere"`
-	Ghost     *Ghost         `json:"ghost"`
+	// Elsewhere: before Commit and push, the repositories outside the
+	// worktree where agents left uncommitted edits (only the worktree is pushed).
+	Elsewhere []string `json:"elsewhere"`
+	// Sisters: repositories the plan also needs, with no sister task yet.
+	Sisters []SisterOffer `json:"sisters"`
+	Ghost   *Ghost        `json:"ghost"`
 }
 
 // TaskView is a task with its steps and derived state.
@@ -82,7 +83,7 @@ type TaskView struct {
 	ProjectGone bool           `json:"projectGone"` // its project was removed from Settings > Projects
 	Checks      []github.Check `json:"checks"`      // CI checks of the open PR, refreshed every minute
 	Labels      []string       `json:"labels"`      // labels of the open PR
-	OtherRepos  []ExternalRepo `json:"otherRepos"`  // other repositories the task changes (linked worktrees first)
+	Sisters     []SisterRef    `json:"sisters"`     // tasks for the other repositories of the same work
 	Draft       bool           `json:"draft"`       // the open PR is a draft (herd opens them so)
 }
 
@@ -167,20 +168,6 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Steps == nil {
 		v.Steps = []StepView{}
 	}
-	// Steps share their segment's other-repo changes too.
-	segFiles, segRepos := a.segmentExternals(t), map[string][]ExternalRepo{}
-	for i := range v.Steps {
-		sv := &v.Steps[i]
-		key := ""
-		for _, f := range segFiles[sv.ID] {
-			key += f.Path + "\x00"
-		}
-		if _, ok := segRepos[key]; !ok {
-			_, segRepos[key] = a.externalChanges(t, segFiles[sv.ID])
-		}
-		sv.Repos = segRepos[key]
-	}
-	v.OtherRepos = a.otherRepos(t.ID)
 	// Steps share their segment's commit, or the uncommitted work after the last commit.
 	commits := a.branchCommits(t)
 	dirty := -1 // unknown until a step needs it
@@ -218,10 +205,18 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	v.Status = statusOf(t, v.Steps)
 	v.Next = nextOf(t, v.Steps, agents)
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
-	v.Next.Elsewhere = []ExternalRepo{}
+	v.Next.Sisters = []SisterOffer{}
+	if len(agents) > 0 {
+		v.Next.Sisters = a.sisterOffers(t, v.Steps, agents[0].ID)
+	}
+	v.Sisters = []SisterRef{}
+	for _, x := range a.sisters(t.ID) {
+		v.Sisters = append(v.Sisters, SisterRef{ID: x.ID, Project: a.projectOf(x).Name})
+	}
+	v.Next.Elsewhere = []string{}
 	for _, o := range v.Next.Options {
 		if agentFor(agents, o.Agent).Push {
-			v.Next.Elsewhere = a.taskExternal(t)
+			v.Next.Elsewhere = a.outsideRepos(t)
 			break
 		}
 	}
@@ -290,11 +285,15 @@ func ciSummary(cs []github.Check) string {
 }
 
 func sourceText(t store.Task, p settings.Project) string {
+	repo := p.Repo
+	if t.IssueRepo != "" {
+		repo = t.IssueRepo
+	}
 	switch {
 	case t.Issue != "" && t.Description != "":
-		return fmt.Sprintf("GitHub issue #%s + description · %s", t.Issue, p.Repo)
+		return fmt.Sprintf("GitHub issue #%s + description · %s", t.Issue, repo)
 	case t.Issue != "":
-		return fmt.Sprintf("GitHub issue #%s · %s", t.Issue, p.Repo)
+		return fmt.Sprintf("GitHub issue #%s · %s", t.Issue, repo)
 	default:
 		return "LOCAL · description only, no GitHub issue"
 	}

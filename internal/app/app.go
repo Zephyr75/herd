@@ -391,6 +391,7 @@ func (a *App) SaveProject(p settings.Project) error {
 		_, _ = a.git.EnsureExcluded(a.ctx, p.Path, pat)
 	}
 	a.emit(EvSettings, a.settings.Snapshot())
+	a.emitAllTasks() // sister offers depend on the projects
 	return nil
 }
 

@@ -42,7 +42,8 @@ make test    # Go tests, with a fake claude
 
 - **Agents** live in `~/.herd/agents.toml` (Settings → Agents). Rules in Settings → Context go into every session.
 - **Run files** (TASK.md, PLAN.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
-- **Edits outside the worktree** show up in Changes with an Open in Zed button, and Next step warns before you push.
+- **Several repos?** Plan lists them under `## Other repositories`; Next step then offers, in one click, a **sister task** in each: same issue, its own worktree, plan and PR, linked from the task header.
+- **Edits outside the worktree** by mistake are spotted: Next step warns before Commit and push.
 - **Quitting herd** keeps working steps alive: the next herd reattaches them.
 - **Shortcuts:** Alt+E and Alt+A hide the side panels, Esc closes pop-ups.
 

@@ -26,7 +26,8 @@ case "$HERD_STEP" in
          read -r answer; post PostToolUse '{}'
          printf -- '---\nstatus: done\n---\n' > "$HERD_ARTIFACT" ;;
   *) printf -- "---\nstatus: ${FAKE_STATUS:-done}\n---\n# Goal\nx\n" > "$HERD_ARTIFACT"
-     [ -n "$FAKE_OPTIONS" ] && printf -- '## Options\n- A\n- B\n' >> "$HERD_ARTIFACT" ;;
+     [ -n "$FAKE_OPTIONS" ] && printf -- '## Options\n- A\n- B\n' >> "$HERD_ARTIFACT"
+     [ -n "$FAKE_SISTER" ] && printf -- '## Other repositories\n- %s: echo the pause id\n' "$FAKE_SISTER" >> "$HERD_ARTIFACT" ;;
 esac
 post Stop '{}'
 read -r line

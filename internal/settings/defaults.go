@@ -40,6 +40,9 @@ Explore the repo and decide an approach.
 Write PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.
 When there is a real choice to make (designs, libraries, where the code goes), add Options: each one with
 its advantages and disadvantages, then the one you recommend. When the way to do it is clear, skip Options.
+When the work also needs changes in other repositories, plan only this repository's part and end PLAN.md
+with an "## Other repositories" section: one "- <repository folder name>: <what that part must do>" line each
+(herd offers a sister task for each). A sister task's plan lists only repositories not yet covered.
 Do not edit code. End with status: done, or status: failed if the task cannot be done as described (say why).`,
 		},
 		{

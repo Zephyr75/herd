@@ -75,13 +75,13 @@ func (a *App) writeTaskFile(p settings.Project, t store.Task) error {
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "source: %s\n", source)
 	if t.Issue != "" {
-		fmt.Fprintf(&b, "issue: %s\nrepo: %s\n", t.Issue, p.Repo)
+		fmt.Fprintf(&b, "issue: %s\nrepo: %s\n", t.Issue, a.issueRepo(t))
 	}
 	fmt.Fprintf(&b, "project: %s\nbranch: %s\nworktree: %s\nbase: %s\n", p.Name, branchName(t), worktreePath(p, t), p.BaseBranch)
 	b.WriteString("---\n\n")
 	fmt.Fprintf(&b, "# %s\n\n", t.Title)
 	if t.Issue != "" {
-		fmt.Fprintf(&b, "GitHub issue #%s in %s. Plan reads it with `gh issue view %s --repo %s`; later steps rely on PLAN.md.\n\n", t.Issue, p.Repo, t.Issue, p.Repo)
+		fmt.Fprintf(&b, "GitHub issue #%s in %s. Plan reads it with `gh issue view %s --repo %s`; later steps rely on PLAN.md.\n\n", t.Issue, a.issueRepo(t), t.Issue, a.issueRepo(t))
 	} else {
 		b.WriteString("LOCAL task: there is no GitHub issue. Work from the description only and make no GitHub calls.\n\n")
 	}

@@ -180,7 +180,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused && s.agent !== 'copilot', auto: !!a.trigger.startsWith('after:'),
-    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha, repos: [],
+    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha,
     paused, manual: !!s.manual, fresh: !!s.manual && open,
     rerun: i === t.steps.length - 1 && a.commit && !open,
     external: s.agent === 'copilot',
@@ -205,7 +205,7 @@ function derive(t: MockTask): Task {
     else if (last.state === 'failed' || unsuccessful(last)) status = of('failed', 'Failure', last)
     else status = last.external ? of('done', 'Success', last) : of('waiting', 'Waiting for next step', last)
   }
-  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], ghost: null as Next['ghost'] }
+  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], sisters: [], ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
   if (t.archived) {
@@ -252,7 +252,7 @@ function derive(t: MockTask): Task {
   return {
     id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, createdAt: '',
     archived: !!t.archived, archivedAt: t.archivedOn ?? '', pr: t.pr ?? 0, prUrl: '', prState: t.prState ?? '', worktreeRemoved: !!t.removed,
-    projectName: p.name, repo: p.repo, otherRepos: [], baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
+    projectName: p.name, repo: p.repo, issueRepo: '', sisters: [], baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
     status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false,
@@ -413,6 +413,7 @@ export const api: Api = {
   RestoreTask: (id) => { const t = find(id); if (t.removed) return Promise.reject('the worktree was removed'); t.archived = false; changed(t); return ok(undefined) },
   DeleteTask: (id) => { const i = T.findIndex((t) => t.id === id); if (i < 0 || !T[i].archived) return Promise.reject('archive the task before deleting it'); T.splice(i, 1); emit('task:removed', { id }); return ok(['removed the task']) },
   OpenRunDir: () => ok(undefined),
+  CreateSister: () => Promise.reject('Sister tasks need the desktop app'),
   OpenURL: () => ok(undefined),
   MarkPRReady: (id) => { const t = find(id); t.draft = false; t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },
   OpenInZed: (id, sid) => {
@@ -435,20 +436,18 @@ export const api: Api = {
     const i = s ? t.steps.indexOf(s) : -1, last = i === t.steps.length - 1
     const next = t.steps[i + 1], via = !s?.sha && next?.sha ? next : undefined
     const sha = s?.sha || via?.sha
-    if (sha) return ok({ source: 'commit', sha, via: via ? displayName(agent(via.agent), via.n) : '', repos: [], files: [
+    if (sha) return ok({ source: 'commit', sha, via: via ? displayName(agent(via.agent), via.n) : '', files: [
       { path: 'internal/unlock/ble.go', status: 'M', added: 42, deleted: 9, binary: false },
       { path: 'internal/unlock/retry.go', status: 'A', added: 61, deleted: 0, binary: false },
       { path: 'internal/unlock/retry_test.go', status: 'A', added: 88, deleted: 0, binary: false },
       { path: 'config/defaults.yaml', status: 'M', added: 2, deleted: 1, binary: false },
     ] })
-    if (last && s) return ok({ source: 'worktree', sha: '', via: '', repos: [], files: [
+    if (last && s) return ok({ source: 'worktree', sha: '', via: '', files: [
       { path: 'internal/unlock/ble.go', status: 'M', added: 18, deleted: 4, binary: false },
       { path: 'internal/unlock/budget.go', status: '?', added: 27, deleted: 0, binary: false },
     ] })
-    return ok({ source: '', sha: '', via: '', files: [], repos: [] })
+    return ok({ source: '', sha: '', via: '', files: [] })
   },
-  OpenRepoInZed: () => ok(undefined),
-  AddTaskRepo: () => Promise.reject('The folder picker needs the desktop app'),
   FileDiff: (_sid, path) => ok({ path, binary: false, truncated: false, diff: [
     `diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`,
     '@@ -12,7 +12,12 @@ func (c *Conn) Unlock(ctx context.Context) error {',

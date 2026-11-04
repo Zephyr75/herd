@@ -10,6 +10,7 @@ export interface Api {
   ListTasks(): Promise<Task[]>
   IssueTitle(project: string, issue: string): Promise<string>
   MyIssues(project: string): Promise<Issue[]>
+  CreateSister(task: string, repo: string): Promise<Task>
   CreateTask(project: string, issue: string, description: string, branch: string, runPlan: boolean, files: string[]): Promise<Task>
   StartStep(task: string, agent: string, guidance: string, n: number): Promise<Step>
   AllowOnce(step: string): Promise<void>
@@ -34,8 +35,6 @@ export interface Api {
   SessionElsewhere(step: string): Promise<Proc[]>
   StepChanges(step: string): Promise<Changes>
   FileDiff(step: string, path: string): Promise<FileDiff>
-  OpenRepoInZed(task: string, root: string): Promise<void>
-  AddTaskRepo(task: string): Promise<unknown[]>
   SetFocused(focused: boolean): Promise<void>
   SetNotifications(on: boolean): Promise<void>
   SetMaxTabs(n: number): Promise<void>

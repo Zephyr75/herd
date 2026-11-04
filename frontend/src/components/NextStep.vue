@@ -27,9 +27,16 @@ async function deleteTask() {
   const lines = await herd.attempt('Could not delete the task', () => api.DeleteTask(task.id))
   if (lines) herd.toast('Deleted ' + (task.issue ? '#' + task.issue : task.title), lines.join('\n'))
 }
+// One click per repository the plan also needs: its sister task, or first its project.
+async function createSister(repo: string) {
+  const task = t.value
+  if (!task) return
+  const s = await herd.attempt('Could not create the sister task', () => api.CreateSister(task.id, repo))
+  if (s) herd.toast('Sister task created', `${repo}: ${s.title}`)
+}
+const addProject = () => herd.attempt('Could not add the project', () => api.AddProject())
 const allow = (id: string) => herd.attempt('Allow once failed', () => api.AllowOnce(id))
 const markDone = (id: string) => herd.attempt('Mark done failed', () => api.MarkDone(id))
-const openRepo = (root: string) => t.value && herd.attempt('Could not open Zed', () => api.OpenRepoInZed(t.value!.id, root))
 </script>
 
 <template>
@@ -41,17 +48,18 @@ const openRepo = (root: string) => t.value && herd.attempt('Could not open Zed',
       <span class="ref">{{ t.issue ? `#${t.issue} · ` : '' }}{{ t.projectName }}</span>
     </div>
 
+    <div v-for="o in nx.sisters" :key="o.repo" class="sister">
+      <p><b>The plan also needs {{ o.repo }}</b>: {{ o.scope }}</p>
+      <button v-if="o.project" class="btn primary" title="Create a task in that repository for the same issue, with its own worktree, plan and PR, linked to this one" @click="createSister(o.repo)"><Icon name="plus" :size="13" />Create sister task in {{ o.repo }}</button>
+      <button v-else class="btn" :title="`${o.repo} is not a herd project yet: pick its folder, then create the sister task`" @click="addProject"><Icon name="plus" :size="13" />Add {{ o.repo }} as a project</button>
+    </div>
+
     <template v-if="nx.options.length && !t.archived">
       <label for="guide" class="sr-only">Guidance for Claude</label>
       <p v-if="nx.warning" class="warn"><Icon name="warn" :size="14" />{{ nx.warning }}</p>
-      <template v-if="nx.elsewhere.length">
-        <p class="warn">
-          <Icon name="warn" :size="14" />This task also changed files outside its worktree, in {{ nx.elsewhere.map((r) => r.name).join(', ') }}. Push only pushes {{ t.branch }}: commit and push those repositories yourself.
-        </p>
-        <div class="opts">
-          <button v-for="r in nx.elsewhere" :key="r.root" class="btn" :title="r.root" @click="openRepo(r.root)">Open {{ r.name }} in Zed</button>
-        </div>
-      </template>
+      <p v-if="nx.elsewhere.length" class="warn">
+        <Icon name="warn" :size="14" />Agents also edited files outside the worktree, in {{ nx.elsewhere.join(', ') }}. Commit and push only covers {{ t.branch }}: check those edits yourself.
+      </p>
       <textarea id="guide" v-model="herd.guidance" rows="3" :class="{ need: nx.warning && !herd.guidance.trim() }" :placeholder="nx.warning ? 'Which option? e.g. take option B, because…' : 'Guidance for Claude (optional)'"></textarea>
       <div class="opts">
         <template v-for="(o, i) in nx.options" :key="o.agent + o.n">
@@ -173,5 +181,20 @@ p {
 }
 .transparent {
   background: transparent;
+}
+.sister {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.sister p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 </style>

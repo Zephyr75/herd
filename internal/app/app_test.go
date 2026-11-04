@@ -1136,7 +1136,7 @@ func TestCreateTaskAttachments(t *testing.T) {
 	}
 }
 
-func TestExternalChanges(t *testing.T) {
+func TestEditsOutsideTheWorktree(t *testing.T) {
 	a, repo := newTestApp(t)
 	tv, _ := a.CreateTask("core", "", "edit outside the worktree", "", true, nil)
 	id := store.StepID(tv.ID, "plan-1")
@@ -1151,89 +1151,77 @@ func TestExternalChanges(t *testing.T) {
 	hook("Read", filepath.Join(repo, "other.md"))          // not an edit
 	hook("Write", filepath.Join(tv.Worktree, "README.md")) // inside the worktree
 	hook("Edit", main)
-
-	ch, err := a.StepChanges(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ch.Files) != 1 || ch.Files[0].Path != main || ch.Files[0].Repo != repo || ch.Files[0].Added != 1 {
-		t.Fatalf("files: %+v", ch.Files)
-	}
-	if len(ch.Repos) != 1 || ch.Repos[0].Name != "pony-core (main checkout)" {
-		t.Fatalf("repos: %+v", ch.Repos)
-	}
-	d, err := a.FileDiff(id, main)
-	if err != nil || !strings.Contains(d.Diff, "+changed") {
-		t.Fatalf("diff %q: %v", d.Diff, err)
-	}
 	task, _ := a.db.Task(tv.ID)
-	if rs := a.taskExternal(task); len(rs) != 1 || rs[0].Root != repo {
-		t.Fatalf("task repos: %+v", rs)
+	if got := a.outsideRepos(task); len(got) != 1 || got[0] != "pony-core (main checkout)" {
+		t.Fatalf("outside repos: %v", got)
 	}
 	run(t, repo, "git", "checkout", "README.md") // nothing left uncommitted
-	if rs := a.taskExternal(task); len(rs) != 0 {
-		t.Fatalf("clean repo still listed: %+v", rs)
+	if got := a.outsideRepos(task); len(got) != 0 {
+		t.Fatalf("clean repo still listed: %v", got)
 	}
 }
 
-func TestLinkedRepo(t *testing.T) {
+func TestPlanRepos(t *testing.T) {
+	body := "# Goal\nx\n\n## Other repositories\n\n- okai-tcp-server: echo the pause id\n- **FirebaseFunctions** — forward it\n\n## Out of scope\n- nope: not a repo line\n"
+	got := planRepos(body)
+	if len(got) != 2 || got[0].Repo != "okai-tcp-server" || got[0].Scope != "echo the pause id" || got[1].Repo != "FirebaseFunctions" || got[1].Scope != "forward it" {
+		t.Fatalf("plan repos: %+v", got)
+	}
+	if planRepos("# Goal\n- a: b\n") != nil {
+		t.Fatal("repos without the section")
+	}
+	main := store.Task{Issue: "9855"}
+	if got := prBody(main, "Why"); got != "Why\n\nCloses #9855\n" {
+		t.Errorf("main PR body %q", got)
+	}
+	sister := store.Task{Issue: "9855", IssueRepo: "pony-lab/pony-core"}
+	if got := prBody(sister, "Why\n"); got != "Why\n\nPart of pony-lab/pony-core#9855\n" {
+		t.Errorf("sister PR body %q", got)
+	}
+}
+
+func TestSisterTask(t *testing.T) {
+	t.Setenv("FAKE_SISTER", "okai-tcp-server")
 	a, repo := newTestApp(t)
 	other := filepath.Join(filepath.Dir(repo), "okai-tcp-server")
 	os.MkdirAll(other, 0o755)
 	run(t, other, "git", "init", "-q", "-b", "master")
 	run(t, other, "git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
 
-	tv, _ := a.CreateTask("core", "", "change two repos", "", true, nil)
-	plan := store.StepID(tv.ID, "plan-1")
-	waitFor(t, "plan", func() bool { return stepState(a, plan) == store.Done })
-	rs, err := a.AddTaskRepoPath(tv.ID, other)
-	if err != nil || len(rs) != 1 {
-		t.Fatalf("link: %+v %v", rs, err)
-	}
-	wt := filepath.Join(other, ".worktrees", tv.Slug)
-	task, _ := a.db.Task(tv.ID)
-	if b := run(t, wt, "git", "branch", "--show-current"); b != branchName(task) {
-		t.Fatalf("linked worktree on %q", b)
-	}
-	// Agents may edit it and are told to.
-	l := launch{task: task, proj: a.projectOf(task), agent: agentFor(a.settings.Agents(), "impl"), step: store.Step{ID: tv.ID + "/impl-1", Key: "impl-1", N: 1}}
-	spec := a.spec(l)
-	if !slices.Contains(spec.Args, wt) || !strings.Contains(strings.Join(spec.Args, " "), "also changes okai-tcp-server: make its changes in its worktree "+wt) {
-		t.Fatalf("spec args: %v", spec.Args)
-	}
-
-	// Implement edits the linked worktree; its Review, in the same segment, shows it too.
-	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
-		t.Fatal(err)
-	}
-	impl, rev := store.StepID(tv.ID, "impl-1"), store.StepID(tv.ID, "review-1")
-	waitFor(t, "review", func() bool { return stepState(a, rev) == store.Done })
-	f := filepath.Join(wt, "server.go")
-	os.WriteFile(f, []byte("package main\n"), 0o644)
-	raw, _ := json.Marshal(map[string]any{"tool_name": "Write", "tool_input": map[string]string{"file_path": f}})
-	a.onHook(hooks.Event{Name: "PostToolUse", StepID: impl, Raw: raw})
-	for _, id := range []string{impl, rev} {
-		ch, _ := a.StepChanges(id)
-		if len(ch.Repos) != 1 || ch.Repos[0].Name != "okai-tcp-server" || !slices.ContainsFunc(ch.Files, func(x FileChange) bool { return x.Path == f }) {
-			t.Fatalf("%s changes: %+v", id, ch)
-		}
-	}
+	tv, _ := a.CreateTask("core", "", "pause ids end to end", "", true, nil)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	v, _ := a.GetTask(tv.ID)
-	if len(v.OtherRepos) != 1 || v.OtherRepos[0].Root != wt {
-		t.Fatalf("other repos: %+v", v.OtherRepos)
+	if len(v.Next.Sisters) != 1 || v.Next.Sisters[0].Project != "" {
+		t.Fatalf("offer before the project exists: %+v", v.Next.Sisters)
 	}
-	for _, s := range v.Steps {
-		if s.ID == rev && (len(s.Repos) != 1 || s.Repos[0].Root != wt) {
-			t.Fatalf("review repos: %+v", s.Repos)
-		}
+	if _, err := a.CreateSister(tv.ID, "okai-tcp-server"); err == nil {
+		t.Fatal("created a sister without its project")
 	}
-
-	// Deleting the task removes the linked worktree and its branch.
-	a.ArchiveTask(tv.ID)
-	if _, err := a.DeleteTask(tv.ID); err != nil {
+	if err := a.SaveProject(settings.Project{ID: "okai", Name: "okai-tcp-server", Path: other, BaseBranch: "master"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(wt); err == nil {
-		t.Fatal("linked worktree left behind")
+	sv, err := a.CreateSister(tv.ID, "okai-tcp-server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sv.Project != "okai" || sv.Branch != v.Branch {
+		t.Fatalf("sister: %+v", sv.Task)
+	}
+	waitFor(t, "sister plan", func() bool { return stepState(a, store.StepID(sv.ID, "plan-1")) == store.Done })
+	md, _ := os.ReadFile(filepath.Join(sv.RunDir, "TASK.md"))
+	if !strings.Contains(string(md), "Handle only the okai-tcp-server part: echo the pause id") || !strings.Contains(string(md), filepath.Join(tv.RunDir, "PLAN.md")) {
+		t.Fatalf("sister TASK.md: %s", md)
+	}
+	for id, other := range map[string]string{tv.ID: sv.ID, sv.ID: tv.ID} {
+		x, _ := a.GetTask(id)
+		if len(x.Sisters) != 1 || x.Sisters[0].ID != other || len(x.Next.Sisters) != 0 {
+			t.Fatalf("%s: sisters %+v, offers %+v", id, x.Sisters, x.Next.Sisters)
+		}
+	}
+	// Each sister's agents may read the other's run folder and know about it.
+	task, _ := a.db.Task(sv.ID)
+	spec := a.spec(launch{task: task, proj: a.projectOf(task), agent: agentFor(a.settings.Agents(), "impl"), step: store.Step{ID: sv.ID + "/impl-1", Key: "impl-1", N: 1}})
+	if !slices.Contains(spec.Args, tv.RunDir) || !strings.Contains(strings.Join(spec.Args, " "), "sister task "+tv.ID+" handles the pony-core part") {
+		t.Fatalf("sister spec: %v", spec.Args)
 	}
 }

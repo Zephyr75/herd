@@ -14,9 +14,9 @@ function pick(path: string) {
 
 <template>
   <p v-if="!changes" class="empty">Loading…</p>
-  <p v-else-if="!changes.source && !changes.files.length" class="empty">This step did not change code: it only wrote its artifact.</p>
+  <p v-else-if="!changes.source" class="empty">This step did not change code: it only wrote its artifact.</p>
   <p v-else-if="!changes.files.length" class="empty">{{ changes.source === 'worktree' ? 'No uncommitted changes in the worktree.' : 'The commit changed no files.' }}</p>
-  <ChangedFiles v-else :changes="changes" :task="herd.selTask?.id" @pick="pick" />
+  <ChangedFiles v-else :changes="changes" @pick="pick" />
 </template>
 
 <style scoped>

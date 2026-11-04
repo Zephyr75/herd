@@ -138,6 +138,12 @@ var digits = regexp.MustCompile(`^[0-9]+$`)
 // prefix + the task's slug.
 // files are copied to the run dir's attachments/, which TASK.md lists.
 func (a *App) CreateTask(projectID, issue, description, branch string, runPlan bool, files []string) (TaskView, error) {
+	return a.createTask(projectID, issue, "", description, branch, runPlan, files)
+}
+
+// createTask is CreateTask; issueRepo is the repository holding the issue
+// when it is not the project's (a sister task), else "".
+func (a *App) createTask(projectID, issue, issueRepo, description, branch string, runPlan bool, files []string) (TaskView, error) {
 	issue = strings.TrimPrefix(strings.TrimSpace(issue), "#")
 	description = strings.TrimSpace(description)
 	branch = strings.TrimSpace(branch)
@@ -151,7 +157,14 @@ func (a *App) CreateTask(projectID, issue, description, branch string, runPlan b
 	if !ok {
 		return TaskView{}, fmt.Errorf("unknown project %q", projectID)
 	}
-	if issue != "" && p.Repo == "" {
+	if issueRepo == p.Repo {
+		issueRepo = ""
+	}
+	repo := p.Repo
+	if issueRepo != "" {
+		repo = issueRepo
+	}
+	if issue != "" && repo == "" {
 		return TaskView{}, fmt.Errorf("%s has no GitHub repo: leave the issue empty for a LOCAL task", p.Name)
 	}
 	for _, f := range files {
@@ -183,7 +196,7 @@ func (a *App) CreateTask(projectID, issue, description, branch string, runPlan b
 
 	title := ""
 	if issue != "" {
-		if t, err := a.gh.IssueTitle(a.ctx, p.Repo, issue); err == nil && t != "" {
+		if t, err := a.gh.IssueTitle(a.ctx, repo, issue); err == nil && t != "" {
 			title = t
 		} else {
 			title = "Issue #" + issue
@@ -201,7 +214,7 @@ func (a *App) CreateTask(projectID, issue, description, branch string, runPlan b
 	}
 
 	t := store.Task{
-		ID: p.ID + ":" + slug, Project: p.ID, Slug: slug, Issue: issue, Title: title, Description: description,
+		ID: p.ID + ":" + slug, Project: p.ID, Slug: slug, Issue: issue, IssueRepo: issueRepo, Title: title, Description: description,
 		Branch: branch, CreatedAt: time.Now(),
 	}
 	if pat := excludePattern(p); pat != "" {
@@ -328,13 +341,9 @@ func (a *App) DeleteTask(id string) ([]string, error) {
 	var lines []string
 	if _, ok := a.settings.Project(t.Project); !ok {
 		lines = append(lines, "the project "+t.Project+" is no longer in Settings > Projects: its repository, worktree and branch were left alone")
-	} else {
-		a.removeLinkedRepos(t, func(l string) { lines = append(lines, l) })
-		if !t.WorktreeRemoved {
-			more, err := a.removeWorktree(id)
-			if lines = append(lines, more...); err != nil {
-				return lines, err
-			}
+	} else if !t.WorktreeRemoved {
+		if lines, err = a.removeWorktree(id); err != nil {
+			return lines, err
 		}
 	}
 	a.stopTaskSessions(id)

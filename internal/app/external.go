@@ -138,6 +138,11 @@ func (a *App) taskExternal(t store.Task) []ExternalRepo {
 // repoName names a repository: a herd project's name, the task's own
 // project for its main checkout, else the folder name.
 func (a *App) repoName(t store.Task, root string) string {
+	for _, r := range a.linkedRepos(t.ID) {
+		if r.Worktree == root {
+			return r.Name
+		}
+	}
 	if root == a.projectOf(t).Path {
 		return a.projectOf(t).Name + " (main checkout)"
 	}
@@ -149,16 +154,65 @@ func (a *App) repoName(t store.Task, root string) string {
 	return filepath.Base(root)
 }
 
-// OpenRepoInZed opens a repository outside the worktree that the task changed.
+// OpenRepoInZed opens another repository the task changes: a linked
+// worktree, or one where an agent edited files. Zed shows its changes.
 func (a *App) OpenRepoInZed(taskID, root string) error {
-	files, err := a.db.Externals(taskID)
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		if f.Root == root {
+	for _, r := range a.otherRepos(taskID) {
+		if r.Root == root {
 			return zed.Open(a.settings.Config().ZedCommand, root)
 		}
 	}
 	return fmt.Errorf("the task did not change %s", root)
+}
+
+// otherRepos lists the repositories besides its own that a task changes:
+// the linked worktrees, then any other repository an agent edited.
+func (a *App) otherRepos(taskID string) []ExternalRepo {
+	out := []ExternalRepo{}
+	seen := map[string]bool{}
+	for _, r := range a.linkedRepos(taskID) {
+		out, seen[r.Worktree] = append(out, ExternalRepo{Root: r.Worktree, Name: r.Name}), true
+	}
+	t, err := a.db.Task(taskID)
+	files, _ := a.db.Externals(taskID)
+	for _, f := range files {
+		if !seen[f.Root] && err == nil {
+			out, seen[f.Root] = append(out, ExternalRepo{Root: f.Root, Name: a.repoName(t, f.Root)}), true
+		}
+	}
+	return out
+}
+
+// segmentExternals maps each step to the files edited outside the worktree
+// during its commit segment: the steps between two commits share them, like
+// they share the commit.
+func (a *App) segmentExternals(t store.Task) map[string][]store.ExternalFile {
+	files, _ := a.db.Externals(t.ID)
+	if len(files) == 0 {
+		return nil
+	}
+	steps, _ := a.db.Steps(t.ID)
+	commits := a.branchCommits(t)
+	seg := map[string]string{} // step id -> its segment's commit ("" after the last one)
+	for i, s := range steps {
+		if c := segmentCommit(commits, steps, i); c != nil {
+			seg[s.ID] = c.SHA
+		} else {
+			seg[s.ID] = ""
+		}
+	}
+	bySeg := map[string][]store.ExternalFile{}
+	seen := map[string]bool{}
+	for _, f := range files {
+		k := seg[f.StepID] + "\x00" + f.Path
+		if !seen[k] {
+			seen[k] = true
+			bySeg[seg[f.StepID]] = append(bySeg[seg[f.StepID]], f)
+		}
+	}
+	out := map[string][]store.ExternalFile{}
+	for _, s := range steps {
+		out[s.ID] = bySeg[seg[s.ID]]
+	}
+	return out
 }

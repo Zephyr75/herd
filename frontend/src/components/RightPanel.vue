@@ -9,6 +9,10 @@ import Splitter from './ui/Splitter.vue'
 import { unsuccessful, type Step } from '../lib/types'
 
 const t = computed(() => herd.selTask)
+const openRepo = (root: string) => t.value && herd.attempt('Could not open Zed', () => api.OpenRepoInZed(t.value!.id, root))
+const addRepo = () => t.value && herd.attempt('Could not link the repository', () => api.AddTaskRepo(t.value!.id))
+// Implement and Test get a Diff per repository with changes.
+const diffs = (s: Step) => s.agent === 'impl' || s.agent === 'test'
 const openIssue = () => t.value && herd.attempt('Could not open the issue', () => api.OpenURL(`https://github.com/${t.value!.repo}/issues/${t.value!.issue}`))
 
 function meta(s: Step): { text: string; cls: string } {
@@ -74,6 +78,11 @@ async function archive() {
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>
         <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
+        <div v-if="t.otherRepos.length || (!t.archived && !t.worktreeRemoved)" class="repos">
+          <span class="muted small">Also changes</span>
+          <button v-for="r in t.otherRepos" :key="r.root" class="chip" :title="`${r.root}: open in Zed`" @click="openRepo(r.root)">{{ r.name }}</button>
+          <button v-if="!t.archived && !t.worktreeRemoved" class="chip add" title="Link another repository: herd creates a worktree there on this task's branch, and agents make its changes in it" @click="addRepo"><Icon name="plus" :size="11" />Repo</button>
+        </div>
         <p v-if="t.description" class="desc">{{ t.description }}</p>
       </div>
 
@@ -99,7 +108,10 @@ async function archive() {
           </button>
           <span class="acts">
             <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="play" :size="12" />Rerun</button>
-            <button v-if="s.diff && (s.agent === 'impl' || s.agent === 'test')" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)">Diff</button>
+            <button v-if="s.diff && diffs(s)" class="act" :aria-label="`Open this step's ${t.projectName} changes in Zed`" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)">Diff{{ s.repos.length ? ' ' + t.projectName : '' }}</button>
+            <template v-if="diffs(s)">
+              <button v-for="r in s.repos" :key="r.root" class="act" :title="`Open the uncommitted ${r.name} changes in Zed`" @click="openRepo(r.root)">Diff {{ r.name }}</button>
+            </template>
           </span>
         </div>
         <div v-if="t.next.ghost" class="row ghost">
@@ -325,5 +337,29 @@ async function archive() {
   }
   .act:hover {
     background: var(--hover);
+  }
+  .repos {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .chip:hover {
+    background: var(--hover);
+  }
+  .chip.add {
+    color: var(--muted);
   }
 </style>

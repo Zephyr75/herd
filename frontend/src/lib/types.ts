@@ -128,6 +128,7 @@ export interface Step {
   artifact: string
   commits: boolean
   diff: boolean // Diff has something to open: its segment's commit, or the uncommitted work
+  repos: ExternalRepo[] // other repositories with changes in its segment (a Diff each)
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume
@@ -180,6 +181,7 @@ export interface Task {
   projectGone: boolean // its project was removed from Settings > Projects
   checks: CICheck[] // CI checks of the open PR
   labels: string[] // labels of the open PR
+  otherRepos: ExternalRepo[] // other repositories the task changes (linked worktrees first)
   draft: boolean // the open PR is a draft (herd opens them so)
 }
 

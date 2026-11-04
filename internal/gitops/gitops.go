@@ -249,6 +249,8 @@ func (g Git) PruneViews(ctx context.Context, repo, dir string) {
 
 // Push pushes branch to origin and sets upstream.
 func (g Git) Push(ctx context.Context, worktree, branch string) error {
-	_, err := g.Run(ctx, worktree, "push", "-u", "origin", branch)
+	// With lease: a branch rebased on its base after an earlier push is
+	// replaced, unless someone else pushed to it meanwhile.
+	_, err := g.Run(ctx, worktree, "push", "--force-with-lease", "-u", "origin", branch)
 	return err
 }

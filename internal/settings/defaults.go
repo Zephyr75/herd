@@ -75,7 +75,10 @@ End with status: done when the tests pass, or status: failed when one shows a bu
 		{
 			ID: "push", Name: "Commit and push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
 			Writes: "PR.md", Push: true, IgnoreRules: true,
-			Instructions: `Write PR.md: a title line, then a short body saying what changed and why, from PLAN.md and the IMPLEMENT files.
+			Instructions: `First bring the branch up to date: git fetch origin {base}; when origin/{base} has commits this branch lacks,
+run git rebase --autostash origin/{base}. If the rebase stops on a conflict, run git rebase --abort,
+list the conflicting files and end with status: failed.
+Write PR.md: a title line, then a short body saying what changed and why, from PLAN.md and the IMPLEMENT files.
 Do not commit or push: herd commits every change with this title and body, pushes, opens the draft PR
 (adding the issue number to its title and Closes #{issue} to its body) and collects the Copilot review.
 End with status: done.`,

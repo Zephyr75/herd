@@ -1175,3 +1175,65 @@ func TestExternalChanges(t *testing.T) {
 		t.Fatalf("clean repo still listed: %+v", rs)
 	}
 }
+
+func TestLinkedRepo(t *testing.T) {
+	a, repo := newTestApp(t)
+	other := filepath.Join(filepath.Dir(repo), "okai-tcp-server")
+	os.MkdirAll(other, 0o755)
+	run(t, other, "git", "init", "-q", "-b", "master")
+	run(t, other, "git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+
+	tv, _ := a.CreateTask("core", "", "change two repos", "", true, nil)
+	plan := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "plan", func() bool { return stepState(a, plan) == store.Done })
+	rs, err := a.AddTaskRepoPath(tv.ID, other)
+	if err != nil || len(rs) != 1 {
+		t.Fatalf("link: %+v %v", rs, err)
+	}
+	wt := filepath.Join(other, ".worktrees", tv.Slug)
+	task, _ := a.db.Task(tv.ID)
+	if b := run(t, wt, "git", "branch", "--show-current"); b != branchName(task) {
+		t.Fatalf("linked worktree on %q", b)
+	}
+	// Agents may edit it and are told to.
+	l := launch{task: task, proj: a.projectOf(task), agent: agentFor(a.settings.Agents(), "impl"), step: store.Step{ID: tv.ID + "/impl-1", Key: "impl-1", N: 1}}
+	spec := a.spec(l)
+	if !slices.Contains(spec.Args, wt) || !strings.Contains(strings.Join(spec.Args, " "), "also changes okai-tcp-server: make its changes in its worktree "+wt) {
+		t.Fatalf("spec args: %v", spec.Args)
+	}
+
+	// Implement edits the linked worktree; its Review, in the same segment, shows it too.
+	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	impl, rev := store.StepID(tv.ID, "impl-1"), store.StepID(tv.ID, "review-1")
+	waitFor(t, "review", func() bool { return stepState(a, rev) == store.Done })
+	f := filepath.Join(wt, "server.go")
+	os.WriteFile(f, []byte("package main\n"), 0o644)
+	raw, _ := json.Marshal(map[string]any{"tool_name": "Write", "tool_input": map[string]string{"file_path": f}})
+	a.onHook(hooks.Event{Name: "PostToolUse", StepID: impl, Raw: raw})
+	for _, id := range []string{impl, rev} {
+		ch, _ := a.StepChanges(id)
+		if len(ch.Repos) != 1 || ch.Repos[0].Name != "okai-tcp-server" || !slices.ContainsFunc(ch.Files, func(x FileChange) bool { return x.Path == f }) {
+			t.Fatalf("%s changes: %+v", id, ch)
+		}
+	}
+	v, _ := a.GetTask(tv.ID)
+	if len(v.OtherRepos) != 1 || v.OtherRepos[0].Root != wt {
+		t.Fatalf("other repos: %+v", v.OtherRepos)
+	}
+	for _, s := range v.Steps {
+		if s.ID == rev && (len(s.Repos) != 1 || s.Repos[0].Root != wt) {
+			t.Fatalf("review repos: %+v", s.Repos)
+		}
+	}
+
+	// Deleting the task removes the linked worktree and its branch.
+	a.ArchiveTask(tv.ID)
+	if _, err := a.DeleteTask(tv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Fatal("linked worktree left behind")
+	}
+}

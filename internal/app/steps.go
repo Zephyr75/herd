@@ -47,7 +47,7 @@ func (l launch) placeholders(guidance string) *strings.Replacer {
 		task = "--local"
 	}
 	return strings.NewReplacer(
-		"{task}", task, "{guidance}", guidance, "{n}", fmt.Sprint(l.step.N), "{sha}", l.prevSHA, "{issue}", l.task.Issue,
+		"{task}", task, "{guidance}", guidance, "{n}", fmt.Sprint(l.step.N), "{sha}", l.prevSHA, "{issue}", l.task.Issue, "{base}", l.proj.BaseBranch,
 	)
 }
 
@@ -79,7 +79,10 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	if l.mode == modeRerun {
 		b.WriteString("- rerun: you already ran this step in this conversation. The user changed the worktree since; do the step again on the current state and rewrite your artifact\n")
 	}
-	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s\n", wt, branchName(l.task))
+	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s; {base} = %s (the base branch)\n", wt, branchName(l.task), l.proj.BaseBranch)
+	for _, r := range a.linkedRepos(l.task.ID) {
+		fmt.Fprintf(&b, "- this task also changes %s: make its changes in its worktree %s (branch %s), never in %s\n", r.Name, r.Worktree, branchName(l.task), r.Repo)
+	}
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
 	b.WriteString("- finished when its front matter has status: done (succeeded) or status: failed (did not; say why). The next automatic agent only starts after a success\n")
@@ -124,6 +127,9 @@ func (a *App) spec(l launch) runner.Spec {
 	args = append(args, "--settings", a.hooksPath(), "--plugin-dir", a.pluginDir(), "--add-dir", runDir)
 	for _, dir := range a.knowledgeDirs(l.proj) {
 		args = append(args, "--add-dir", dir)
+	}
+	for _, r := range a.linkedRepos(l.task.ID) {
+		args = append(args, "--add-dir", r.Worktree)
 	}
 	if l.agent.Model != "" {
 		args = append(args, "--model", l.agent.Model)

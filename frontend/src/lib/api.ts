@@ -35,6 +35,7 @@ export interface Api {
   StepChanges(step: string): Promise<Changes>
   FileDiff(step: string, path: string): Promise<FileDiff>
   OpenRepoInZed(task: string, root: string): Promise<void>
+  AddTaskRepo(task: string): Promise<unknown[]>
   SetFocused(focused: boolean): Promise<void>
   SetNotifications(on: boolean): Promise<void>
   SetMaxTabs(n: number): Promise<void>

@@ -21,17 +21,18 @@ type Status struct {
 // StepView is a step as the frontend shows it.
 type StepView struct {
 	store.Step
-	Name     string `json:"name"`
-	Live     bool   `json:"live"`
-	Auto     bool   `json:"auto"`
-	Artifact string `json:"artifact"`
-	Commits  bool   `json:"commits"`
-	Diff     bool   `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
-	Paused   bool   `json:"paused"`   // stopped by the user until Resume
-	Manual   bool   `json:"manual"`   // created without running: the user drives its session
-	Fresh    bool   `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
-	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
-	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
+	Name     string         `json:"name"`
+	Live     bool           `json:"live"`
+	Auto     bool           `json:"auto"`
+	Artifact string         `json:"artifact"`
+	Commits  bool           `json:"commits"`
+	Diff     bool           `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
+	Repos    []ExternalRepo `json:"repos"`    // other repositories with changes in its segment (a Diff each)
+	Paused   bool           `json:"paused"`   // stopped by the user until Resume
+	Manual   bool           `json:"manual"`   // created without running: the user drives its session
+	Fresh    bool           `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
+	Rerun    bool           `json:"rerun"`    // Rerun applies (see markRerun)
+	External bool           `json:"external"` // run by herd, not Claude: the Copilot review step
 }
 
 // Option is one next-step button.
@@ -81,6 +82,7 @@ type TaskView struct {
 	ProjectGone bool           `json:"projectGone"` // its project was removed from Settings > Projects
 	Checks      []github.Check `json:"checks"`      // CI checks of the open PR, refreshed every minute
 	Labels      []string       `json:"labels"`      // labels of the open PR
+	OtherRepos  []ExternalRepo `json:"otherRepos"`  // other repositories the task changes (linked worktrees first)
 	Draft       bool           `json:"draft"`       // the open PR is a draft (herd opens them so)
 }
 
@@ -165,6 +167,20 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Steps == nil {
 		v.Steps = []StepView{}
 	}
+	// Steps share their segment's other-repo changes too.
+	segFiles, segRepos := a.segmentExternals(t), map[string][]ExternalRepo{}
+	for i := range v.Steps {
+		sv := &v.Steps[i]
+		key := ""
+		for _, f := range segFiles[sv.ID] {
+			key += f.Path + "\x00"
+		}
+		if _, ok := segRepos[key]; !ok {
+			_, segRepos[key] = a.externalChanges(t, segFiles[sv.ID])
+		}
+		sv.Repos = segRepos[key]
+	}
+	v.OtherRepos = a.otherRepos(t.ID)
 	// Steps share their segment's commit, or the uncommitted work after the last commit.
 	commits := a.branchCommits(t)
 	dirty := -1 // unknown until a step needs it

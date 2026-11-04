@@ -33,7 +33,7 @@ const agents: Agent[] = [
   { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
   { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: false, push: true, ignoreRules: true,
-    instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
+    instructions: 'First rebase on origin/{base} when it has new commits (git rebase --autostash); on a conflict, abort and end with status: failed.\nWrite PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
 const context: Record<string, Context> = {
@@ -180,7 +180,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused && s.agent !== 'copilot', auto: !!a.trigger.startsWith('after:'),
-    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha,
+    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha, repos: [],
     paused, manual: !!s.manual, fresh: !!s.manual && open,
     rerun: i === t.steps.length - 1 && a.commit && !open,
     external: s.agent === 'copilot',
@@ -252,7 +252,7 @@ function derive(t: MockTask): Task {
   return {
     id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, createdAt: '',
     archived: !!t.archived, archivedAt: t.archivedOn ?? '', pr: t.pr ?? 0, prUrl: '', prState: t.prState ?? '', worktreeRemoved: !!t.removed,
-    projectName: p.name, repo: p.repo, baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
+    projectName: p.name, repo: p.repo, otherRepos: [], baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
     status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false,
@@ -448,6 +448,7 @@ export const api: Api = {
     return ok({ source: '', sha: '', via: '', files: [], repos: [] })
   },
   OpenRepoInZed: () => ok(undefined),
+  AddTaskRepo: () => Promise.reject('The folder picker needs the desktop app'),
   FileDiff: (_sid, path) => ok({ path, binary: false, truncated: false, diff: [
     `diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`,
     '@@ -12,7 +12,12 @@ func (c *Conn) Unlock(ctx context.Context) error {',

@@ -45,14 +45,7 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 	}
 	s, _ := a.db.Step(stepID)
 	t, _ := a.db.Task(s.TaskID)
-	all, _ := a.db.Externals(t.ID)
-	var mine []store.ExternalFile
-	for _, f := range all {
-		if f.StepID == stepID {
-			mine = append(mine, f)
-		}
-	}
-	files, repos := a.externalChanges(t, mine)
+	files, repos := a.externalChanges(t, a.segmentExternals(t)[stepID])
 	out.Files, out.Repos = append(out.Files, files...), repos
 	return out, nil
 }

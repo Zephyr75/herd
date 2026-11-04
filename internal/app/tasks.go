@@ -328,9 +328,13 @@ func (a *App) DeleteTask(id string) ([]string, error) {
 	var lines []string
 	if _, ok := a.settings.Project(t.Project); !ok {
 		lines = append(lines, "the project "+t.Project+" is no longer in Settings > Projects: its repository, worktree and branch were left alone")
-	} else if !t.WorktreeRemoved {
-		if lines, err = a.removeWorktree(id); err != nil {
-			return lines, err
+	} else {
+		a.removeLinkedRepos(t, func(l string) { lines = append(lines, l) })
+		if !t.WorktreeRemoved {
+			more, err := a.removeWorktree(id)
+			if lines = append(lines, more...); err != nil {
+				return lines, err
+			}
 		}
 	}
 	a.stopTaskSessions(id)

@@ -44,10 +44,10 @@ const stop = () => herd.attempt('Could not stop waiting', () => api.MarkDone(pro
       <h3>Copilot review</h3>
       <div class="line">
         <span :class="['sdot', waiting ? 'd-running' : unsuccessful(step) ? 'd-failed' : step.verdict === 'skipped' ? 'd-off' : 'd-done']"></span>
-        <span v-if="waiting">Requested. herd checks every minute and writes {{ step.artifact }} when it arrives.</span>
-        <span v-else-if="unsuccessful(step)">Copilot left comments: read them in the Preview tab ({{ step.artifact }}).</span>
+        <span v-if="waiting">Waiting for Copilot's review and the CI checks (checked every minute); {{ step.artifact }} gets both.</span>
+        <span v-else-if="unsuccessful(step)">Copilot comments or failing CI checks: see {{ step.artifact }} in the Preview tab.</span>
         <span v-else-if="step.verdict === 'skipped'">herd stopped waiting; no review arrived.</span>
-        <span v-else>Reviewed: nothing to fix.</span>
+        <span v-else>Copilot found nothing and CI passed.</span>
         <span class="grow"></span>
         <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
         <button v-else-if="herd.prReady(task) === 'draft'" class="act" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(task)"><Icon name="check" :size="13" />Mark ready</button>

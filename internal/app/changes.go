@@ -7,8 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"herd/internal/store"
 )
@@ -23,9 +25,9 @@ type FileChange struct {
 	Repo    string `json:"repo,omitempty"` // a repository outside the worktree (Path is then absolute)
 }
 
-// Changes is what a step changed: its commit, the commit of the step right
-// after it (Implement's work is committed by its Review), or the uncommitted
-// work in the worktree while it is the task's latest step.
+// Changes is what a step changed. Steps between two commits of the branch
+// share the later one (Implement, Review and Test share their Commit and
+// push); steps after the last commit share the uncommitted work.
 type Changes struct {
 	Source string         `json:"source"` // commit | worktree | "" (nothing to show)
 	SHA    string         `json:"sha"`
@@ -68,11 +70,14 @@ func (a *App) worktreeChanges(stepID string) (Changes, error) {
 	p := a.projectOf(t)
 	out := Changes{Files: []FileChange{}, Repos: []ExternalRepo{}}
 	steps, _ := a.db.Steps(t.ID)
-	sha := s.SHA
-	if sha == "" {
-		if y := a.cycleCommit(steps, s.ID); y != nil {
-			sha = y.SHA
-			out.Via = agentFor(a.settings.Agents(), y.Agent).DisplayName(y.N)
+	sha := ""
+	i := slices.IndexFunc(steps, func(x store.Step) bool { return x.ID == s.ID })
+	if c := segmentCommit(a.branchCommits(t), steps, i); i >= 0 && c != nil {
+		sha = c.SHA
+		for _, y := range steps { // the step that made it, when herd did
+			if madeBy([]store.Step{y}, c.SHA) {
+				out.Via = agentFor(a.settings.Agents(), y.Agent).DisplayName(y.N)
+			}
 		}
 	}
 	if sha != "" {
@@ -88,8 +93,10 @@ func (a *App) worktreeChanges(stepID string) (Changes, error) {
 		out.Files = parseChanges(num, names)
 		return out, nil
 	}
+	// No commit after this step yet: it shares the uncommitted work with
+	// every step since the last commit.
 	wt := worktreePath(p, t)
-	if len(steps) == 0 || steps[len(steps)-1].ID != s.ID || t.WorktreeRemoved {
+	if t.WorktreeRemoved {
 		return out, nil
 	}
 	if _, err := os.Stat(wt); err != nil {
@@ -108,7 +115,7 @@ func (a *App) worktreeChanges(stepID string) (Changes, error) {
 // limited to paths when given.
 func (a *App) uncommitted(dir string, paths ...string) ([]FileChange, error) {
 	git := func(args ...string) (string, error) {
-		args = append([]string{"--literal-pathspecs", "-c", "core.quotePath=false"}, args...)
+		args = append([]string{"--no-optional-locks", "--literal-pathspecs", "-c", "core.quotePath=false"}, args...)
 		if len(paths) > 0 {
 			args = append(append(args, "--"), paths...)
 		}
@@ -147,40 +154,57 @@ func (a *App) uncommitted(dir string, paths ...string) ([]FileChange, error) {
 	return files, nil
 }
 
-// cycleCommit is the step that committed the work of step id: the next
-// step with a commit in its cycle (an Implement, the checks after it, up to
-// the next Implement). nil before the first Implement (Plan) or when nothing
-// was committed yet.
-func (a *App) cycleCommit(steps []store.Step, id string) *store.Step {
-	agents := a.settings.Agents()
-	checked := func(agent string) bool {
-		for _, x := range agents {
-			if x.AfterAgent() == agent {
-				return true
-			}
-		}
-		return false
+// commit is one commit of a task's branch.
+type commit struct {
+	SHA string
+	At  time.Time
+}
+
+// branchCommits lists the task branch's own commits, oldest first: the
+// boundaries between the change sets its steps share.
+func (a *App) branchCommits(t store.Task) []commit {
+	p := a.projectOf(t)
+	base := p.BaseBranch
+	if _, err := a.git.Run(a.ctx, p.Path, "rev-parse", "--verify", "-q", "origin/"+base); err == nil {
+		base = "origin/" + base // the local base branch may lag behind
 	}
-	inCycle := false
-	for i := range steps {
-		inCycle = inCycle || checked(steps[i].Agent)
-		if steps[i].ID != id {
-			continue
-		}
-		if !inCycle {
-			return nil
-		}
-		for j := i + 1; j < len(steps); j++ {
-			if checked(steps[j].Agent) {
-				return nil
-			}
-			if steps[j].SHA != "" {
-				return &steps[j]
-			}
-		}
+	out, err := a.git.Run(a.ctx, p.Path, "log", "--reverse", "--format=%h %ct", base+".."+branchName(t))
+	if err != nil {
 		return nil
 	}
+	var cs []commit
+	for _, l := range strings.Split(out, "\n") {
+		sha, ts, ok := strings.Cut(strings.TrimSpace(l), " ")
+		if n, err := strconv.ParseInt(ts, 10, 64); ok && err == nil {
+			cs = append(cs, commit{sha, time.Unix(n, 0)})
+		}
+	}
+	return cs
+}
+
+// segmentCommit is the commit holding step s's changes: the first one made
+// after it started. Steps between two commits share the later one (Implement,
+// Review, Test and their Commit and push); after the last commit there is
+// none yet and the step shares the uncommitted work.
+func segmentCommit(cs []commit, steps []store.Step, i int) *commit {
+	start := steps[i].StartedAt.Truncate(time.Second) // commit times have seconds only
+	for k := range cs {
+		c := &cs[k]
+		if c.At.After(start) || c.At.Equal(start) && madeBy(steps[i:], c.SHA) {
+			return c // within the same second: only when this step or a later one made it
+		}
+	}
 	return nil
+}
+
+// madeBy reports whether one of steps recorded commit sha (short or full).
+func madeBy(steps []store.Step, sha string) bool {
+	for _, s := range steps {
+		if s.SHA != "" && (strings.HasPrefix(sha, s.SHA) || strings.HasPrefix(s.SHA, sha)) {
+			return true
+		}
+	}
+	return false
 }
 
 // FileDiff is one file's unified diff in a step's changes.

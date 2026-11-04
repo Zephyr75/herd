@@ -13,7 +13,7 @@ import (
 
 // Status is a task's derived status, shown on its card.
 type Status struct {
-	Kind  string `json:"kind"`  // running | waiting | approval | idle | done
+	Kind  string `json:"kind"`  // running | waiting | approval | idle | done | failed
 	Label string `json:"label"` // "Running · Implement 2"
 	Short string `json:"short"` // "running"
 }
@@ -26,6 +26,7 @@ type StepView struct {
 	Auto     bool   `json:"auto"`
 	Artifact string `json:"artifact"`
 	Commits  bool   `json:"commits"`
+	Diff     bool   `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
 	Paused   bool   `json:"paused"`   // stopped by the user until Resume
 	Manual   bool   `json:"manual"`   // created without running: the user drives its session
 	Fresh    bool   `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
@@ -164,6 +165,25 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Steps == nil {
 		v.Steps = []StepView{}
 	}
+	// Steps share their segment's commit, or the uncommitted work after the last commit.
+	commits := a.branchCommits(t)
+	dirty := -1 // unknown until a step needs it
+	for i := range v.Steps {
+		sv := &v.Steps[i]
+		sv.Diff = segmentCommit(commits, steps, i) != nil
+		if !sv.Diff && !t.WorktreeRemoved {
+			if dirty < 0 {
+				// No optional locks: a background status must not hold the index
+				// lock while a step commits (git add -A would fail).
+				out, err := a.git.Run(a.ctx, v.Worktree, "--no-optional-locks", "status", "--porcelain")
+				dirty = 0
+				if err == nil && strings.TrimSpace(out) != "" {
+					dirty = 1
+				}
+			}
+			sv.Diff = dirty == 1
+		}
+	}
 	if pt, ok := a.prTitle(t.ID); ok {
 		v.PRTitle = &pt
 	}
@@ -179,10 +199,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Checks == nil {
 		v.Checks = []github.Check{}
 	}
-	v.Status = statusOf(t, v.Steps, agents)
-	if ci := ciSummary(v.Checks); ci != "" && v.Status.Short == "PR open" {
-		v.Status.Label += " · " + ci
-	}
+	v.Status = statusOf(t, v.Steps)
 	v.Next = nextOf(t, v.Steps, agents)
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
 	v.Next.Elsewhere = []ExternalRepo{}
@@ -267,7 +284,10 @@ func sourceText(t store.Task, p settings.Project) string {
 	}
 }
 
-func statusOf(t store.Task, steps []StepView, agents []settings.Agent) Status {
+// statusOf is the task's badge: its current (or last) step with Running,
+// Waiting, Failure or, only for a Copilot step that passed (the task is
+// done), Success; and the open PR. Any other success waits for the next step.
+func statusOf(t store.Task, steps []StepView) Status {
 	if t.Archived {
 		day := t.ArchivedAt.Format("Jan 2")
 		if t.PRNumber > 0 && t.PRState != "" && t.PRState != "open" {
@@ -282,43 +302,36 @@ func statusOf(t store.Task, steps []StepView, agents []settings.Agent) Status {
 	if len(steps) == 0 {
 		return Status{"idle", "Not started", "not started"}
 	}
+	pr := ""
+	if t.PRNumber > 0 && t.PRState == "open" {
+		pr = fmt.Sprintf(" · PR #%d", t.PRNumber)
+	}
+	st := func(kind, word string, s StepView) Status {
+		return Status{kind, s.Name + " · " + word + pr, strings.ToLower(word)}
+	}
 	for _, s := range steps {
-		if s.Paused && s.State != store.Done && s.State != store.Failed {
-			if s.Manual {
-				return Status{"waiting", "Manual · " + s.Name, "manual"}
+		switch {
+		case s.Paused && s.State != store.Done && s.State != store.Failed, s.State == store.Approval:
+			kind := "waiting"
+			if s.State == store.Approval {
+				kind = "approval"
 			}
-			return Status{"idle", "Paused · " + s.Name, "paused"}
-		}
-	}
-	for _, s := range steps {
-		if s.State == store.Approval {
-			return Status{"approval", "Needs approval · " + s.Name, "approval"}
-		}
-	}
-	for _, s := range steps {
-		if s.State == store.Running && s.External {
-			return Status{"running", fmt.Sprintf("Waiting for Copilot · PR #%d", t.PRNumber), "copilot"}
-		}
-		if s.State == store.Running {
-			return Status{"running", "Running · " + s.Name, "running"}
+			return st(kind, "Waiting", s)
+		case s.State == store.Running:
+			return st("running", "Running", s)
 		}
 	}
 	last := steps[len(steps)-1]
-	switch last.State {
-	case store.Idle:
-		return Status{"waiting", "Waiting for input · " + last.Name, "waiting"}
-	case store.Failed:
-		return Status{"waiting", "Waiting for input · " + last.Name + " ended early", "failed"}
+	switch {
+	case last.State == store.Idle:
+		return st("waiting", "Waiting", last)
+	case last.State == store.Failed || last.Unsuccessful():
+		return st("failed", "Failure", last)
 	}
-	if last.Unsuccessful() {
-		return Status{"waiting", "Waiting for input · " + last.Name + " failed", "failed"}
+	if last.External {
+		return st("done", "Success", last)
 	}
-	// Green only while the push (or its Copilot review) is the latest step:
-	// a new Implement after it is work the PR does not have yet.
-	if t.PRNumber > 0 && t.PRState == "open" && (last.External || agentFor(agents, last.Agent).Push) {
-		return Status{"done", fmt.Sprintf("PR #%d open", t.PRNumber), "PR open"}
-	}
-	return Status{"waiting", "Waiting for input · after " + last.Name, "waiting"}
+	return st("waiting", "Waiting for next step", last)
 }
 
 func countAgent(steps []StepView, id string) int {
@@ -427,7 +440,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	}
 	for _, s := range steps {
 		if s.State == store.Running && s.External {
-			nx.Text = fmt.Sprintf("Waiting for Copilot's review of PR #%d (checked every minute). Start a fix any time, or Mark done to stop waiting.", t.PRNumber)
+			nx.Text = fmt.Sprintf("Waiting for Copilot's review and the CI checks of PR #%d (checked every minute). Start a fix any time, or Mark done to stop waiting.", t.PRNumber)
 			nx.MarkDone = s.ID
 			if fix != nil {
 				nx.Options = append(nx.Options, *fix)
@@ -458,11 +471,11 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	// The last step finished.
 	if last.External {
 		if last.Unsuccessful() {
-			nx.Text = fmt.Sprintf("Copilot left comments on PR #%d (%s).", t.PRNumber, last.Artifact)
+			nx.Text = fmt.Sprintf("PR #%d needs fixes: %s lists Copilot's comments and the failing CI checks.", t.PRNumber, last.Artifact)
 		} else if last.Verdict == skipped {
 			nx.Text = fmt.Sprintf("herd stopped waiting for Copilot on PR #%d.", t.PRNumber)
 		} else {
-			nx.Text = fmt.Sprintf("Copilot found nothing to fix on PR #%d. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
+			nx.Text = fmt.Sprintf("Copilot found nothing to fix and CI passed on PR #%d. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
 		}
 		if fix != nil {
 			nx.Text += " Start " + fix.Label + " for fixes (Copilot comments, failing CI), then push again."

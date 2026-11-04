@@ -790,16 +790,10 @@ const skipped = "skipped"
 // takeCopilotReview writes a review to the waiting Copilot step, or to a new
 // one when none waits (e.g. after Mark done).
 func (a *App) takeCopilotReview(t store.Task, r github.Review) {
-	if !a.copilotWaiting(t.ID) {
+	if a.waitingCopilot(t.ID) == nil {
 		a.startCopilotStep(t.ID)
 	}
 	a.finishCopilotStep(t, r)
-}
-
-// copilotWaiting reports whether a Copilot step of the task waits for a review.
-func (a *App) copilotWaiting(taskID string) bool {
-	steps, _ := a.db.Steps(taskID)
-	return slices.ContainsFunc(steps, func(s store.Step) bool { return s.Agent == copilotAgent && s.State == store.Running })
 }
 
 func (a *App) startCopilotStep(taskID string) {
@@ -827,29 +821,62 @@ func (a *App) startCopilotStep(taskID string) {
 // finishCopilotStep writes the review into the waiting Copilot step, if any:
 // it fails when Copilot left comments, so Next step offers a fix.
 func (a *App) finishCopilotStep(t store.Task, r github.Review) {
-	steps, _ := a.db.Steps(t.ID)
-	var s *store.Step
-	for i := range steps {
-		if steps[i].Agent == copilotAgent && steps[i].State == store.Running {
-			s = &steps[i]
-		}
-	}
+	s := a.waitingCopilot(t.ID)
 	if s == nil {
 		return
 	}
+	md := fmt.Sprintf("---\npr: %d\ncomments: %d\n---\n\n%s", t.PRNumber, len(r.Comments), copilotMarkdown(t.PRNumber, r.Body, r.Comments))
+	_ = os.WriteFile(a.copilotPath(t, *s), []byte(md), 0o644)
+	a.settleCopilotStep(t)
+}
+
+// ciGrace is how long a Copilot step waits for CI checks that never appear
+// (a repository without CI) once the review is in.
+const ciGrace = 5 * time.Minute
+
+// settleCopilotStep ends the waiting Copilot step once its review is in and
+// it can tell the outcome: at once when Copilot left comments, else when the
+// PR's CI finished. It succeeds only when Copilot found nothing and every
+// check passed; COPILOT-n.md then lists the CI result for the next Implement.
+func (a *App) settleCopilotStep(t store.Task) {
+	s := a.waitingCopilot(t.ID)
+	if s == nil {
+		return
+	}
+	path := a.copilotPath(t, *s)
+	art, _ := artifacts.Read(path)
+	if !art.Exists { // the review has not arrived
+		return
+	}
+	comments := art.Get("comments") != "0"
+	checks := a.checksOf(t.ID)
+	ci := ciSummary(checks)
+	if !comments {
+		if ci == "CI running" {
+			return
+		}
+		if fi, err := os.Stat(path); ci == "" && err == nil && time.Since(fi.ModTime()) < ciGrace {
+			return
+		}
+	}
+	failed := comments || ci == "CI failed"
 	status := "done"
-	if len(r.Comments) > 0 {
+	if failed {
 		status = "failed"
 	}
-	md := fmt.Sprintf("---\nstatus: %s\npr: %d\ncomments: %d\n---\n\n%s", status, t.PRNumber, len(r.Comments), copilotMarkdown(t.PRNumber, r.Body, r.Comments))
-	ag := agentFor(a.settings.Agents(), copilotAgent)
-	_ = os.WriteFile(filepath.Join(a.runDir(a.projectOf(t), t), ag.ArtifactName(s.N)), []byte(md), 0o644)
+	ciWord := "none"
+	if ci != "" {
+		ciWord = strings.TrimPrefix(ci, "CI ")
+	}
+	md := fmt.Sprintf("---\nstatus: %s\npr: %d\ncomments: %s\nci: %s\n---\n\n%s\n%s", status, t.PRNumber, art.Get("comments"),
+		ciWord, strings.TrimSpace(art.Body), ciMarkdown(checks))
+	_ = os.WriteFile(path, []byte(md), 0o644)
 	done, changed := a.updateStep(s.ID, func(x *store.Step) bool {
 		if x.State != store.Running {
 			return false
 		}
 		x.State, x.EndedAt, x.Verdict = store.Done, time.Now(), ""
-		if status == "failed" {
+		if failed {
 			x.Verdict = store.Failure
 		}
 		return true
@@ -859,6 +886,44 @@ func (a *App) finishCopilotStep(t store.Task, r github.Review) {
 		a.complete(done.ID)
 		a.emitTask(t.ID)
 	}
+}
+
+// ciMarkdown is the CI section of COPILOT-n.md: the failing checks first.
+func ciMarkdown(cs []github.Check) string {
+	var b strings.Builder
+	b.WriteString("\n## CI checks\n\n")
+	switch ci := ciSummary(cs); ci {
+	case "":
+		b.WriteString("No CI checks reported.\n")
+		return b.String()
+	case "CI passed":
+		fmt.Fprintf(&b, "All %d checks passed.\n", len(cs))
+		return b.String()
+	case "CI running":
+		b.WriteString("Still running when the review arrived: `gh pr checks` shows the result.\n")
+	}
+	for _, c := range cs {
+		if c.Bucket == "fail" || c.Bucket == "cancel" {
+			word := map[string]string{"fail": "failed", "cancel": "cancelled"}[c.Bucket]
+			fmt.Fprintf(&b, "- **%s / %s** %s: %s\n", c.Workflow, c.Name, word, c.Link)
+		}
+	}
+	return b.String()
+}
+
+// waitingCopilot is the task's Copilot step waiting for its review or CI.
+func (a *App) waitingCopilot(taskID string) *store.Step {
+	steps, _ := a.db.Steps(taskID)
+	for i := range steps {
+		if steps[i].Agent == copilotAgent && steps[i].State == store.Running {
+			return &steps[i]
+		}
+	}
+	return nil
+}
+
+func (a *App) copilotPath(t store.Task, s store.Step) string {
+	return filepath.Join(a.runDir(a.projectOf(t), t), agentFor(a.settings.Agents(), copilotAgent).ArtifactName(s.N))
 }
 
 // splitTitle returns the first non-empty line (without #) and the rest.

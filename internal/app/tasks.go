@@ -394,13 +394,12 @@ func (a *App) OpenInZed(taskID, stepID string) ([]string, error) {
 	}
 	var lines []string
 	if stepID != "" {
-		s, err := a.db.Step(stepID)
-		if err != nil {
+		if _, err := a.db.Step(stepID); err != nil {
 			return nil, err
 		}
-		sha := s.SHA
-		if ch, err := a.StepChanges(stepID); sha == "" && err == nil && ch.Source == "commit" {
-			sha = ch.SHA // Implement: the commit its Review made
+		sha := ""
+		if ch, err := a.StepChanges(stepID); err == nil && ch.Source == "commit" {
+			sha = ch.SHA // its segment's commit
 		}
 		if sha != "" {
 			// Zed's own commit view, in the task's worktree: no extra folder,
@@ -475,6 +474,7 @@ func (a *App) collectChecks(t store.Task) {
 	if !had || !slices.Equal(old, cs) {
 		a.emitTask(t.ID)
 	}
+	a.settleCopilotStep(t) // a review waiting for CI ends when CI does
 }
 
 // readyLabel marks a PR ready for a human review.

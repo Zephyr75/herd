@@ -146,7 +146,7 @@ func TestPlanImplementReview(t *testing.T) {
 	plan := store.StepID(tv.ID, "plan-1")
 	waitFor(t, "plan done", func() bool { return stepState(a, plan) == store.Done })
 	v, _ := a.GetTask(tv.ID)
-	if v.Status.Label != "Waiting for input · after Plan" || len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Implement 1" {
+	if v.Status.Label != "Plan · Waiting for next step" || len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Implement 1" {
 		t.Fatalf("after plan: %+v %+v", v.Status, v.Next)
 	}
 
@@ -183,6 +183,12 @@ func TestPlanImplementReview(t *testing.T) {
 		t.Fatalf("committed before Commit and push: %s commits", n)
 	}
 	next("Commit and push, Implement 2")
+	// Nothing is committed yet: every step shares the uncommitted work.
+	for _, id := range []string{plan, impl, rev, store.StepID(tv.ID, "test-1")} {
+		if ch, _ := a.StepChanges(id); ch.Source != "worktree" || len(ch.Files) == 0 || ch.Files[0].Path != "file-1.txt" {
+			t.Fatalf("%s changes: %+v", id, ch)
+		}
+	}
 	ctxFile, _ := os.ReadFile(filepath.Join(tv.RunDir, "CONTEXT.md"))
 	if !strings.Contains(string(ctxFile), "General context") {
 		t.Fatalf("CONTEXT.md: %s", ctxFile)
@@ -865,19 +871,50 @@ func TestDeleteTaskOfRemovedProject(t *testing.T) {
 	}
 }
 
-func TestStatusAfterANewImplement(t *testing.T) {
+func TestSegmentCommit(t *testing.T) {
+	at := func(sec int) time.Time { return time.Date(2026, 11, 4, 12, 0, sec, 0, time.UTC) }
+	// Two pushes committed at 0:20 and 0:40.
+	commits := []commit{{"a1", at(20)}, {"b2", at(40)}}
+	steps := []store.Step{
+		{ID: "impl-1", StartedAt: at(1)}, {ID: "review-1", StartedAt: at(5)}, {ID: "push-1", StartedAt: at(10)},
+		{ID: "copilot-1", StartedAt: at(20).Add(300 * time.Millisecond)},                // started the second push 1 committed
+		{ID: "impl-2", StartedAt: at(25)}, {ID: "push-2", StartedAt: at(40), SHA: "b2"}, // committed in the second it started
+		{ID: "impl-3", StartedAt: at(45)},
+	}
+	for i, want := range []string{"a1", "a1", "a1", "b2", "b2", "b2", ""} {
+		got := ""
+		if c := segmentCommit(commits, steps, i); c != nil {
+			got = c.SHA
+		}
+		if got != want {
+			t.Errorf("%s: commit %q, want %q", steps[i].ID, got, want)
+		}
+	}
+}
+
+func TestStatus(t *testing.T) {
 	agents := settings.DefaultAgents()
-	step := func(agent string, n int) StepView {
-		return StepView{Step: store.Step{Agent: agent, N: n, State: store.Done}, Name: agentFor(agents, agent).DisplayName(n)}
+	step := func(agent string, n int, state, verdict string) StepView {
+		return StepView{Step: store.Step{Agent: agent, N: n, State: state, Verdict: verdict}, Name: agentFor(agents, agent).DisplayName(n)}
 	}
-	copilot := StepView{Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}
-	task := store.Task{PRNumber: 7, PRState: "open"}
-	pushed := []StepView{step("impl", 1), step("push", 1), copilot}
-	if s := statusOf(task, pushed, agents); s.Kind != "done" {
-		t.Fatalf("after Copilot: %+v", s)
-	}
-	if s := statusOf(task, append(pushed, step("impl", 2)), agents); s.Kind != "waiting" || s.Short == "PR open" {
-		t.Fatalf("after a new Implement: %+v", s)
+	open := store.Task{PRNumber: 7, PRState: "open"}
+	for name, c := range map[string]struct {
+		task  store.Task
+		steps []StepView
+		kind  string
+		label string
+	}{
+		"next":     {store.Task{}, []StepView{step("plan", 1, store.Done, "")}, "waiting", "Plan · Waiting for next step"},
+		"done":     {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}}, "done", "Copilot 1 · Success · PR #7"},
+		"failure":  {store.Task{}, []StepView{step("impl", 1, store.Done, ""), step("review", 1, store.Done, store.Failure)}, "failed", "Review 1 · Failure"},
+		"running":  {open, []StepView{step("impl", 2, store.Running, "")}, "running", "Implement 2 · Running · PR #7"},
+		"waiting":  {open, []StepView{step("impl", 2, store.Idle, "")}, "waiting", "Implement 2 · Waiting · PR #7"},
+		"approval": {store.Task{}, []StepView{step("impl", 1, store.Approval, "")}, "approval", "Implement 1 · Waiting"},
+		"ended":    {store.Task{}, []StepView{step("impl", 1, store.Failed, "")}, "failed", "Implement 1 · Failure"},
+	} {
+		if s := statusOf(c.task, c.steps); s.Kind != c.kind || s.Label != c.label {
+			t.Errorf("%s: %+v, want %s %q", name, s, c.kind, c.label)
+		}
 	}
 }
 
@@ -1008,7 +1045,7 @@ func TestCopilotStep(t *testing.T) {
 	a.startCopilotStep(tv.ID)
 	id := store.StepID(tv.ID, "copilot-1")
 	v, _ := a.GetTask(tv.ID)
-	if v.Status.Short != "copilot" || v.Next.MarkDone != id {
+	if v.Status.Short != "running" || v.Next.MarkDone != id {
 		t.Fatalf("waiting: %+v %+v", v.Status, v.Next)
 	}
 	task, _ := a.db.Task(tv.ID)
@@ -1026,14 +1063,36 @@ func TestCopilotStep(t *testing.T) {
 			t.Fatalf("COPILOT-1.md lacks %q:\n%s", want, b)
 		}
 	}
-	// A later review, with no Copilot step waiting, gets a step of its own.
-	a.takeCopilotReview(task, github.Review{ID: 2, Body: "All good now"})
-	s2, err := a.db.Step(store.StepID(tv.ID, "copilot-2"))
-	if err != nil || !s2.Succeeded() {
-		t.Fatalf("copilot-2: %+v %v", s2, err)
+	setChecks := func(cs ...github.Check) {
+		a.checksMu.Lock()
+		a.checks[tv.ID] = cs
+		a.checksMu.Unlock()
 	}
-	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-2.md")); !strings.Contains(string(b), "All good now") {
+	// A later review, with no Copilot step waiting, gets a step of its own,
+	// which waits for CI when Copilot found nothing.
+	setChecks(github.Check{Workflow: "Tests", Name: "pytest", Bucket: "pending"})
+	a.takeCopilotReview(task, github.Review{ID: 2, Body: "All good now"})
+	c2 := store.StepID(tv.ID, "copilot-2")
+	if stepState(a, c2) != store.Running {
+		t.Fatal("copilot-2 ended before CI did")
+	}
+	setChecks(github.Check{Workflow: "Tests", Name: "pytest", Bucket: "pass"})
+	a.settleCopilotStep(task)
+	if s2, _ := a.db.Step(c2); !s2.Succeeded() {
+		t.Fatalf("copilot-2 after CI passed: %+v", s2)
+	}
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-2.md")); !strings.Contains(string(b), "All good now") || !strings.Contains(string(b), "All 1 checks passed") {
 		t.Fatalf("COPILOT-2.md: %s", b)
+	}
+	// Copilot is happy but a regtest failed: the step fails and says which.
+	setChecks(github.Check{Workflow: "Tests", Name: "pytest", Bucket: "pass"},
+		github.Check{Workflow: "Regtests (local stack)", Name: "Regtests 2/4", Bucket: "fail", Link: "https://github.com/x/y/runs/1"})
+	a.takeCopilotReview(task, github.Review{ID: 3, Body: "Looks fine"})
+	if s3, _ := a.db.Step(store.StepID(tv.ID, "copilot-3")); !s3.Unsuccessful() {
+		t.Fatalf("copilot-3 with a failing regtest: %+v", s3)
+	}
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-3.md")); !strings.Contains(string(b), "**Regtests (local stack) / Regtests 2/4** failed: https://github.com/x/y/runs/1") || !strings.Contains(string(b), "ci: failed") {
+		t.Fatalf("COPILOT-3.md: %s", b)
 	}
 	if _, err := os.Stat(filepath.Join(tv.RunDir, "FEEDBACK.md")); err == nil {
 		t.Fatal("FEEDBACK.md written")

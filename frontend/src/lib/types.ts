@@ -1,7 +1,7 @@
 // Shapes returned by the Go App service (internal/app, internal/settings).
 
 export type StepState = 'running' | 'idle' | 'approval' | 'done' | 'failed'
-export type StatusKind = 'running' | 'waiting' | 'approval' | 'idle' | 'done'
+export type StatusKind = 'running' | 'waiting' | 'approval' | 'idle' | 'done' | 'failed'
 
 export interface Project {
   id: string
@@ -127,6 +127,7 @@ export interface Step {
   auto: boolean
   artifact: string
   commits: boolean
+  diff: boolean // Diff has something to open: its segment's commit, or the uncommitted work
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume

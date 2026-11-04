@@ -538,8 +538,8 @@ class Herd {
   async openDiff(step: Step | null = this.selStep) {
     const t = this.selTask
     if (!t || !step) return
-    const lines = await this.attempt('Could not open the diff', () => api.OpenInZed(t.id, step.sha ? step.id : ''))
-    if (lines) this.toast(step.sha ? 'Opening step diff in Zed' : 'Opening worktree in Zed', lines.join('\n'))
+    const lines = await this.attempt('Could not open the diff', () => api.OpenInZed(t.id, step.id))
+    if (lines) this.toast('Opening ' + step.name + "'s changes in Zed", lines.join('\n'))
   }
 
   // ---- a step's Claude Code session, e.g. to continue it in Zed ----

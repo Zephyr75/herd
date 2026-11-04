@@ -15,7 +15,7 @@ const groups = computed(() => {
   const of = (k: string) => active.filter((t) => t.status.kind === k)
   return [
     { kind: 'approval', label: 'Needs approval', tasks: of('approval') },
-    { kind: 'waiting', label: 'Waiting for input', tasks: of('waiting') },
+    { kind: 'waiting', label: 'Waiting for input', tasks: [...of('waiting'), ...of('failed')] },
     { kind: 'running', label: 'Running', tasks: of('running') },
   ].filter((g) => g.tasks.length)
 })

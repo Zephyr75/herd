@@ -180,7 +180,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused && s.agent !== 'copilot', auto: !!a.trigger.startsWith('after:'),
-    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit,
+    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha,
     paused, manual: !!s.manual, fresh: !!s.manual && open,
     rerun: i === t.steps.length - 1 && a.commit && !open,
     external: s.agent === 'copilot',
@@ -196,19 +196,15 @@ function derive(t: MockTask): Task {
   const st = (kind: StatusKind, label: string, short: string) => ({ kind, label, short })
   if (t.archived) status = t.pr ? st(t.prState === 'merged' ? 'done' : 'idle', `PR #${t.pr} ${t.prState} · ${day}`, t.prState!) : st('idle', `Archived · ${day}`, 'archived')
   else if (!steps.length) status = st('idle', 'Not started', 'not started')
-  else if (last.manual && last.paused) status = st('waiting', 'Manual · ' + last.name, 'manual')
-  else if (steps.some((s) => s.state === 'approval')) status = st('approval', 'Needs approval · ' + steps.find((s) => s.state === 'approval')!.name, 'approval')
-  else if (steps.some((s) => s.state === 'running' && s.external)) status = st('running', `Waiting for Copilot · PR #${t.pr}`, 'copilot')
-  else if (steps.some((s) => s.state === 'running')) status = st('running', 'Running · ' + steps.find((s) => s.state === 'running')!.name, 'running')
-  else if (last.state === 'idle') status = st('waiting', 'Waiting for input · ' + last.name, 'waiting')
-  else if (last.state === 'failed') status = st('waiting', `Waiting for input · ${last.name} ended early`, 'failed')
-  else if (unsuccessful(last)) status = st('waiting', `Waiting for input · ${last.name} failed`, 'failed')
-  else if (t.pr && t.prState === 'open' && (last.external || agent(last.agent).push)) status = st('done', `PR #${t.pr} open`, 'PR open')
-  else status = st('waiting', 'Waiting for input · after ' + last.name, 'waiting')
-
-  const cs = t.checks ?? []
-  if (cs.length && status.short === 'PR open')
-    status = { ...status, label: status.label + ' · ' + (cs.some((c) => c.bucket === 'fail' || c.bucket === 'cancel') ? 'CI failed' : cs.some((c) => c.bucket === 'pending') ? 'CI running' : 'CI passed') }
+  else {
+    const pr = t.pr && t.prState === 'open' ? ` · PR #${t.pr}` : ''
+    const of = (kind: StatusKind, word: string, s: Step) => st(kind, `${s.name} · ${word}${pr}`, word.toLowerCase())
+    const live = steps.find((s) => s.state === 'approval' || s.state === 'running' || (s.paused && s.state !== 'done' && s.state !== 'failed'))
+    if (live) status = live.state === 'running' && !live.paused ? of('running', 'Running', live) : of(live.state === 'approval' ? 'approval' : 'waiting', 'Waiting', live)
+    else if (last.state === 'idle') status = of('waiting', 'Waiting', last)
+    else if (last.state === 'failed' || unsuccessful(last)) status = of('failed', 'Failure', last)
+    else status = last.external ? of('done', 'Success', last) : of('waiting', 'Waiting for next step', last)
+  }
   const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
@@ -229,9 +225,9 @@ function derive(t: MockTask): Task {
     const pushFixA = [...agents].reverse().find((a) => !afterOf(a.trigger) && !a.push)
     const pushFix = pushFixA ? opt(pushFixA, count(pushFixA.id) + 1) : undefined
     if (appr) { next.approval = appr.id; next.text = 'Claude Code wants to run a command. Answer in the terminal, or allow it once here.' }
-    else if (run?.external) { next.text = `Waiting for Copilot's review of PR #${t.pr} (checked every minute). Start a fix any time, or Mark done to stop waiting.`; next.markDone = run.id; if (pushFix) next.options.push(pushFix) }
+    else if (run?.external) { next.text = `Waiting for Copilot's review and the CI checks of PR #${t.pr} (checked every minute). Start a fix any time, or Mark done to stop waiting.`; next.markDone = run.id; if (pushFix) next.options.push(pushFix) }
     else if (last.external) {
-      next.text = unsuccessful(last) ? `Copilot left comments on PR #${t.pr} (${last.artifact}).` : `Copilot found nothing to fix on PR #${t.pr}. The task moves to Archive when the PR is merged or closed.`
+      next.text = unsuccessful(last) ? `PR #${t.pr} needs fixes: ${last.artifact} lists Copilot's comments and the failing CI checks.` : `Copilot found nothing to fix and CI passed on PR #${t.pr}. The task moves to Archive when the PR is merged or closed.`
       if (pushFix) { next.text += ` Start ${pushFix.label} for fixes (Copilot comments, failing CI), then push again.`; next.options.push(pushFix) }
     }
     else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically if it succeeds.` : 'You will be asked for the next step when it finishes.')

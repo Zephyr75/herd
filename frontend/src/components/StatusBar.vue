@@ -9,7 +9,7 @@ const counts = computed(() => {
   const projects = new Set<string>()
   for (const t of herd.tasks) {
     if (t.archived) continue
-    const k = t.status.kind
+    const k = t.status.kind === 'failed' ? 'waiting' : t.status.kind // a failure waits for you
     if (k === 'running' || k === 'waiting' || k === 'approval') c[k]++
     if (k === 'running') projects.add(t.project)
   }

@@ -61,7 +61,7 @@ function key(e: KeyboardEvent) {
     </div>
     <div class="rows">
       <button v-for="(t, i) in rows" :key="t.id" class="row" :class="{ hi: i === hi }" @click="herd.pickTask(t.id)" @mousemove="hi = i">
-        <span class="dot" :style="{ background: `var(--${t.status.kind}-dot)` }"></span>
+        <span class="dot" :style="{ background: `var(--${t.status.kind === 'failed' ? 'approval' : t.status.kind}-dot)` }"></span>
         <span class="primary" :class="{ mono: herd.scope !== 'project' }">{{ primary(t) }}</span>
         <span class="secondary">{{ herd.scope === 'project' ? t.branch : t.title }}</span>
         <span class="status">{{ t.status.short }}</span>

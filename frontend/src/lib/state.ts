@@ -68,7 +68,6 @@ class Herd {
   toasts: Toast[] = []
   systemLight = false
   artifactRev = 0
-  confirmRemove = ''
   confirmDelete = ''
   leftWidth = savedWidth('left')
   rightWidth = savedWidth('right')
@@ -347,7 +346,6 @@ class Herd {
     this.overlay = 'none'
     this.view = 'board'
     this.left = t.archived ? 'archive' : 'tasks'
-    this.confirmRemove = ''
     this.confirmDelete = ''
     if (!t.steps.length) {
       this.sel = id

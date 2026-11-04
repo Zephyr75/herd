@@ -28,10 +28,12 @@ const agents: Agent[] = [
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
   { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: true, push: false, ignoreRules: false,
-    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code: herd commits the reviewed changes when you finish.' },
-  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'after:review', writes: 'TEST-{n}.md', commit: true, push: false, ignoreRules: false,
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, ignoreRules: false,
+    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: the Commit step commits once the tests pass.' },
+  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
+  { id: 'commit', name: 'Commit', command: '/herd:commit {task}', model: 'haiku', trigger: 'manual', writes: 'COMMIT-{n}.md', commit: true, push: false, ignoreRules: false,
+    instructions: 'Write COMMIT-{n}.md, the commit message for the uncommitted changes: a title line in the repo\'s commit style, then a short body.\nDo not commit: herd commits every change with this message when you finish. End with status: done.' },
   { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: false, push: true, ignoreRules: true,
     instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
@@ -213,7 +215,7 @@ function derive(t: MockTask): Task {
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
   if (t.archived) {
-    next.text = (t.pr ? `Archived ${day} when PR #${t.pr} was ${t.prState}.` : `Archived ${day}.`) + (t.removed ? ' The worktree and branch were removed.' : ' The worktree is kept until you remove it.')
+    next.text = (t.pr ? `Archived ${day} when PR #${t.pr} was ${t.prState}.` : `Archived ${day}.`) + (t.removed ? ' The worktree and branch were removed.' : ' The worktree is kept until you delete the task.')
   } else if (!last) next.options.push(opt(agents[0], 1))
   else {
     const la = agent(last.agent)
@@ -416,8 +418,6 @@ export const api: Api = {
   ArchiveTask: (id) => { const t = find(id); t.archived = true; t.archivedOn = new Date().toISOString(); changed(t); return ok(undefined) },
   RestoreTask: (id) => { const t = find(id); if (t.removed) return Promise.reject('the worktree was removed'); t.archived = false; changed(t); return ok(undefined) },
   DeleteTask: (id) => { const i = T.findIndex((t) => t.id === id); if (i < 0 || !T[i].archived) return Promise.reject('archive the task before deleting it'); T.splice(i, 1); emit('task:removed', { id }); return ok(['removed the task']) },
-  RemoveWorktree: (id) => { const t = find(id), p = proj(t.project); t.removed = true; changed(t)
-    return ok([`$ git -C ${p.path} worktree remove --force ${p.path}/.worktrees/${t.slug}`, `$ git -C ${p.path} branch -D agent/${t.slug}`]) },
   OpenRunDir: () => ok(undefined),
   OpenURL: () => ok(undefined),
   MarkPRReady: (id) => { const t = find(id); t.draft = false; t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },

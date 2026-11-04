@@ -69,10 +69,10 @@ func (a *App) worktreeChanges(stepID string) (Changes, error) {
 	out := Changes{Files: []FileChange{}, Repos: []ExternalRepo{}}
 	steps, _ := a.db.Steps(t.ID)
 	sha := s.SHA
-	for i, x := range steps {
-		if x.ID == s.ID && sha == "" && i+1 < len(steps) && steps[i+1].SHA != "" {
-			sha = steps[i+1].SHA
-			out.Via = agentFor(a.settings.Agents(), steps[i+1].Agent).DisplayName(steps[i+1].N)
+	if sha == "" {
+		if y := a.cycleCommit(steps, s.ID); y != nil {
+			sha = y.SHA
+			out.Via = agentFor(a.settings.Agents(), y.Agent).DisplayName(y.N)
 		}
 	}
 	if sha != "" {
@@ -145,6 +145,42 @@ func (a *App) uncommitted(dir string, paths ...string) ([]FileChange, error) {
 		files = append(files, fc)
 	}
 	return files, nil
+}
+
+// cycleCommit is the step that committed the work of step id: the next
+// step with a commit in its cycle (an Implement, the checks after it, up to
+// the next Implement). nil before the first Implement (Plan) or when nothing
+// was committed yet.
+func (a *App) cycleCommit(steps []store.Step, id string) *store.Step {
+	agents := a.settings.Agents()
+	checked := func(agent string) bool {
+		for _, x := range agents {
+			if x.AfterAgent() == agent {
+				return true
+			}
+		}
+		return false
+	}
+	inCycle := false
+	for i := range steps {
+		inCycle = inCycle || checked(steps[i].Agent)
+		if steps[i].ID != id {
+			continue
+		}
+		if !inCycle {
+			return nil
+		}
+		for j := i + 1; j < len(steps); j++ {
+			if checked(steps[j].Agent) {
+				return nil
+			}
+			if steps[j].SHA != "" {
+				return &steps[j]
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 // FileDiff is one file's unified diff in a step's changes.

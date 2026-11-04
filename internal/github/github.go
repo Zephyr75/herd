@@ -259,11 +259,22 @@ func (g GH) AddLabel(ctx context.Context, repo string, n int, label string) erro
 	return err
 }
 
-// Comment is one review comment.
+// Comment is one Copilot review comment, with its discussion.
 type Comment struct {
-	Path string `json:"path"`
-	Line int    `json:"line"`
-	Body string `json:"body"`
+	ID       int64   `json:"id"`
+	Path     string  `json:"path"`
+	Line     int     `json:"line"`
+	Body     string  `json:"body"`
+	Title    string  `json:"title"`    // from the review's overview, when listed there
+	Severity string  `json:"severity"` // e.g. Medium, from the overview
+	Hunk     string  `json:"hunk"`     // the diff lines the comment is on
+	Replies  []Reply `json:"replies"`  // later messages in its thread, oldest first
+}
+
+// Reply is a later message in a review comment's thread.
+type Reply struct {
+	Author string `json:"author"`
+	Body   string `json:"body"`
 }
 
 // Review is one Copilot review: its summary and inline comments.
@@ -273,33 +284,89 @@ type Review struct {
 	Comments []Comment
 }
 
-// CopilotReviews returns the Copilot reviews on a PR newer than review id
-// after, oldest first. Copilot reviews again each time it is asked.
-func (g GH) CopilotReviews(ctx context.Context, repo string, n int, after int64) ([]Review, error) {
-	out, err := g.run(ctx, "", "api", fmt.Sprintf("repos/%s/pulls/%d/reviews", repo, n))
+// apiList runs gh api on a list endpoint, every page, and decodes its items.
+func apiList[T any](ctx context.Context, g GH, path string) ([]T, error) {
+	out, err := g.run(ctx, "", "api", "--paginate", "--jq", ".[]", path+"?per_page=100")
 	if err != nil {
 		return nil, err
 	}
-	var reviews []struct {
+	var items []T
+	dec := json.NewDecoder(strings.NewReader(out))
+	for dec.More() {
+		var x T
+		if err := dec.Decode(&x); err != nil {
+			return items, err
+		}
+		items = append(items, x)
+	}
+	return items, nil
+}
+
+// overviewItem matches one finding in a Copilot review's overview: its
+// severity icon, then its title linked to the comment's discussion.
+var overviewItem = regexp.MustCompile(`alt="(\w+) severity"[^\n]*?\[([^\]\n]+)\]\([^)\s]*#discussion_r(\d+)\)`)
+
+// CopilotReviews returns the Copilot reviews on a PR newer than review id
+// after, oldest first, each with its comments and their replies. Copilot
+// reviews again each time it is asked.
+func (g GH) CopilotReviews(ctx context.Context, repo string, n int, after int64) ([]Review, error) {
+	type user struct{ Login string }
+	reviews, err := apiList[struct {
 		ID   int64
 		Body string
-		User struct{ Login string }
-	}
-	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
+		User user
+	}](ctx, g, fmt.Sprintf("repos/%s/pulls/%d/reviews", repo, n))
+	if err != nil {
 		return nil, err
 	}
 	var rs []Review
 	for _, r := range reviews {
-		if !isCopilot(r.User.Login) || r.ID <= after {
-			continue
+		if isCopilot(r.User.Login) && r.ID > after {
+			rs = append(rs, Review{ID: r.ID, Body: r.Body})
 		}
-		out, err := g.run(ctx, "", "api", fmt.Sprintf("repos/%s/pulls/%d/reviews/%d/comments", repo, n, r.ID))
-		if err != nil {
-			return rs, err
+	}
+	if len(rs) == 0 {
+		return nil, nil
+	}
+	comments, err := apiList[struct {
+		ID           int64
+		Path         string
+		Line         int
+		OriginalLine int `json:"original_line"`
+		Body         string
+		DiffHunk     string `json:"diff_hunk"`
+		Review       int64  `json:"pull_request_review_id"`
+		ReplyTo      int64  `json:"in_reply_to_id"`
+		User         user
+	}](ctx, g, fmt.Sprintf("repos/%s/pulls/%d/comments", repo, n))
+	if err != nil {
+		return nil, err
+	}
+	replies := map[int64][]Reply{}
+	for _, c := range comments {
+		if c.ReplyTo != 0 {
+			replies[c.ReplyTo] = append(replies[c.ReplyTo], Reply{Author: c.User.Login, Body: c.Body})
 		}
-		x := Review{ID: r.ID, Body: r.Body}
-		_ = json.Unmarshal([]byte(out), &x.Comments)
-		rs = append(rs, x)
+	}
+	for i := range rs {
+		titles := map[int64][2]string{}
+		for _, m := range overviewItem.FindAllStringSubmatch(rs[i].Body, -1) {
+			id, _ := strconv.ParseInt(m[3], 10, 64)
+			titles[id] = [2]string{m[1], m[2]}
+		}
+		for _, c := range comments {
+			if c.Review != rs[i].ID || c.ReplyTo != 0 {
+				continue
+			}
+			x := Comment{ID: c.ID, Path: c.Path, Line: c.Line, Body: c.Body, Hunk: c.DiffHunk, Replies: replies[c.ID]}
+			if x.Line == 0 {
+				x.Line = c.OriginalLine
+			}
+			if t, ok := titles[c.ID]; ok {
+				x.Severity, x.Title = t[0], t[1]
+			}
+			rs[i].Comments = append(rs[i].Comments, x)
+		}
 	}
 	return rs, nil
 }

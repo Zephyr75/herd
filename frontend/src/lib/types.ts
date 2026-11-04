@@ -130,7 +130,7 @@ export interface Step {
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume
-  rerun: boolean // Rerun applies: the latest committing step, or the Review after hand edits
+  rerun: boolean // Rerun applies: the cycle's Review, until a manual step (Test and commit) runs
   external: boolean // run by herd, not Claude: the Copilot review step
 }
 

@@ -48,29 +48,38 @@ Do not edit code. End with status: done, or status: failed if the task cannot be
 			Instructions: `Read PLAN.md, and FEEDBACK.md when it exists.
 Implement the plan in this worktree. When PLAN.md lists Options, take the one the guidance picks, else the recommended one.
 When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the review comments in FEEDBACK.md.
-Do not write or change tests: the Test agent adds them once the review passes.
+Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
-Do not commit: herd commits your changes when the Review step ends.
+Do not commit: the Commit step commits once Review and Test pass.
 Write IMPLEMENT-{n}.md with Changes, Checks run and Notes for the reviewer.
 End with status: done, or status: failed if you could not implement it (say what blocks).`,
 		},
 		{
 			ID: "review", Name: "Review", Command: "/herd:review {task}", Model: "opus", Trigger: "after:impl",
-			Writes: "REVIEW-{n}.md", Commit: true,
+			Writes: "REVIEW-{n}.md",
 			Instructions: `Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.
 List findings, most important first, and append them to FEEDBACK.md.
 Write REVIEW-{n}.md. End with status: done if the changes are ready, or status: failed if they need changes.
-Never edit code: herd commits the reviewed changes when you finish.`,
+Never edit code, and do not commit: the Commit step commits once the tests pass.`,
 		},
 		{
-			ID: "test", Name: "Test", Command: "/herd:test {task} -- {guidance}", Model: "sonnet", Trigger: "after:review",
-			Writes: "TEST-{n}.md", Commit: true,
+			ID: "test", Name: "Test", Command: "/herd:test {task} -- {guidance}", Model: "sonnet", Trigger: "manual",
+			Writes: "TEST-{n}.md",
 			Instructions: `Read PLAN.md, the IMPLEMENT files and the REVIEW files.
-Write tests for the reviewed changes (git log and git show on this branch), following the repo's test conventions:
+Write tests for the reviewed, uncommitted changes (git status, git diff HEAD), following the repo's test conventions:
 the main paths, the edge cases, and anything the reviews flagged.
 Run them. Change only tests, never the code under test: if a test shows a bug, keep it failing and explain it.
 Write TEST-{n}.md with Tests added, How to run and Results.
+Do not commit: the Commit step commits once the tests pass.
 End with status: done when the tests pass, or status: failed when one shows a bug.`,
+		},
+		{
+			ID: "commit", Name: "Commit", Command: "/herd:commit {task}", Model: "haiku", Trigger: "manual",
+			Writes: "COMMIT-{n}.md", Commit: true,
+			Instructions: `Write COMMIT-{n}.md, the commit message for the uncommitted changes (git status, git diff HEAD):
+a title line in the repo's commit style (git log --oneline -10), then a short body saying what changed
+and why, from PLAN.md and the IMPLEMENT files.
+Do not commit: herd commits every change with this message when you finish. End with status: done.`,
 		},
 		{
 			ID: "push", Name: "Push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",

@@ -21,7 +21,6 @@ export interface Api {
   RerunStep(step: string): Promise<void>
   ArchiveTask(task: string): Promise<void>
   RestoreTask(task: string): Promise<void>
-  RemoveWorktree(task: string): Promise<string[]>
   DeleteTask(task: string): Promise<string[]>
   OpenInZed(task: string, step: string): Promise<string[]>
   OpenRunDir(task: string): Promise<void>

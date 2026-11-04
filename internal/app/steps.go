@@ -572,15 +572,12 @@ func (a *App) RerunStep(stepID string) error {
 		return errors.New("restore the task and its worktree before rerunning a step")
 	}
 	ag := agentFor(a.settings.Agents(), s.Agent)
-	steps, _ := a.db.Steps(t.ID)
-	if len(steps) == 0 || steps[len(steps)-1].ID != s.ID {
-		v, _ := a.view(t)
-		if !slices.ContainsFunc(v.Steps, func(x StepView) bool { return x.ID == s.ID && x.Rerun }) {
-			return fmt.Errorf("only the latest step, or the review after you changed the worktree, can be rerun; start a new %s instead", ag.Name)
-		}
-	}
 	if s.State != store.Done && s.State != store.Failed {
 		return fmt.Errorf("%s has not finished", ag.DisplayName(s.N))
+	}
+	steps, _ := a.db.Steps(t.ID)
+	if v, _ := a.view(t); !slices.ContainsFunc(v.Steps, func(x StepView) bool { return x.ID == s.ID && x.Rerun }) {
+		return fmt.Errorf("only the cycle's review can be rerun, before Test and commit; start a new %s instead", ag.Name)
 	}
 	if !sessionSaved(s.SessionID) {
 		return fmt.Errorf("Claude Code never saved the %s session", ag.DisplayName(s.N))
@@ -655,7 +652,6 @@ func (a *App) afterDone(s store.Step) {
 	}
 	p := a.projectOf(t)
 	ag := agentFor(a.settings.Agents(), s.Agent)
-	a.snapshotTree(t, s.ID)
 	sess, _ := a.run.Get(s.ID)
 	say := func(line string) {
 		if sess != nil {
@@ -669,6 +665,12 @@ func (a *App) afterDone(s store.Step) {
 	if ag.Commit {
 		wt := worktreePath(p, t)
 		msg := fmt.Sprintf("[%s] %s", t.Slug, strings.ToLower(strings.ReplaceAll(ag.DisplayName(s.N), " ", "-")))
+		// The Commit agent's artifact is the message: a title line, then a body.
+		if art, _ := a.artifactFor(s); art.Exists {
+			if title, body := splitTitle(art.Body); title != "" {
+				msg = strings.TrimSpace(title + "\n\n" + strings.TrimSpace(body))
+			}
+		}
 		// A rerun folds the new changes into the step's own commit while it
 		// is still the unpushed tip, so the step keeps one diff per cycle.
 		amend := s.SHA != "" && a.git.CanAmend(a.ctx, wt, s.SHA)
@@ -887,15 +889,44 @@ func copilotMarkdown(pr int, body string, comments []github.Comment) string {
 	}
 	if len(comments) == 0 {
 		b.WriteString("- No comments\n")
+		return b.String()
 	}
-	for _, c := range comments {
+	fmt.Fprintf(&b, "### Comments (%d)\n\n", len(comments))
+	for i, c := range comments {
 		loc := c.Path
 		if c.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", c.Path, c.Line)
 		}
-		fmt.Fprintf(&b, "- `%s` %s\n", loc, strings.ReplaceAll(strings.TrimSpace(c.Body), "\n", "\n  "))
+		title := "`" + loc + "`"
+		if c.Title != "" {
+			title = c.Title
+		}
+		if c.Severity != "" {
+			title += " · " + c.Severity
+		}
+		fmt.Fprintf(&b, "#### %d. %s\n\n", i+1, title)
+		if c.Title != "" {
+			fmt.Fprintf(&b, "`%s`\n\n", loc)
+		}
+		if hunk := lastLines(c.Hunk, 6); hunk != "" {
+			fmt.Fprintf(&b, "```diff\n%s\n```\n\n", hunk)
+		}
+		b.WriteString(strings.TrimSpace(c.Body) + "\n\n")
+		for _, r := range c.Replies {
+			fmt.Fprintf(&b, "> **%s** replied: %s\n\n", r.Author, strings.ReplaceAll(strings.TrimSpace(r.Body), "\n", "\n> "))
+		}
 	}
 	return b.String()
+}
+
+// lastLines keeps the last n lines of s: the end of a diff hunk is the
+// line a review comment is on.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), " \n")
 }
 
 func (a *App) appendFeedback(t store.Task, projectName, md string) {

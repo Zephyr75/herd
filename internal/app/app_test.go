@@ -156,24 +156,50 @@ func TestPlanImplementReview(t *testing.T) {
 	}
 	impl := store.StepID(tv.ID, "impl-1")
 	rev := store.StepID(tv.ID, "review-1")
-	waitFor(t, "review committed", func() bool { s, _ := a.db.Step(rev); return s.SHA != "" })
-	// Implement leaves its work uncommitted; its Review commits it.
+	waitFor(t, "review done", func() bool { return stepState(a, rev) == store.Done })
+	// Implement, Review and Test leave the work uncommitted; Commit commits it.
 	s, _ := a.db.Step(impl)
 	if s.SHA != "" || s.Guidance != "keep it small" {
 		t.Fatalf("impl step: %+v", s)
 	}
-	if msg := run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "log", "-1", "--format=%s"); msg != "["+tv.Slug+"] review-1" {
+	wt := filepath.Join(repo, ".worktrees", tv.Slug)
+	next := func(want string) {
+		t.Helper()
+		waitFor(t, "next: "+want, func() bool {
+			v, _ = a.GetTask(tv.ID)
+			var l []string
+			for _, o := range v.Next.Options {
+				l = append(l, o.Label)
+			}
+			return strings.Join(l, ", ") == want
+		})
+	}
+	next("Test 1, Implement 2")
+	if _, err := a.StartStep(tv.ID, "test", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "test done", func() bool { return stepState(a, store.StepID(tv.ID, "test-1")) == store.Done })
+	if n := run(t, wt, "git", "rev-list", "--count", "main..HEAD"); n != "0" {
+		t.Fatalf("committed before the Commit step: %s commits", n)
+	}
+	next("Commit 1, Implement 2")
+	if _, err := a.StartStep(tv.ID, "commit", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "commit", func() bool { s, _ := a.db.Step(store.StepID(tv.ID, "commit-1")); return s.SHA != "" })
+	if msg := run(t, wt, "git", "log", "-1", "--format=%s%n%b"); msg != "feat: fake change\nWhat changed." {
 		t.Fatalf("commit message %q", msg)
 	}
-	if n := run(t, filepath.Join(repo, ".worktrees", tv.Slug), "git", "rev-list", "--count", "main..HEAD"); n != "1" {
-		t.Fatalf("want 1 commit, got %s", n)
+	next("Push, Implement 2")
+	// Implement and its checks show the commit their cycle ended with; Plan none.
+	for _, id := range []string{impl, rev, store.StepID(tv.ID, "test-1")} {
+		if ch, _ := a.StepChanges(id); ch.Source != "commit" || ch.Via != "Commit 1" || len(ch.Files) == 0 {
+			t.Fatalf("%s changes: %+v", id, ch)
+		}
 	}
-	// The review passed, so Test 1 starts by itself.
-	waitFor(t, "test done", func() bool { return stepState(a, store.StepID(tv.ID, "test-1")) == store.Done })
-	waitFor(t, "next after test", func() bool {
-		v, _ = a.GetTask(tv.ID)
-		return len(v.Next.Options) == 2 && v.Next.Options[0].Label == "Push" && v.Next.Options[1].Label == "Implement 2"
-	})
+	if ch, _ := a.StepChanges(plan); ch.Source != "" {
+		t.Fatalf("plan changes: %+v", ch)
+	}
 	ctxFile, _ := os.ReadFile(filepath.Join(tv.RunDir, "CONTEXT.md"))
 	if !strings.Contains(string(ctxFile), "General context") {
 		t.Fatalf("CONTEXT.md: %s", ctxFile)
@@ -365,6 +391,7 @@ func TestSessionSurvivesRestart(t *testing.T) {
 
 func TestStepChanges(t *testing.T) {
 	a, repo := newTestApp(t)
+	reviewCommits(t, a)
 	tv, _ := a.CreateTask("core", "", "change some files", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	impl := store.StepID(tv.ID, "impl-1")
@@ -463,6 +490,7 @@ func TestNotifications(t *testing.T) {
 
 func TestEachReviewCommitsItsOwnDiff(t *testing.T) {
 	a, repo := newTestApp(t)
+	reviewCommits(t, a)
 	a.settings.UpdateConfig(func(c *settings.Config) { c.ZedCommand = "true" })
 	tv, _ := a.CreateTask("core", "", "two review rounds", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
@@ -597,7 +625,7 @@ func TestManualStepClosedByNextStep(t *testing.T) {
 
 func TestRerunAmendsTheReviewCommit(t *testing.T) {
 	a, repo := newTestApp(t)
-	withoutAgent(t, a, "test") // the review stays the latest step
+	reviewCommits(t, a)
 	tv, _ := a.CreateTask("core", "", "rerun the review", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
@@ -733,7 +761,7 @@ func TestUntrackedDiff(t *testing.T) {
 	}
 }
 
-func TestTestAgentRunsOnlyAfterReviewSucceeds(t *testing.T) {
+func TestTestWaitsForTheUser(t *testing.T) {
 	for _, status := range []string{"failed", "done"} {
 		t.Run(status, func(t *testing.T) {
 			t.Setenv("FAKE_REVIEW", status)
@@ -746,13 +774,15 @@ func TestTestAgentRunsOnlyAfterReviewSucceeds(t *testing.T) {
 			rev := store.StepID(tv.ID, "review-1")
 			waitFor(t, "review done", func() bool { return stepState(a, rev) == store.Done })
 			test := store.StepID(tv.ID, "test-1")
-			if status == "done" {
-				waitFor(t, "test started", func() bool { _, err := a.db.Step(test); return err == nil })
-				return
-			}
 			time.Sleep(300 * time.Millisecond)
 			if _, err := a.db.Step(test); err == nil {
-				t.Fatal("Test started after the review failed")
+				t.Fatal("Test and commit started by itself")
+			}
+			if status == "done" {
+				if v, _ := a.GetTask(tv.ID); v.Next.Options[0].Label != "Test 1" {
+					t.Fatalf("next after a passed review: %+v", v.Next)
+				}
+				return
 			}
 			if s, _ := a.db.Step(rev); s.SHA != "" {
 				t.Fatal("a failed review committed")
@@ -810,7 +840,7 @@ func TestDeleteTaskOfRemovedProject(t *testing.T) {
 	if err := a.RestoreTask(tv.ID); err == nil {
 		t.Fatal("restored a task without its project")
 	}
-	if _, err := a.RemoveWorktree(tv.ID); err == nil {
+	if _, err := a.removeWorktree(tv.ID); err == nil {
 		t.Fatal("ran git without knowing the repository")
 	}
 	if _, err := a.DeleteTask(tv.ID); err != nil {
@@ -846,8 +876,11 @@ func TestNextAfterOutcome(t *testing.T) {
 		task  store.Task
 		want  string
 	}{
-		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2, Test 2"},
-		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Push, Implement 2"},
+		"review passed":    {base, store.Task{}, "Test 1, Implement 2"},
+		"review failed":    {[]StepView{step("plan", 1, ""), step("impl", 1, ""), step("review", 1, store.Failure)}, store.Task{}, "Implement 2"},
+		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2"},
+		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Commit 1, Implement 2"},
+		"committed":        {append(base, step("test", 1, ""), step("commit", 1, "")), store.Task{}, "Push, Implement 2"},
 		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Plan"},
 		"pushed":           {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Implement 2"},
 		"copilot comments": {append(base, step("push", 1, ""), copilotStep(1, store.Done, store.Failure)), store.Task{PRNumber: 7}, "Implement 2"},
@@ -856,6 +889,21 @@ func TestNextAfterOutcome(t *testing.T) {
 		if got := labels(nextOf(c.task, c.steps, agents)); got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
+	}
+}
+
+// reviewCommits makes Review commit, as herd's commit mechanics (one diff
+// per cycle, amend on rerun) work for any committing agent.
+func reviewCommits(t *testing.T, a *App) {
+	t.Helper()
+	ags := a.settings.Agents()
+	for i := range ags {
+		if ags[i].ID == "review" {
+			ags[i].Commit = true
+		}
+	}
+	if err := a.SaveAgents(ags); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -872,31 +920,25 @@ func withoutAgent(t *testing.T, a *App, id string) {
 	}
 }
 
-func TestRerunReviewAfterHandEdit(t *testing.T) {
-	a, repo := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "edit after the tests", "", true, nil)
+func TestRerunReviewUntilTest(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "rerun the review", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
 		t.Fatal(err)
 	}
 	rev, test := store.StepID(tv.ID, "review-1"), store.StepID(tv.ID, "test-1")
-	waitFor(t, "test snapshot", func() bool { v, _ := a.db.Get(treeKey(test)); return v != "" })
-	rerun := func() bool {
+	rerun := func(id string) bool {
 		v, _ := a.GetTask(tv.ID)
 		for _, s := range v.Steps {
-			if s.ID == rev {
+			if s.ID == id {
 				return s.Rerun
 			}
 		}
 		return false
 	}
-	if rerun() {
-		t.Fatal("Rerun offered on the review before any hand edit")
-	}
-	os.WriteFile(filepath.Join(repo, ".worktrees", tv.Slug, "by-hand.txt"), []byte("x\n"), 0o644)
-	if !rerun() {
-		t.Fatal("no Rerun on the review after a hand edit")
-	}
+	waitFor(t, "Rerun on the latest review", func() bool { return rerun(rev) })
+
 	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
 	os.MkdirAll(proj, 0o755)
 	s, _ := a.db.Step(rev)
@@ -904,7 +946,22 @@ func TestRerunReviewAfterHandEdit(t *testing.T) {
 	if err := a.RerunStep(rev); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "test 2 after the rerun", func() bool { return stepState(a, store.StepID(tv.ID, "test-2")) == store.Done })
+	waitFor(t, "the review rerun", func() bool { x, _ := a.db.Step(rev); return x.State == store.Done && x.EndedAt.After(s.EndedAt) })
+	waitFor(t, "Rerun still on the review", func() bool { return rerun(rev) })
+	if _, err := a.db.Step(test); err == nil {
+		t.Fatal("Test and commit started by itself")
+	}
+
+	if _, err := a.StartStep(tv.ID, "test", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "test", func() bool { return stepState(a, test) == store.Done })
+	if rerun(rev) || rerun(test) {
+		t.Fatal("Rerun offered after Test and commit")
+	}
+	if err := a.RerunStep(test); err == nil {
+		t.Fatal("Test and commit reran")
+	}
 }
 
 func TestPlanOptionsWarning(t *testing.T) {
@@ -929,14 +986,19 @@ func TestCopilotStep(t *testing.T) {
 		t.Fatalf("waiting: %+v %+v", v.Status, v.Next)
 	}
 	task, _ := a.db.Task(tv.ID)
-	a.finishCopilotStep(task, github.Review{ID: 1, Body: "Looks fine", Comments: []github.Comment{{Path: "a.go", Line: 3, Body: "nil check"}}})
+	a.finishCopilotStep(task, github.Review{ID: 1, Body: "Looks fine", Comments: []github.Comment{{
+		Path: "a.go", Line: 3, Body: "nil check", Title: "Check the error", Severity: "Medium",
+		Hunk: "@@ -1,2 +1,3 @@\n x := f()\n+y := x.v", Replies: []github.Reply{{Author: "ant", Body: "on it"}},
+	}}})
 	s, _ := a.db.Step(id)
 	if !s.Unsuccessful() {
 		t.Fatalf("a review with comments should fail the step: %+v", s)
 	}
 	b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-1.md"))
-	if !strings.Contains(string(b), "status: failed") || !strings.Contains(string(b), "`a.go:3` nil check") {
-		t.Fatalf("COPILOT-1.md: %s", b)
+	for _, want := range []string{"status: failed", "#### 1. Check the error · Medium", "`a.go:3`", "```diff\n@@ -1,2 +1,3 @@\n x := f()\n+y := x.v\n```", "nil check", "> **ant** replied: on it"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("COPILOT-1.md lacks %q:\n%s", want, b)
+		}
 	}
 }
 

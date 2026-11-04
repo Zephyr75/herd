@@ -214,60 +214,26 @@ func (a *App) optionsWarning(t store.Task, steps []StepView, nx Next) string {
 	return fmt.Sprintf("%s lists several options. Read them, then name the one to take in the guidance before starting %s.", last.Artifact, nx.Options[0].Label)
 }
 
-// markRerun sets Rerun on the steps that can run again: the latest step when
-// it commits (amending its commit), and the Review of the current cycle (the
-// first automatic step after the latest manual one) once you changed the
-// worktree after the latest step finished.
+// markRerun sets Rerun on the Review of the current cycle (the automatic
+// steps after the latest manual one) once every step finished: it reviews
+// again, e.g. after hand edits. Manual steps (Test and commit) run again as
+// new steps, and once one ran the cycle is over.
 func (a *App) markRerun(t store.Task, steps []StepView, agents []settings.Agent) {
 	if t.Archived || t.WorktreeRemoved || len(steps) == 0 {
 		return
 	}
-	finished := func(s StepView) bool { return s.State == store.Done || s.State == store.Failed }
 	for _, s := range steps {
-		if !finished(s) {
+		if s.State != store.Done && s.State != store.Failed {
 			return
 		}
 	}
-	last := &steps[len(steps)-1]
-	last.Rerun = last.Commits
 	cand := -1
 	for i := len(steps) - 1; i >= 0 && agentFor(agents, steps[i].Agent).AfterAgent() != ""; i-- {
 		cand = i
 	}
-	latest := last // the step that finished last (a rerun Review may end after the Test)
-	for i := range steps {
-		if steps[i].EndedAt.After(latest.EndedAt) {
-			latest = &steps[i]
-		}
-	}
-	if cand > 0 && !steps[cand].Rerun && a.changedSince(t, latest.ID) {
+	if cand > 0 {
 		steps[cand].Rerun = true
 	}
-}
-
-// treeKey holds the worktree content hash when a step finished.
-func treeKey(stepID string) string { return "tree:" + stepID }
-
-func (a *App) worktreeTree(t store.Task) (string, error) {
-	p := a.projectOf(t)
-	return a.git.Tree(a.ctx, worktreePath(p, t), filepath.Join(a.runDir(p, t), ".tree-index"))
-}
-
-// snapshotTree records the worktree content as a step finishes.
-func (a *App) snapshotTree(t store.Task, stepID string) {
-	if tree, err := a.worktreeTree(t); err == nil {
-		_ = a.db.Set(treeKey(stepID), tree)
-	}
-}
-
-// changedSince reports whether the worktree changed after step id finished.
-func (a *App) changedSince(t store.Task, stepID string) bool {
-	was, _ := a.db.Get(treeKey(stepID))
-	if was == "" {
-		return false
-	}
-	now, err := a.worktreeTree(t)
-	return err == nil && now != was
 }
 
 // ciSummary is the PR's CI state in a few words, "" before any check.
@@ -379,7 +345,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		if t.WorktreeRemoved {
 			nx.Text += " The worktree and branch were removed."
 		} else {
-			nx.Text += " The worktree is kept until you remove it."
+			nx.Text += " The worktree is kept until you delete the task."
 		}
 		return nx
 	}
@@ -429,18 +395,32 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 			return nx
 		}
 	}
-	// fix is the manual agent to go back to (Implement): the nearest one
-	// before the last step, or before Push after herd's Copilot step.
+	// fix is the manual agent to go back to (Implement): the nearest one an
+	// automatic check follows, before the last step (or before Push after
+	// herd's Copilot step); without one, the nearest manual agent.
 	var fix *Option
+	fixIdx := -1 // the agent index of fix, when a check follows it
 	from := idx
 	if last.External {
 		from = len(agents)
 	}
-	for i := from - 1; i >= 0; i-- {
-		if agents[i].AfterAgent() == "" && !agents[i].Push {
-			o := option(agents[i], countAgent(steps, agents[i].ID)+1, "")
-			fix = &o
-			break
+	checked := func(id string) bool {
+		for _, x := range agents {
+			if x.AfterAgent() == id {
+				return true
+			}
+		}
+		return false
+	}
+	for _, needCheck := range []bool{true, false} { // else the nearest manual one (Plan)
+		for i := from - 1; i >= 0 && fix == nil; i-- {
+			if agents[i].AfterAgent() == "" && !agents[i].Push && (!needCheck || checked(agents[i].ID)) {
+				o := option(agents[i], countAgent(steps, agents[i].ID)+1, "")
+				fix = &o
+				if needCheck {
+					fixIdx = i
+				}
+			}
 		}
 	}
 	for _, s := range steps {
@@ -488,16 +468,18 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		}
 		return nx
 	}
+	// Steps after the agent a check follows (Review, Test, Commit after
+	// Implement) check its work: a failure sends back to it.
+	afterFix := fixIdx >= 0 && idx > fixIdx
 	if last.Unsuccessful() {
 		nx.Text = last.Name + " failed: " + last.Artifact + " says why."
-		again := option(ag, countAgent(steps, ag.ID)+1, "")
 		switch {
+		case afterFix:
+			nx.Options = append(nx.Options, *fix)
 		case fix == nil:
-			nx.Options = append(nx.Options, again)
-		case ag.AfterAgent() != "": // an automatic check failed: fix the work first
-			nx.Options = append(nx.Options, *fix, again)
+			nx.Options = append(nx.Options, option(ag, countAgent(steps, ag.ID)+1, ""))
 		default:
-			nx.Options = append(nx.Options, again, *fix)
+			nx.Options = append(nx.Options, option(ag, countAgent(steps, ag.ID)+1, ""), *fix)
 		}
 		return nx
 	}
@@ -533,7 +515,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	if next != nil {
 		opts = append(opts, option(*next, countAgent(steps, next.ID)+1, ""))
 	}
-	if fix != nil && ag.AfterAgent() != "" { // after an automatic check passed, going back stays possible
+	if afterFix { // after a check passed, going back stays possible
 		opts = append(opts, *fix)
 	}
 	nx.Options = append(nx.Options, opts...)

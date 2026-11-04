@@ -280,9 +280,9 @@ func (a *App) RestoreTask(id string) error {
 	})
 }
 
-// RemoveWorktree removes a task's worktree and branch (after the UI asked
+// removeWorktree removes a task's worktree and branch (after the UI asked
 // for confirmation). The task stays in the Archive.
-func (a *App) RemoveWorktree(id string) ([]string, error) {
+func (a *App) removeWorktree(id string) ([]string, error) {
 	t, err := a.db.Task(id)
 	if err != nil {
 		return nil, err
@@ -329,7 +329,7 @@ func (a *App) DeleteTask(id string) ([]string, error) {
 	if _, ok := a.settings.Project(t.Project); !ok {
 		lines = append(lines, "the project "+t.Project+" is no longer in Settings > Projects: its repository, worktree and branch were left alone")
 	} else if !t.WorktreeRemoved {
-		if lines, err = a.RemoveWorktree(id); err != nil {
+		if lines, err = a.removeWorktree(id); err != nil {
 			return lines, err
 		}
 	}

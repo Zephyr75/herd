@@ -96,6 +96,10 @@ type Snapshot struct {
 // Store reads and writes the settings files. It is safe for concurrent use.
 type Store struct {
 	Dir string
+	// io serializes reading the files into memory (Reload) and writing them
+	// (Save…): a reload that read a file just before a save must not put
+	// the old content back after it.
+	io  sync.Mutex
 	mu  sync.RWMutex
 	cfg Config
 	ags []Agent
@@ -121,6 +125,8 @@ func (s *Store) path(name string) string { return filepath.Join(s.Dir, name) }
 
 // Reload re-reads every file from disk.
 func (s *Store) Reload() error {
+	s.io.Lock()
+	defer s.io.Unlock()
 	cfg := DefaultConfig()
 	if b, err := os.ReadFile(s.path("config.toml")); err == nil {
 		if _, err := toml.Decode(string(b), &cfg); err != nil {
@@ -305,6 +311,8 @@ func (s *Store) Context(id string) (Context, bool) {
 
 // SaveAgents replaces agents.toml.
 func (s *Store) SaveAgents(agents []Agent) error {
+	s.io.Lock()
+	defer s.io.Unlock()
 	seen := map[string]bool{}
 	for _, a := range agents {
 		if a.ID == "" || a.Name == "" {
@@ -355,6 +363,8 @@ func checkTriggers(agents []Agent) error {
 
 // SaveContext writes one context block.
 func (s *Store) SaveContext(c Context) error {
+	s.io.Lock()
+	defer s.io.Unlock()
 	if c.ID == "" {
 		return errors.New("context id required")
 	}
@@ -376,6 +386,8 @@ func (s *Store) SaveContext(c Context) error {
 
 // SaveProject adds or replaces a project (matched by id).
 func (s *Store) SaveProject(p Project) error {
+	s.io.Lock()
+	defer s.io.Unlock()
 	if p.ID == "" || p.Path == "" {
 		return errors.New("project id and path are required")
 	}
@@ -402,6 +414,8 @@ func (s *Store) SaveProject(p Project) error {
 
 // RemoveProject deletes a project from config.toml (its tasks stay in the db).
 func (s *Store) RemoveProject(id string) error {
+	s.io.Lock()
+	defer s.io.Unlock()
 	s.mu.Lock()
 	var keep []Project
 	for _, p := range s.cfg.Projects {
@@ -416,6 +430,8 @@ func (s *Store) RemoveProject(id string) error {
 
 // UpdateConfig applies fn to a copy of config.toml and saves it.
 func (s *Store) UpdateConfig(fn func(*Config)) error {
+	s.io.Lock()
+	defer s.io.Unlock()
 	s.mu.Lock()
 	cfg := s.cfg
 	cfg.Projects = append([]Project(nil), s.cfg.Projects...)

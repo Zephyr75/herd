@@ -45,7 +45,7 @@ const stop = () => herd.attempt('Could not stop waiting', () => api.MarkDone(pro
       <div class="line">
         <span :class="['sdot', waiting ? 'd-running' : unsuccessful(step) ? 'd-failed' : step.verdict === 'skipped' ? 'd-off' : 'd-done']"></span>
         <span v-if="waiting">Requested. herd checks every minute and writes {{ step.artifact }} when it arrives.</span>
-        <span v-else-if="unsuccessful(step)">Copilot left comments: read them in the Preview tab ({{ step.artifact }}, also in FEEDBACK.md).</span>
+        <span v-else-if="unsuccessful(step)">Copilot left comments: read them in the Preview tab ({{ step.artifact }}).</span>
         <span v-else-if="step.verdict === 'skipped'">herd stopped waiting; no review arrived.</span>
         <span v-else>Reviewed: nothing to fix.</span>
         <span class="grow"></span>

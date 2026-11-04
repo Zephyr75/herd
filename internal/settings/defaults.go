@@ -45,9 +45,9 @@ Do not edit code. End with status: done, or status: failed if the task cannot be
 		{
 			ID: "impl", Name: "Implement", Command: "/herd:implement {task} -- {guidance}", Model: "opus", Trigger: "manual",
 			Writes: "IMPLEMENT-{n}.md",
-			Instructions: `Read PLAN.md, and FEEDBACK.md when it exists.
+			Instructions: `Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist (older ones were handled by earlier Implements).
 Implement the plan in this worktree. When PLAN.md lists Options, take the one the guidance picks, else the recommended one.
-When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the review comments in FEEDBACK.md.
+When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n.md.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: the Commit step commits once Review and Test pass.
@@ -58,8 +58,7 @@ End with status: done, or status: failed if you could not implement it (say what
 			ID: "review", Name: "Review", Command: "/herd:review {task}", Model: "opus", Trigger: "after:impl",
 			Writes: "REVIEW-{n}.md",
 			Instructions: `Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.
-List findings, most important first, and append them to FEEDBACK.md.
-Write REVIEW-{n}.md. End with status: done if the changes are ready, or status: failed if they need changes.
+Write REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.
 Never edit code, and do not commit: the Commit step commits once the tests pass.`,
 		},
 		{

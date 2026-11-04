@@ -1000,6 +1000,18 @@ func TestCopilotStep(t *testing.T) {
 			t.Fatalf("COPILOT-1.md lacks %q:\n%s", want, b)
 		}
 	}
+	// A later review, with no Copilot step waiting, gets a step of its own.
+	a.takeCopilotReview(task, github.Review{ID: 2, Body: "All good now"})
+	s2, err := a.db.Step(store.StepID(tv.ID, "copilot-2"))
+	if err != nil || !s2.Succeeded() {
+		t.Fatalf("copilot-2: %+v %v", s2, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-2.md")); !strings.Contains(string(b), "All good now") {
+		t.Fatalf("COPILOT-2.md: %s", b)
+	}
+	if _, err := os.Stat(filepath.Join(tv.RunDir, "FEEDBACK.md")); err == nil {
+		t.Fatal("FEEDBACK.md written")
+	}
 }
 
 func TestCISummary(t *testing.T) {

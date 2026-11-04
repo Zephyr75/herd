@@ -786,6 +786,21 @@ const copilotAgent = "copilot"
 // skipped is the Verdict of a Copilot step herd stopped waiting on.
 const skipped = "skipped"
 
+// takeCopilotReview writes a review to the waiting Copilot step, or to a new
+// one when none waits (e.g. after Mark done).
+func (a *App) takeCopilotReview(t store.Task, r github.Review) {
+	if !a.copilotWaiting(t.ID) {
+		a.startCopilotStep(t.ID)
+	}
+	a.finishCopilotStep(t, r)
+}
+
+// copilotWaiting reports whether a Copilot step of the task waits for a review.
+func (a *App) copilotWaiting(taskID string) bool {
+	steps, _ := a.db.Steps(taskID)
+	return slices.ContainsFunc(steps, func(s store.Step) bool { return s.Agent == copilotAgent && s.State == store.Running })
+}
+
 func (a *App) startCopilotStep(taskID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -858,8 +873,9 @@ func splitTitle(md string) (string, string) {
 	return "", ""
 }
 
-// collectCopilot appends the PR's new Copilot reviews to FEEDBACK.md, where
-// the next Implement reads them. The kv key holds the last review id seen.
+// collectCopilot writes each new Copilot review of the PR to its own Copilot
+// step (COPILOT-n.md), where the next Implement reads it; a review that
+// arrives while no Copilot step waits gets a new one. The kv key holds the last review id seen.
 func (a *App) collectCopilot(t store.Task) {
 	p := a.projectOf(t)
 	seen, _ := a.db.Get("copilot:" + t.ID)
@@ -870,10 +886,9 @@ func (a *App) collectCopilot(t store.Task) {
 		return
 	}
 	for _, r := range rs {
-		a.appendFeedback(t, p.Name, copilotMarkdown(t.PRNumber, r.Body, r.Comments))
-		a.finishCopilotStep(t, r)
+		a.takeCopilotReview(t, r)
 		_ = a.db.Set("copilot:"+t.ID, strconv.FormatInt(r.ID, 10))
-		a.toast("Copilot review arrived", fmt.Sprintf("PR #%d: %d comments appended to FEEDBACK.md", t.PRNumber, len(r.Comments)), false)
+		a.toast("Copilot review arrived", fmt.Sprintf("PR #%d: %d comments", t.PRNumber, len(r.Comments)), false)
 	}
 	if err != nil {
 		log.Printf("copilot reviews of PR #%d: %v", t.PRNumber, err)
@@ -927,19 +942,6 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.TrimRight(strings.Join(lines, "\n"), " \n")
-}
-
-func (a *App) appendFeedback(t store.Task, projectName, md string) {
-	path := filepath.Join(a.Home, "runs", projectName, t.Slug, "FEEDBACK.md")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if fi, _ := f.Stat(); fi != nil && fi.Size() > 0 {
-		md = "\n" + md
-	}
-	_, _ = f.WriteString(md)
 }
 
 // reconcile fixes steps left live by a previous run: herd owns every

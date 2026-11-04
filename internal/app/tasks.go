@@ -316,7 +316,7 @@ func (a *App) removeWorktree(id string) ([]string, error) {
 
 // DeleteTask removes an archived task for good: its worktree and local
 // branch (the pushed branch and the PR stay on GitHub), its run files
-// (artifacts, FEEDBACK.md) and its steps in herd.
+// (artifacts) and its steps in herd.
 func (a *App) DeleteTask(id string) ([]string, error) {
 	t, err := a.db.Task(id)
 	if err != nil {
@@ -349,7 +349,7 @@ func (a *App) DeleteTask(id string) ([]string, error) {
 }
 
 // OpenRunDir opens the folder holding the task's artifacts (TASK.md, PLAN.md,
-// FEEDBACK.md, …) in the file manager.
+// REVIEW-n.md, …) in the file manager.
 func (a *App) OpenRunDir(taskID string) error {
 	t, err := a.db.Task(taskID)
 	if err != nil {

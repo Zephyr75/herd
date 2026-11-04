@@ -27,9 +27,9 @@ const agents: Agent[] = [
   { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
   { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, ignoreRules: false,
-    instructions: 'Read PLAN.md, and FEEDBACK.md when it exists.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
+    instructions: 'Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md when they exist.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
   { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, ignoreRules: false,
-    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nList findings, most important first, and append them to FEEDBACK.md.\nWrite REVIEW-{n}.md. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: the Commit step commits once the tests pass.' },
+    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nWrite REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: the Commit step commits once the tests pass.' },
   { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
   { id: 'commit', name: 'Commit', command: '/herd:commit {task}', model: 'haiku', trigger: 'manual', writes: 'COMMIT-{n}.md', commit: true, push: false, ignoreRules: false,
@@ -233,7 +233,7 @@ function derive(t: MockTask): Task {
     if (appr) { next.approval = appr.id; next.text = 'Claude Code wants to run a command. Answer in the terminal, or allow it once here.' }
     else if (run?.external) { next.text = `Waiting for Copilot's review of PR #${t.pr} (checked every minute). Start a fix any time, or Mark done to stop waiting.`; next.markDone = run.id; if (pushFix) next.options.push(pushFix) }
     else if (last.external) {
-      next.text = unsuccessful(last) ? `Copilot left comments on PR #${t.pr} (${last.artifact}, also in FEEDBACK.md).` : `Copilot found nothing to fix on PR #${t.pr}. The task moves to Archive when the PR is merged or closed.`
+      next.text = unsuccessful(last) ? `Copilot left comments on PR #${t.pr} (${last.artifact}).` : `Copilot found nothing to fix on PR #${t.pr}. The task moves to Archive when the PR is merged or closed.`
       if (pushFix) { next.text += ` Start ${pushFix.label} for fixes (Copilot comments, failing CI), then push again.`; next.options.push(pushFix) }
     }
     else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically if it succeeds.` : 'You will be asked for the next step when it finishes.')
@@ -298,7 +298,7 @@ export function mockTerminal(stepId: string): string {
     else { L(`⏺ Write(${run}/PLAN.md)`); L('  ⎿ Wrote 58 lines · status: done', C.grey); L(''); L('● Step complete · waiting for you to start Implement 1', C.cyan) }
   } else if (s.agent === 'impl') {
     L(`⏺ Read(${run}/PLAN.md)`)
-    if (s.n > 1) { L(`⏺ Read(${run}/FEEDBACK.md)`); L(`  ⎿ ${(fx.findings ?? []).length} findings from Review ${s.n - 1}`, C.grey) }
+    if (s.n > 1) { L(`⏺ Read(${run}/REVIEW-${s.n - 1}.md)`); L(`  ⎿ ${(fx.findings ?? []).length} findings`, C.grey) }
     L(`⏺ Update(${files[0]})`); L('  ⎿ Added 18 lines, removed 4 lines', C.grey)
     ;(fx.diff ?? []).forEach(([k, line]) => L((k === '+' ? '+ ' : '- ') + line.replace(/\t/g, '    '), k === '+' ? C.green : C.red))
     if (s.state === 'approval') {
@@ -316,7 +316,7 @@ export function mockTerminal(stepId: string): string {
     else { (fx.findings ?? []).forEach((f) => L('  · ' + f, C.grey)); L(`⏺ Write(${run}/REVIEW-${s.n}.md)`); L('  ⎿ status: ' + (s.verdict === 'failed' ? 'failed' : 'done'), s.verdict === 'failed' ? C.yellow : C.cyan) }
   } else {
     L(`⏺ Write(${run}/PR.md)`); L(`● herd: git push -u origin agent/${t.slug}`, C.cyan); L(`● herd: gh pr create --body-file PR.md  →  #${t.pr}`, C.cyan)
-    L(`● herd: Copilot review, ${(fx.copilot ?? []).length} comments appended to FEEDBACK.md`, C.cyan)
+    L(`● herd: Copilot review, ${(fx.copilot ?? []).length} comments in COPILOT-${s.n}.md`, C.cyan)
   }
   return out.join('\r\n') + '\r\n'
 }

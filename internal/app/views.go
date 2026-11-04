@@ -456,7 +456,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	// The last step finished.
 	if last.External {
 		if last.Unsuccessful() {
-			nx.Text = fmt.Sprintf("Copilot left comments on PR #%d (%s, also in FEEDBACK.md).", t.PRNumber, last.Artifact)
+			nx.Text = fmt.Sprintf("Copilot left comments on PR #%d (%s).", t.PRNumber, last.Artifact)
 		} else if last.Verdict == skipped {
 			nx.Text = fmt.Sprintf("herd stopped waiting for Copilot on PR #%d.", t.PRNumber)
 		} else {

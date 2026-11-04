@@ -179,8 +179,8 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Checks == nil {
 		v.Checks = []github.Check{}
 	}
-	v.Status = statusOf(t, v.Steps)
-	if ci := ciSummary(v.Checks); ci != "" && t.PRNumber > 0 && t.PRState == "open" {
+	v.Status = statusOf(t, v.Steps, agents)
+	if ci := ciSummary(v.Checks); ci != "" && v.Status.Short == "PR open" {
 		v.Status.Label += " · " + ci
 	}
 	v.Next = nextOf(t, v.Steps, agents)
@@ -267,7 +267,7 @@ func sourceText(t store.Task, p settings.Project) string {
 	}
 }
 
-func statusOf(t store.Task, steps []StepView) Status {
+func statusOf(t store.Task, steps []StepView, agents []settings.Agent) Status {
 	if t.Archived {
 		day := t.ArchivedAt.Format("Jan 2")
 		if t.PRNumber > 0 && t.PRState != "" && t.PRState != "open" {
@@ -313,7 +313,9 @@ func statusOf(t store.Task, steps []StepView) Status {
 	if last.Unsuccessful() {
 		return Status{"waiting", "Waiting for input · " + last.Name + " failed", "failed"}
 	}
-	if t.PRNumber > 0 && t.PRState == "open" {
+	// Green only while the push (or its Copilot review) is the latest step:
+	// a new Implement after it is work the PR does not have yet.
+	if t.PRNumber > 0 && t.PRState == "open" && (last.External || agentFor(agents, last.Agent).Push) {
 		return Status{"done", fmt.Sprintf("PR #%d open", t.PRNumber), "PR open"}
 	}
 	return Status{"waiting", "Waiting for input · after " + last.Name, "waiting"}

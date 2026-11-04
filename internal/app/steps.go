@@ -720,34 +720,35 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 	wt := worktreePath(p, t)
 	runDir := a.runDir(p, t)
 	g := gitops.Git{Log: say}
-	// Work no review committed (e.g. Implement, then Push) still goes in the PR.
-	if sha, err := g.CommitAll(a.ctx, wt, fmt.Sprintf("[%s] unreviewed changes", t.Slug)); err != nil {
+	// PR.md is both the commit message and the pull request: its title line
+	// (or the one chosen in the Push popup), then its body.
+	ag := agentFor(a.settings.Agents(), s.Agent)
+	art, _ := artifacts.Read(filepath.Join(runDir, ag.ArtifactName(s.N)))
+	title, body := splitTitle(art.Body)
+	if pt, ok := a.prTitle(t.ID); ok {
+		title = pt.Format(t.Issue)
+	}
+	if title == "" {
+		title = t.Title
+	}
+	title, body = withIssue(title, t.Issue), withCloses(body, t.Issue)
+	msg := strings.TrimSpace(title + "\n\n" + strings.TrimSpace(body))
+	if sha, err := g.CommitAll(a.ctx, wt, msg); err != nil {
 		say("commit failed: " + err.Error())
 		a.toast("Commit failed", err.Error(), true)
 		return
 	} else if sha != "" {
-		say(fmt.Sprintf("committed unreviewed changes as %s", sha))
+		a.updateStep(s.ID, func(x *store.Step) bool { x.SHA = sha; return true })
+		say(fmt.Sprintf("committed %s %q", sha, title))
 	}
 	if err := g.Push(a.ctx, wt, branchName(t)); err != nil {
 		say("push failed: " + err.Error())
 		a.toast("Push failed", err.Error(), true)
 		return
 	}
-	ag := agentFor(a.settings.Agents(), s.Agent)
-	art, err := artifacts.Read(filepath.Join(runDir, ag.ArtifactName(s.N)))
-	if err != nil || !art.Exists {
+	if !art.Exists {
 		say("no " + ag.ArtifactName(s.N) + ", so no pull request was opened")
 		return
-	}
-	title, body := splitTitle(art.Body)
-	if pt, ok := a.prTitle(t.ID); ok {
-		title = pt.Format(t.Issue) // chosen in the Push popup
-	}
-	if title == "" {
-		title = t.Title
-	}
-	if t.Issue != "" && !strings.Contains(body, "#"+t.Issue) {
-		body += fmt.Sprintf("\n\nCloses #%s\n", t.Issue)
 	}
 	bodyFile := filepath.Join(runDir, "PR-body.md")
 	if err := os.WriteFile(bodyFile, []byte(body), 0o644); err != nil {

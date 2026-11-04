@@ -25,11 +25,25 @@ var scopeChars = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 
 // Format renders the title; LOCAL tasks have no issue suffix.
 func (p PRTitle) Format(issue string) string {
-	s := fmt.Sprintf("%s(%s): %s", p.Kind, p.Scope, p.Desc)
-	if issue != "" {
-		s += " #" + issue
+	return withIssue(fmt.Sprintf("%s(%s): %s", p.Kind, p.Scope, p.Desc), issue)
+}
+
+// withIssue ends a title with " #<issue>", once: copies already in it go.
+func withIssue(title, issue string) string {
+	if issue == "" {
+		return title
 	}
-	return s
+	ref := regexp.MustCompile(`\s*#` + regexp.QuoteMeta(issue) + `\b`)
+	return strings.TrimSpace(ref.ReplaceAllString(title, "")) + " #" + issue
+}
+
+// withCloses ends a PR description with "Closes #<issue>" unless it already
+// closes the issue (Closes, Fixes or Resolves #<issue>).
+func withCloses(body, issue string) string {
+	if issue == "" || regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\s+#`+regexp.QuoteMeta(issue)+`\b`).MatchString(body) {
+		return body
+	}
+	return strings.TrimLeft(strings.TrimRight(body, " \n")+"\n\nCloses #"+issue, "\n") + "\n"
 }
 
 // defaultPRDesc is the branch without the prefix, dashes as spaces.

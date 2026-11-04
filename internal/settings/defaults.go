@@ -50,7 +50,7 @@ Implement the plan in this worktree. When PLAN.md lists Options, take the one th
 When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n.md.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
-Do not commit: the Commit step commits once Review and Test pass.
+Do not commit: Commit and push commits once Review and Test pass.
 Write IMPLEMENT-{n}.md with Changes, Checks run and Notes for the reviewer.
 End with status: done, or status: failed if you could not implement it (say what blocks).`,
 		},
@@ -59,7 +59,7 @@ End with status: done, or status: failed if you could not implement it (say what
 			Writes: "REVIEW-{n}.md",
 			Instructions: `Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.
 Write REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.
-Never edit code, and do not commit: the Commit step commits once the tests pass.`,
+Never edit code, and do not commit: Commit and push commits once the tests pass.`,
 		},
 		{
 			ID: "test", Name: "Test", Command: "/herd:test {task} -- {guidance}", Model: "sonnet", Trigger: "manual",
@@ -69,23 +69,16 @@ Write tests for the reviewed, uncommitted changes (git status, git diff HEAD), f
 the main paths, the edge cases, and anything the reviews flagged.
 Run them. Change only tests, never the code under test: if a test shows a bug, keep it failing and explain it.
 Write TEST-{n}.md with Tests added, How to run and Results.
-Do not commit: the Commit step commits once the tests pass.
+Do not commit: Commit and push commits once the tests pass.
 End with status: done when the tests pass, or status: failed when one shows a bug.`,
 		},
 		{
-			ID: "commit", Name: "Commit", Command: "/herd:commit {task}", Model: "haiku", Trigger: "manual",
-			Writes: "COMMIT-{n}.md", Commit: true,
-			Instructions: `Write COMMIT-{n}.md, the commit message for the uncommitted changes (git status, git diff HEAD):
-a title line in the repo's commit style (git log --oneline -10), then a short body saying what changed
-and why, from PLAN.md and the IMPLEMENT files.
-Do not commit: herd commits every change with this message when you finish. End with status: done.`,
-		},
-		{
-			ID: "push", Name: "Push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
+			ID: "push", Name: "Commit and push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
 			Writes: "PR.md", Push: true, IgnoreRules: true,
-			Instructions: `Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.
-Add Closes #{issue} when the task has an issue.
-Do not push: herd pushes, opens the PR and collects the Copilot review. End with status: done.`,
+			Instructions: `Write PR.md: a title line, then a short body saying what changed and why, from PLAN.md and the IMPLEMENT files.
+Do not commit or push: herd commits every change with this title and body, pushes, opens the draft PR
+(adding the issue number to its title and Closes #{issue} to its body) and collects the Copilot review.
+End with status: done.`,
 		},
 	}
 }

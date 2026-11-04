@@ -29,12 +29,10 @@ const agents: Agent[] = [
   { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md when they exist.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
   { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, ignoreRules: false,
-    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nWrite REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: the Commit step commits once the tests pass.' },
+    instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nWrite REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: Commit and push commits once the tests pass.' },
   { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, ignoreRules: false,
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
-  { id: 'commit', name: 'Commit', command: '/herd:commit {task}', model: 'haiku', trigger: 'manual', writes: 'COMMIT-{n}.md', commit: true, push: false, ignoreRules: false,
-    instructions: 'Write COMMIT-{n}.md, the commit message for the uncommitted changes: a title line in the repo\'s commit style, then a short body.\nDo not commit: herd commits every change with this message when you finish. End with status: done.' },
-  { id: 'push', name: 'Push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: false, push: true, ignoreRules: true,
+  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: false, push: true, ignoreRules: true,
     instructions: 'Write PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
@@ -205,11 +203,11 @@ function derive(t: MockTask): Task {
   else if (last.state === 'idle') status = st('waiting', 'Waiting for input · ' + last.name, 'waiting')
   else if (last.state === 'failed') status = st('waiting', `Waiting for input · ${last.name} ended early`, 'failed')
   else if (unsuccessful(last)) status = st('waiting', `Waiting for input · ${last.name} failed`, 'failed')
-  else if (t.pr && t.prState === 'open') status = st('done', `PR #${t.pr} open`, 'PR open')
+  else if (t.pr && t.prState === 'open' && (last.external || agent(last.agent).push)) status = st('done', `PR #${t.pr} open`, 'PR open')
   else status = st('waiting', 'Waiting for input · after ' + last.name, 'waiting')
 
   const cs = t.checks ?? []
-  if (cs.length && t.pr && t.prState === 'open' && !t.archived)
+  if (cs.length && status.short === 'PR open')
     status = { ...status, label: status.label + ' · ' + (cs.some((c) => c.bucket === 'fail' || c.bucket === 'cancel') ? 'CI failed' : cs.some((c) => c.bucket === 'pending') ? 'CI running' : 'CI passed') }
   const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], ghost: null as Next['ghost'] }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))

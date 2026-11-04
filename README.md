@@ -12,13 +12,13 @@ One task, one git worktree, one pipeline, while you sip your coffee. ☕</p>
 ## 🐎 The ride
 
 ```
-Plan → Implement → Review → Test → Commit → Push → Copilot
-         ↑___________ fails send you back here ___|
+Plan → Implement → Review → Test → Commit and push → Copilot
+         ↑___________ fails send you back here _________|
 ```
 
 - **Implement** kicks off **Review** by itself. Happy? Go to **Test**. Not happy? Edit by hand and **Rerun** the review.
-- **Test** fails? Back to **Implement**. Nothing is committed until **Commit** says so.
-- **Push** opens a **draft** PR, asks Copilot for a review and tracks CI. **Mark ready** when you are.
+- **Test** fails? Back to **Implement**. Nothing is committed before **Commit and push**.
+- **Commit and push** commits, pushes and opens a **draft** PR (`#issue` in the title, `Closes #issue` in the body), asks Copilot for a review and tracks CI. **Mark ready** when you are.
 
 Every step is a real `claude` session in its own terminal: watch it, answer it, or take it over in Zed.
 
@@ -42,7 +42,7 @@ make test    # Go tests, with a fake claude
 
 - **Agents** live in `~/.herd/agents.toml` (Settings → Agents). Rules in Settings → Context go into every session.
 - **Run files** (TASK.md, PLAN.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
-- **Edits outside the worktree** show up in Changes with an Open in Zed button, and Next step warns before Push.
+- **Edits outside the worktree** show up in Changes with an Open in Zed button, and Next step warns before you push.
 - **Quitting herd** keeps working steps alive: the next herd reattaches them.
 - **Shortcuts:** Alt+E and Alt+A hide the side panels, Esc closes pop-ups.
 

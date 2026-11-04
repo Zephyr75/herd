@@ -180,26 +180,9 @@ func TestPlanImplementReview(t *testing.T) {
 	}
 	waitFor(t, "test done", func() bool { return stepState(a, store.StepID(tv.ID, "test-1")) == store.Done })
 	if n := run(t, wt, "git", "rev-list", "--count", "main..HEAD"); n != "0" {
-		t.Fatalf("committed before the Commit step: %s commits", n)
+		t.Fatalf("committed before Commit and push: %s commits", n)
 	}
-	next("Commit 1, Implement 2")
-	if _, err := a.StartStep(tv.ID, "commit", "", 0); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "commit", func() bool { s, _ := a.db.Step(store.StepID(tv.ID, "commit-1")); return s.SHA != "" })
-	if msg := run(t, wt, "git", "log", "-1", "--format=%s%n%b"); msg != "feat: fake change\nWhat changed." {
-		t.Fatalf("commit message %q", msg)
-	}
-	next("Push, Implement 2")
-	// Implement and its checks show the commit their cycle ended with; Plan none.
-	for _, id := range []string{impl, rev, store.StepID(tv.ID, "test-1")} {
-		if ch, _ := a.StepChanges(id); ch.Source != "commit" || ch.Via != "Commit 1" || len(ch.Files) == 0 {
-			t.Fatalf("%s changes: %+v", id, ch)
-		}
-	}
-	if ch, _ := a.StepChanges(plan); ch.Source != "" {
-		t.Fatalf("plan changes: %+v", ch)
-	}
+	next("Commit and push, Implement 2")
 	ctxFile, _ := os.ReadFile(filepath.Join(tv.RunDir, "CONTEXT.md"))
 	if !strings.Contains(string(ctxFile), "General context") {
 		t.Fatalf("CONTEXT.md: %s", ctxFile)
@@ -677,6 +660,34 @@ func TestTaskBranch(t *testing.T) {
 	}
 }
 
+func TestIssueInTitleAndBody(t *testing.T) {
+	for in, want := range map[string]string{
+		"feat(x): do it":             "feat(x): do it #12",
+		"feat(x): do it #12":         "feat(x): do it #12",
+		"feat(x): #12 do it #12":     "feat(x): do it #12",
+		"feat(x): do it #123":        "feat(x): do it #123 #12",
+		"fix(y): see #12, then more": "fix(y): see, then more #12",
+	} {
+		if got := withIssue(in, "12"); got != want {
+			t.Errorf("withIssue(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := withIssue("feat(x): local", ""); got != "feat(x): local" {
+		t.Errorf("LOCAL title %q", got)
+	}
+	if got := withCloses("Why\n", "12"); got != "Why\n\nCloses #12\n" {
+		t.Errorf("body %q", got)
+	}
+	for _, done := range []string{"Fixes #12", "closes #12\nmore", "Resolved #12."} {
+		if got := withCloses(done, "12"); got != done {
+			t.Errorf("withCloses(%q) = %q", done, got)
+		}
+	}
+	if got := withCloses("Closes #123", "12"); !strings.HasSuffix(got, "Closes #12\n") {
+		t.Errorf("#123 taken for #12: %q", got)
+	}
+}
+
 func TestPRTitle(t *testing.T) {
 	a, _ := newTestApp(t)
 	tv, _ := a.CreateTask("core", "", "pr title", "ar-take-a-vehicle-sent-back-to-prod-out-of-QA", false, nil)
@@ -854,6 +865,22 @@ func TestDeleteTaskOfRemovedProject(t *testing.T) {
 	}
 }
 
+func TestStatusAfterANewImplement(t *testing.T) {
+	agents := settings.DefaultAgents()
+	step := func(agent string, n int) StepView {
+		return StepView{Step: store.Step{Agent: agent, N: n, State: store.Done}, Name: agentFor(agents, agent).DisplayName(n)}
+	}
+	copilot := StepView{Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}
+	task := store.Task{PRNumber: 7, PRState: "open"}
+	pushed := []StepView{step("impl", 1), step("push", 1), copilot}
+	if s := statusOf(task, pushed, agents); s.Kind != "done" {
+		t.Fatalf("after Copilot: %+v", s)
+	}
+	if s := statusOf(task, append(pushed, step("impl", 2)), agents); s.Kind != "waiting" || s.Short == "PR open" {
+		t.Fatalf("after a new Implement: %+v", s)
+	}
+}
+
 func TestNextAfterOutcome(t *testing.T) {
 	agents := settings.DefaultAgents()
 	step := func(agent string, n int, verdict string) StepView {
@@ -879,8 +906,7 @@ func TestNextAfterOutcome(t *testing.T) {
 		"review passed":    {base, store.Task{}, "Test 1, Implement 2"},
 		"review failed":    {[]StepView{step("plan", 1, ""), step("impl", 1, ""), step("review", 1, store.Failure)}, store.Task{}, "Implement 2"},
 		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2"},
-		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Commit 1, Implement 2"},
-		"committed":        {append(base, step("test", 1, ""), step("commit", 1, "")), store.Task{}, "Push, Implement 2"},
+		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Commit and push, Implement 2"},
 		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Plan"},
 		"pushed":           {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Implement 2"},
 		"copilot comments": {append(base, step("push", 1, ""), copilotStep(1, store.Done, store.Failure)), store.Task{PRNumber: 7}, "Implement 2"},

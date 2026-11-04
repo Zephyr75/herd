@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
-import { api } from '../lib/api'
-import type { Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
@@ -22,7 +20,6 @@ const groups = computed(() =>
     .filter((g) => !g.p.gone || g.tasks.length),
 )
 const toggle = (id: string) => (herd.collapsed[id] = !herd.collapsed[id])
-const archive = (t: Task) => herd.attempt('Could not archive', () => api.ArchiveTask(t.id))
 function addProject() {
   herd.view = 'settings'
   herd.settingsTab = 'projects'
@@ -58,7 +55,6 @@ function addProject() {
               </span>
               <StatusBadge :kind="t.status.kind" :label="t.status.label" />
             </button>
-            <button v-if="!t.archived" class="arch" title="Archive the task (stops its running steps; Restore brings it back)" aria-label="Archive task" @click="archive(t)"><Icon name="archive" :size="15" /></button>
           </div>
         </template>
       </template>
@@ -149,24 +145,6 @@ aside {
 }
 .cardw {
   position: relative;
-}
-.arch {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 26px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--muted);
-}
-.arch:hover {
-  background: var(--hover);
-  color: var(--text);
 }
 .card:hover {
   background: var(--hover);

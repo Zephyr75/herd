@@ -99,7 +99,7 @@ async function archive() {
           </button>
           <span class="acts">
             <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="play" :size="12" />Rerun</button>
-            <button v-if="s.diff" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)">Diff</button>
+            <button v-if="s.diff && (s.agent === 'impl' || s.agent === 'test')" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)">Diff</button>
           </span>
         </div>
         <div v-if="t.next.ghost" class="row ghost">

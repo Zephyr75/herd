@@ -5,6 +5,7 @@ import { api, errorText } from '../../lib/api'
 import { herd } from '../../lib/state'
 import { isMac } from '../../lib/keymap'
 import Icon from '../ui/Icon.vue'
+import Dropdown from '../ui/Dropdown.vue'
 import type { Issue } from '../../lib/types'
 
 // herd.previewNew pre-fills the preview's artboards 4 to 6 in the browser mock.
@@ -106,9 +107,18 @@ watch(
   { immediate: true },
 )
 const hasTask = (n: number) => herd.tasks.some((t) => t.project === project.value && t.issue === String(n))
-function pickMine(e: Event) {
-  const el = e.target as HTMLSelectElement
-  const is = mine.value?.find((x) => String(x.number) === el.value)
+const mineItems = computed(() =>
+  (mine.value ?? []).map((is) => ({
+    value: String(is.number),
+    label: `${is.priority ? is.priority + ' · ' : ''}#${is.number} ${is.title}${hasTask(is.number) ? ' (has a task)' : ''}`,
+    disabled: hasTask(is.number),
+  })),
+)
+const minePlaceholder = computed(() =>
+  mine.value === null ? 'Loading the issues assigned to you…' : mineError.value ? 'Could not list your issues: ' + mineError.value : mine.value.length ? `Assigned to you (${mine.value.length} open, most urgent first)` : 'No open issues assigned to you',
+)
+function pickMine(v: string) {
+  const is = mine.value?.find((x) => String(x.number) === v)
   if (!is) return
   issue.value = String(is.number)
   issueTitle.value = is.title
@@ -177,11 +187,8 @@ function key(e: KeyboardEvent) {
         </div>
       </div>
       <div class="group">
-        <label for="nfmine" class="lbl">GitHub issue <span class="faint">optional</span></label>
-        <select v-if="p?.repo" id="nfmine" class="input mine" :value="mine?.some((x) => String(x.number) === nIssue) ? nIssue : ''" :disabled="!mine?.length" @change="pickMine">
-          <option value="">{{ mine === null ? 'Loading the issues assigned to you…' : mineError ? 'Could not list your issues: ' + mineError : mine.length ? `Assigned to you (${mine.length} open, most urgent first)` : 'No open issues assigned to you' }}</option>
-          <option v-for="is in mine ?? []" :key="is.number" :value="String(is.number)" :disabled="hasTask(is.number)">{{ is.priority ? is.priority + ' · ' : '' }}#{{ is.number }} {{ is.title }}{{ hasTask(is.number) ? ' (has a task)' : '' }}</option>
-        </select>
+        <span class="lbl">GitHub issue <span class="faint">optional</span></span>
+        <Dropdown v-if="p?.repo" class="mine" wide :items="mineItems" :value="nIssue" :placeholder="minePlaceholder" :disabled="!mine?.length" @pick="pickMine" />
         <div class="issue-row">
           <span v-if="p?.repo" class="muted small">or any issue</span>
           <div class="issue">
@@ -317,9 +324,10 @@ function key(e: KeyboardEvent) {
     color: var(--text);
   }
   .mine {
-    height: 30px;
-    width: 100%;
     margin-bottom: 8px;
+  }
+  .mine :deep(.chip) {
+    height: 30px;
   }
   .issue-row {
     display: flex;

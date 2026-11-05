@@ -6,6 +6,8 @@ import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
 import { herd } from '../../lib/state'
 import { afterOf, type Agent } from '../../lib/types'
+import Icon from '../ui/Icon.vue'
+import Dropdown from '../ui/Dropdown.vue'
 
 const agents = computed(() => herd.settings?.agents ?? [])
 const selId = ref(herd.settings?.agents[1]?.id ?? herd.settings?.agents[0]?.id ?? '')
@@ -74,7 +76,7 @@ function addAgent() {
   const id = idFor(name)
   s.agents.push({
     id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
-    commit: false, push: false, ignoreRules: false,
+    commit: false, push: false, ignoreRules: false, showDiff: false, next: [], onFail: [],
     instructions: 'Describe what this agent does and what it writes.',
   })
   selId.value = id
@@ -82,12 +84,14 @@ function addAgent() {
   newName.value = ''
   changed()
 }
+// The first agent (Plan) is special and stays first: nothing moves above it.
+const index = computed(() => agents.value.findIndex((a) => a.id === A.value?.id))
 function move(delta: number) {
   const s = herd.settings
   if (!s || !A.value) return
   const i = s.agents.findIndex((a) => a.id === A.value!.id)
   const j = i + delta
-  if (j < 0 || j >= s.agents.length) return
+  if (i === 0 || j < 1 || j >= s.agents.length) return
   ;[s.agents[i], s.agents[j]] = [s.agents[j], s.agents[i]]
   changed()
 }
@@ -100,11 +104,29 @@ function remove() {
   }
   const id = A.value.id
   s.agents = s.agents.filter((a) => a.id !== id)
-  for (const a of s.agents) if (afterOf(a.trigger) === id) a.trigger = 'manual' // nothing to wait for any more
+  for (const a of s.agents) {
+    if (afterOf(a.trigger) === id) a.trigger = 'manual' // nothing to wait for any more
+    a.next = (a.next ?? []).filter((x) => x !== id)
+    a.onFail = (a.onFail ?? []).filter((x) => x !== id)
+  }
   selId.value = s.agents[0]?.id ?? ''
   confirmDelete.value = false
   changed()
 }
+// What Next step offers after an agent's step: two ordered lists of agents
+// (the first one is the highlighted button). Loops back are fine.
+type ListKey = 'next' | 'onFail'
+const nameOf = (id: string) => agents.value.find((x) => x.id === id)?.name ?? id
+const addable = (k: ListKey) => agents.value.filter((x) => !(A.value?.[k] ?? []).includes(x.id)).map((x) => ({ value: x.id, label: x.name }))
+const addTo = (k: ListKey, id: string) => A.value && set(k, [...(A.value[k] ?? []), id])
+// The two git checkboxes exclude each other: commit only, or commit, push and open the PR.
+function setGit(k: 'commit' | 'push', on: boolean) {
+  if (!A.value) return
+  A.value.commit = k === 'commit' && on
+  A.value.push = k === 'push' && on
+  changed()
+}
+const dropFrom = (k: ListKey, id: string) => A.value && set(k, (A.value[k] ?? []).filter((x) => x !== id))
 function pick(id: string) {
   selId.value = id
   confirmDelete.value = false
@@ -123,8 +145,6 @@ function pick(id: string) {
       <span class="pp" :class="{ auto: isAuto(a) }">{{ a.name }}{{ isAuto(a) ? ' (auto)' : '' }}</span>
       <span v-if="i < agents.length - 1" class="muted" aria-hidden="true">→</span>
     </template>
-    <span class="grow"></span>
-    <span class="muted small">Review can loop back to Implement</span>
   </div>
 
   <div class="split">
@@ -148,6 +168,7 @@ function pick(id: string) {
 
     <div v-if="A" class="editor card">
       <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
+      <p v-if="index === 0" class="special">Special agent: it starts every task and every sister task, and its "## Other repositories" section offers sister tasks. It always stays first.</p>
       <div class="grid2">
         <label class="field">Name<input class="input" :value="A.name" @input="set('name', val($event))" /></label>
         <label class="field">Writes artifact<input class="input mono" :value="A.writes" @input="set('writes', val($event))" /></label>
@@ -161,22 +182,30 @@ function pick(id: string) {
       </div>
       <div class="field">
         <span>Starts</span>
-        <select class="input starts" :value="A.trigger" @change="set('trigger', val($event))">
-          <option v-for="o in triggers" :key="o.value" :value="o.value" :disabled="o.loop">{{ o.label }}{{ o.loop ? ' (would loop)' : '' }}</option>
-        </select>
+        <Dropdown class="starts" :items="triggers.map((o) => ({ value: o.value, label: o.label + (o.loop ? ' (would loop)' : ''), disabled: o.loop }))" :value="A.trigger" @pick="set('trigger', $event)" />
       </div>
       <div class="checks">
-        <label><input type="checkbox" :checked="A.commit" @change="set('commit', checked($event))" /> Commit the worktree when it finishes</label>
-        <label><input type="checkbox" :checked="A.push" @change="set('push', checked($event))" /> Push and open the PR when it succeeds</label>
+        <label title="herd commits the worktree when it finishes; its artifact's first line is the message"><input type="checkbox" :checked="A.commit && !A.push" @change="setGit('commit', checked($event))" /> Commit when it finishes</label>
+        <label title="When it succeeds, herd commits (its artifact is the message), pushes and opens the draft PR, then Copilot reviews it"><input type="checkbox" :checked="A.push" @change="setGit('push', checked($event))" /> Commit, push and open the PR</label>
         <label title="The Rules in Settings > Context are not given to this agent"><input type="checkbox" :checked="A.ignoreRules" @change="set('ignoreRules', checked($event))" /> Ignore the common rules</label>
+        <label title="A Diff button on its steps opens their changes in Zed"><input type="checkbox" :checked="A.showDiff" @change="set('showDiff', checked($event))" /> Show a Diff button</label>
+      </div>
+      <div v-for="[k, label] in ([['next', 'After it succeeds, Next step offers'], ['onFail', 'After it fails, Next step offers']] as [ListKey, string][])" :key="k" class="field">
+        <span>{{ label }}</span>
+        <div class="offers">
+          <span v-for="(id, i) in A[k] ?? []" :key="id" class="offer" :class="{ main: i === 0 }" :title="i === 0 ? 'The highlighted button' : ''">{{ nameOf(id) }}<button class="x" :aria-label="'Remove ' + nameOf(id)" @click="dropFrom(k, id)">×</button></span>
+          <Dropdown v-if="addable(k).length" :items="addable(k)" @pick="addTo(k, $event)"><Icon name="plus" :size="11" />Add</Dropdown>
+        </div>
       </div>
       <label class="field">Instructions (the agent's skill)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
       <div class="actions">
-        <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue}' }}</span>
+        <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue} {base}' }}</span>
         <span class="grow"></span>
-        <button class="btn ghost" @click="move(-1)">Move up</button>
-        <button class="btn ghost" @click="move(1)">Move down</button>
-        <button class="btn" :class="confirmDelete ? 'danger' : 'ghost'" @click="remove">{{ confirmDelete ? 'Remove ' + A.name + '?' : 'Remove' }}</button>
+        <template v-if="index > 0">
+          <button class="btn ghost" :disabled="index === 1" @click="move(-1)">Move up</button>
+          <button class="btn ghost" :disabled="index === agents.length - 1" @click="move(1)">Move down</button>
+          <button class="btn" :class="confirmDelete ? 'danger' : 'ghost'" @click="remove">{{ confirmDelete ? 'Remove ' + A.name + '?' : 'Remove' }}</button>
+        </template>
       </div>
     </div>
   </div>
@@ -277,5 +306,39 @@ function pick(id: string) {
   }
   .new-id {
     padding: 2px 4px;
+  }
+  .special {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--waiting-dot);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .offers {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .offer {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+    padding: 0 2px 0 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 12.5px;
+  }
+  .offer.main {
+    border-color: var(--accent);
+  }
+  .offer .x {
+    border: 0;
+    background: none;
+    color: var(--muted);
+    padding: 0 4px;
   }
 </style>

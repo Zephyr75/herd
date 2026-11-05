@@ -34,7 +34,7 @@ func DefaultAgents() []Agent {
 	return []Agent{
 		{
 			ID: "plan", Name: "Plan", Command: "/herd:plan {task} -- {guidance}", Model: "sonnet", Trigger: "manual",
-			Writes: "PLAN.md",
+			Writes: "PLAN.md", Next: []string{"impl"}, OnFail: []string{"plan"},
 			Instructions: `Read the task source: the GitHub issue, the description, or both.
 Explore the repo and decide an approach.
 Write PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.
@@ -47,7 +47,7 @@ Do not edit code. End with status: done, or status: failed if the task cannot be
 		},
 		{
 			ID: "impl", Name: "Implement", Command: "/herd:implement {task} -- {guidance}", Model: "opus", Trigger: "manual",
-			Writes: "IMPLEMENT-{n}.md",
+			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, OnFail: []string{"impl", "plan"},
 			Instructions: `Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist (older ones were handled by earlier Implements).
 Implement the plan in this worktree. When PLAN.md lists Options, take the one the guidance picks, else the recommended one.
 When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n.md.
@@ -59,14 +59,14 @@ End with status: done, or status: failed if you could not implement it (say what
 		},
 		{
 			ID: "review", Name: "Review", Command: "/herd:review {task}", Model: "opus", Trigger: "after:impl",
-			Writes: "REVIEW-{n}.md",
+			Writes: "REVIEW-{n}.md", Next: []string{"test", "impl"}, OnFail: []string{"impl"},
 			Instructions: `Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.
 Write REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.
 Never edit code, and do not commit: Commit and push commits once the tests pass.`,
 		},
 		{
 			ID: "test", Name: "Test", Command: "/herd:test {task} -- {guidance}", Model: "sonnet", Trigger: "manual",
-			Writes: "TEST-{n}.md",
+			Writes: "TEST-{n}.md", ShowDiff: true, Next: []string{"push", "impl"}, OnFail: []string{"impl"},
 			Instructions: `Read PLAN.md, the IMPLEMENT files and the REVIEW files.
 Write tests for the reviewed, uncommitted changes (git status, git diff HEAD), following the repo's test conventions:
 the main paths, the edge cases, and anything the reviews flagged.
@@ -77,7 +77,7 @@ End with status: done when the tests pass, or status: failed when one shows a bu
 		},
 		{
 			ID: "push", Name: "Commit and push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
-			Writes: "PR.md", Push: true, IgnoreRules: true,
+			Writes: "PR.md", Push: true, IgnoreRules: true, Next: []string{"impl"},
 			Instructions: `First bring the branch up to date: git fetch origin {base}; when origin/{base} has commits this branch lacks,
 run git rebase --autostash origin/{base}. If the rebase stops on a conflict, run git rebase --abort,
 list the conflicting files and end with status: failed.

@@ -9,8 +9,8 @@ import Splitter from './ui/Splitter.vue'
 import { unsuccessful, type Step } from '../lib/types'
 
 const t = computed(() => herd.selTask)
-// Implement and Test get a Diff button.
-const diffs = (s: Step) => s.agent === 'impl' || s.agent === 'test'
+// Agents set to "Show a Diff button" (Implement and Test by default) get one.
+const diffs = (s: Step) => !!herd.settings?.agents.find((a) => a.id === s.agent)?.showDiff
 const openIssue = () => t.value && herd.attempt('Could not open the issue', () => api.OpenURL(`https://github.com/${t.value!.issueRepo || t.value!.repo}/issues/${t.value!.issue}`))
 
 function meta(s: Step): { text: string; cls: string } {

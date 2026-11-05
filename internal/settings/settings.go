@@ -57,16 +57,19 @@ type Config struct {
 
 // Agent is one step type, from agents.toml. The order of agents is the pipeline.
 type Agent struct {
-	ID           string `toml:"id" json:"id"`
-	Name         string `toml:"name" json:"name"`
-	Command      string `toml:"command" json:"command"`
-	Model        string `toml:"model" json:"model"`
-	Trigger      string `toml:"trigger" json:"trigger"` // manual | after:<agent id> (when that step succeeds)
-	Writes       string `toml:"writes" json:"writes"`
-	Commit       bool   `toml:"commit,omitempty" json:"commit"`
-	Push         bool   `toml:"push,omitempty" json:"push"`
-	IgnoreRules  bool   `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
-	Instructions string `toml:"instructions" json:"instructions"`
+	ID           string   `toml:"id" json:"id"`
+	Name         string   `toml:"name" json:"name"`
+	Command      string   `toml:"command" json:"command"`
+	Model        string   `toml:"model" json:"model"`
+	Trigger      string   `toml:"trigger" json:"trigger"` // manual | after:<agent id> (when that step succeeds)
+	Writes       string   `toml:"writes" json:"writes"`
+	Commit       bool     `toml:"commit,omitempty" json:"commit"`
+	Push         bool     `toml:"push,omitempty" json:"push"`
+	IgnoreRules  bool     `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
+	ShowDiff     bool     `toml:"show_diff,omitempty" json:"showDiff"`       // its steps have a Diff button (open their changes in Zed)
+	Next         []string `toml:"next,omitempty" json:"next"`                // agents Next step offers after it succeeds, first one highlighted (default: the next manual agent)
+	OnFail       []string `toml:"on_fail,omitempty" json:"onFail"`           // agents Next step offers after it fails (default: itself again)
+	Instructions string   `toml:"instructions" json:"instructions"`
 }
 
 type agentsFile struct {
@@ -157,6 +160,7 @@ func (s *Store) Reload() error {
 	if len(af.Agent) == 0 {
 		af.Agent = DefaultAgents()
 	}
+	af.Agent = withLists(af.Agent)
 
 	km := DefaultKeymap()
 	if b, err := os.ReadFile(s.path("keymap.json")); err == nil {
@@ -326,13 +330,35 @@ func (s *Store) SaveAgents(agents []Agent) error {
 	if err := checkTriggers(agents); err != nil {
 		return err
 	}
+	for _, a := range agents {
+		for _, id := range append(append([]string{}, a.Next...), a.OnFail...) {
+			if !seen[id] {
+				return fmt.Errorf("%s offers %q next, which is not an agent", a.Name, id)
+			}
+		}
+	}
 	if err := writeTOML(s.path("agents.toml"), agentsFile{Agent: agents}); err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.ags = append([]Agent(nil), agents...)
+	s.ags = withLists(agents)
 	s.mu.Unlock()
 	return nil
+}
+
+// withLists copies agents with empty (not nil) Next and OnFail, so the UI
+// always gets lists.
+func withLists(agents []Agent) []Agent {
+	out := append([]Agent(nil), agents...)
+	for i := range out {
+		if out[i].Next == nil {
+			out[i].Next = []string{}
+		}
+		if out[i].OnFail == nil {
+			out[i].OnFail = []string{}
+		}
+	}
+	return out
 }
 
 // checkTriggers refuses "after:" triggers on a missing agent, on the agent

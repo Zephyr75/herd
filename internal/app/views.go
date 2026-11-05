@@ -359,6 +359,34 @@ func countAgent(steps []StepView, id string) int {
 	return n
 }
 
+// successIDs are the agents Next step offers after ag succeeds: its list,
+// else the next manual agent of the pipeline.
+func successIDs(agents []settings.Agent, ag settings.Agent) []string {
+	if len(ag.Next) > 0 {
+		return ag.Next
+	}
+	for i, x := range agents {
+		if x.ID != ag.ID {
+			continue
+		}
+		for _, y := range agents[i+1:] {
+			if y.AfterAgent() == "" {
+				return []string{y.ID}
+			}
+		}
+	}
+	return nil
+}
+
+// failureIDs are the agents Next step offers after ag fails: its list, else
+// ag again.
+func failureIDs(ag settings.Agent) []string {
+	if len(ag.OnFail) > 0 {
+		return ag.OnFail
+	}
+	return []string{ag.ID}
+}
+
 func option(ag settings.Agent, n int, prefix string) Option {
 	return Option{Agent: ag.ID, N: n, Label: prefix + ag.DisplayName(n)}
 }
@@ -425,41 +453,36 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 			return nx
 		}
 	}
-	// fix is the manual agent to go back to (Implement): the nearest one an
-	// automatic check follows, before the last step (or before Push after
-	// herd's Copilot step); without one, the nearest manual agent.
-	var fix *Option
-	fixIdx := -1 // the agent index of fix, when a check follows it
-	from := idx
-	if last.External {
-		from = len(agents)
-	}
-	checked := func(id string) bool {
-		for _, x := range agents {
-			if x.AfterAgent() == id {
-				return true
-			}
-		}
-		return false
-	}
-	for _, needCheck := range []bool{true, false} { // else the nearest manual one (Plan)
-		for i := from - 1; i >= 0 && fix == nil; i-- {
-			if agents[i].AfterAgent() == "" && !agents[i].Push && (!needCheck || checked(agents[i].ID)) {
-				o := option(agents[i], countAgent(steps, agents[i].ID)+1, "")
-				fix = &o
-				if needCheck {
-					fixIdx = i
+	// What Next step offers comes from the agents' lists: after a success,
+	// after a failure; after the push and its Copilot step, the push's.
+	offer := func(ids []string) []Option {
+		var out []Option
+		for _, id := range ids {
+			for _, x := range agents {
+				if x.ID == id {
+					out = append(out, option(x, countAgent(steps, x.ID)+1, ""))
 				}
 			}
 		}
+		return out
+	}
+	var afterPush []Option
+	for _, s := range steps {
+		if p := agentFor(agents, s.Agent); p.Push {
+			afterPush = offer(successIDs(agents, p))
+		}
+	}
+	first := func(os []Option) string {
+		if len(os) == 0 {
+			return "a fix"
+		}
+		return os[0].Label
 	}
 	for _, s := range steps {
 		if s.State == store.Running && s.External {
 			nx.Text = fmt.Sprintf("Waiting for Copilot's review and the CI checks of PR #%d (checked every minute). Start a fix any time, or Mark done to stop waiting.", t.PRNumber)
 			nx.MarkDone = s.ID
-			if fix != nil {
-				nx.Options = append(nx.Options, *fix)
-			}
+			nx.Options = append(nx.Options, afterPush...)
 			return nx
 		}
 		if s.State == store.Running {
@@ -492,33 +515,23 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		} else {
 			nx.Text = fmt.Sprintf("Copilot found nothing to fix and CI passed on PR #%d. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
 		}
-		if fix != nil {
-			nx.Text += " Start " + fix.Label + " for fixes (Copilot comments, failing CI), then push again."
-			nx.Options = append(nx.Options, *fix)
+		if len(afterPush) > 0 {
+			nx.Text += " Start " + first(afterPush) + " for fixes (Copilot comments, failing CI), then push again."
+			nx.Options = append(nx.Options, afterPush...)
 		}
 		return nx
 	}
-	// Steps after the agent a check follows (Review, Test, Commit after
-	// Implement) check its work: a failure sends back to it.
-	afterFix := fixIdx >= 0 && idx > fixIdx
 	if last.Unsuccessful() {
 		nx.Text = last.Name + " failed: " + last.Artifact + " says why."
-		switch {
-		case afterFix:
-			nx.Options = append(nx.Options, *fix)
-		case fix == nil:
-			nx.Options = append(nx.Options, option(ag, countAgent(steps, ag.ID)+1, ""))
-		default:
-			nx.Options = append(nx.Options, option(ag, countAgent(steps, ag.ID)+1, ""), *fix)
-		}
+		nx.Options = append(nx.Options, offer(failureIDs(ag))...)
 		return nx
 	}
 	if ag.Push {
 		if t.PRNumber > 0 {
 			nx.Text = fmt.Sprintf("PR #%d is open. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
-			if fix != nil {
-				nx.Text += " If Copilot or the CI checks ask for changes, start " + fix.Label + ", then push again."
-				nx.Options = append(nx.Options, *fix)
+			if len(afterPush) > 0 {
+				nx.Text += " If Copilot or the CI checks ask for changes, start " + first(afterPush) + ", then push again."
+				nx.Options = append(nx.Options, afterPush...)
 			}
 			return nx
 		}
@@ -531,25 +544,12 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		nx.Ghost = &Ghost{Name: autoNext.DisplayName(countAgent(steps, autoNext.ID) + 1), After: last.Name}
 		return nx
 	}
-	var next *settings.Agent
-	for i := idx + 1; idx >= 0 && i < len(agents); i++ {
-		if agents[i].AfterAgent() == "" {
-			next = &agents[i]
-			break
-		}
+	if idx < 0 { // its agent was removed
+		nx.Options = append(nx.Options, option(agents[0], countAgent(steps, agents[0].ID)+1, ""))
+		return nx
 	}
-	if idx < 0 {
-		next = &agents[0]
-	}
-	var opts []Option
-	if next != nil {
-		opts = append(opts, option(*next, countAgent(steps, next.ID)+1, ""))
-	}
-	if afterFix { // after a check passed, going back stays possible
-		opts = append(opts, *fix)
-	}
-	nx.Options = append(nx.Options, opts...)
-	if len(opts) == 0 {
+	nx.Options = append(nx.Options, offer(successIDs(agents, ag))...)
+	if len(nx.Options) == 0 {
 		nx.Text = "The pipeline is finished for this task."
 	}
 	return nx

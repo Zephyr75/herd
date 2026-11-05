@@ -1,6 +1,10 @@
 package settings
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestCheckTriggers(t *testing.T) {
 	ok := []Agent{{ID: "plan", Name: "Plan", Trigger: "manual"}, {ID: "impl", Name: "Implement", Trigger: "after:plan"}, {ID: "review", Name: "Review", Trigger: "after:plan"}, {ID: "test", Name: "Test", Trigger: "after:review"}}
@@ -16,6 +20,22 @@ func TestCheckTriggers(t *testing.T) {
 	} {
 		if checkTriggers(ags) == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestAgentListsAreNeverNull(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveAgents(DefaultAgents()); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range s.Agents() {
+		b, _ := json.Marshal(a)
+		if strings.Contains(string(b), `"next":null`) || strings.Contains(string(b), `"onFail":null`) {
+			t.Fatalf("%s: %s", a.ID, b)
 		}
 	}
 }

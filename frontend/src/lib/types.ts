@@ -23,6 +23,7 @@ export interface Agent {
   push: boolean
   ignoreRules: boolean // the common rules are not given to this agent
   showDiff: boolean // its steps have a Diff button (open their changes in Zed)
+  sisters: boolean // its artifact can ask for sister tasks in other repositories
   next: string[] // agents Next step offers after it succeeds, first highlighted (empty: the next manual agent)
   onFail: string[] // agents Next step offers after it fails (empty: itself again)
   instructions: string

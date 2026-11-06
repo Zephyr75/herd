@@ -67,6 +67,7 @@ type Agent struct {
 	Push         bool     `toml:"push,omitempty" json:"push"`
 	IgnoreRules  bool     `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
 	ShowDiff     bool     `toml:"show_diff,omitempty" json:"showDiff"`       // its steps have a Diff button (open their changes in Zed)
+	Sisters      bool     `toml:"sisters,omitempty" json:"sisters"`          // its artifact can ask for sister tasks in other repositories
 	Next         []string `toml:"next,omitempty" json:"next"`                // agents Next step offers after it succeeds, first one highlighted (default: the next manual agent)
 	OnFail       []string `toml:"on_fail,omitempty" json:"onFail"`           // agents Next step offers after it fails (default: itself again)
 	Instructions string   `toml:"instructions" json:"instructions"`

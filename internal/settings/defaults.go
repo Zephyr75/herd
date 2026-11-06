@@ -34,7 +34,7 @@ func DefaultAgents() []Agent {
 	return []Agent{
 		{
 			ID: "plan", Name: "Plan", Command: "/herd:plan {task} -- {guidance}", Model: "sonnet", Trigger: "manual",
-			Writes: "PLAN.md", Next: []string{"impl"}, OnFail: []string{"plan"},
+			Writes: "PLAN.md", Sisters: true, Next: []string{"impl"}, OnFail: []string{"plan"},
 			Instructions: `Read the task source: the GitHub issue, the description, or both.
 Explore the repo and decide an approach. Do not edit code.
 Write PLAN.md with these sections, in this order:
@@ -44,15 +44,12 @@ Write PLAN.md with these sections, in this order:
 4. Options, only when there is a real choice (designs, libraries, where the code goes): each with its advantages and disadvantages and its estimated size (about +N / -M lines), then the one you recommend.
 5. Files: a table with one row per file to change and a sentence or two on what changes there and why. Under it, one line estimating the size of the change, e.g. "Estimated change: about +120 / -30 lines" (for the recommended option when there are several).
 6. Tests: the behaviours to verify once it is built, as a short list (main path, edge cases, what must not change).
-When the work also needs changes in other repositories, plan only this repository's part, then end PLAN.md with a "---" line and a "## Sister tasks" section:
-one "### <repository folder name>" per repository, then what that part must do, written as the description of its task (herd creates the sister task from it).
-A sister task's plan lists only repositories not yet covered.
 Keep PLAN.md short, intuitive and easy to read.
 End with status: done, or status: failed if the task cannot be done as described (say why).`,
 		},
 		{
 			ID: "impl", Name: "Implement", Command: "/herd:implement {task} -- {guidance}", Model: "opus", Trigger: "manual",
-			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, OnFail: []string{"impl", "plan"},
+			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, Sisters: true, OnFail: []string{"impl", "plan"},
 			Instructions: `Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist (older ones were handled by earlier Implements).
 Implement the plan's New flow and Files in this worktree. When PLAN.md lists Options, take the one the guidance picks, else the recommended one.
 When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n.md.

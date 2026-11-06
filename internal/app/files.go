@@ -195,12 +195,24 @@ func (a *App) writePlugin() error {
 		b.WriteString("\n")
 		stem := strings.TrimSuffix(ag.Writes, filepath.Ext(ag.Writes))
 		fmt.Fprintf(&b, diagramRules, stem, stem, stem)
+		if ag.Sisters {
+			fmt.Fprintf(&b, sisterRules, ag.Writes)
+		}
 		if err := os.WriteFile(filepath.Join(dir, "commands", name+".md"), []byte(b.String()), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// sisterRules: for an agent allowed to ask for sister tasks (Settings > Agents).
+const sisterRules = `
+## Sister tasks
+
+When the work also needs changes in other repositories, do only this repository's part, then end %s with a "---" line and a "## Sister tasks" section:
+one "### <repository folder name>" per repository, then what that part must do, written as the description of its task. herd offers to create each one in a click.
+Leave out repositories that already have a sister task (listed in the herd step block).
+`
 
 // diagramRules: how any agent draws a diagram so herd shows it in the artifact.
 const diagramRules = `

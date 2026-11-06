@@ -51,3 +51,29 @@ func TestDiagrams(t *testing.T) {
 		}
 	}
 }
+
+// Agents with Sisters on (Plan and Implement by default) can ask for sister
+// tasks; the others cannot.
+func TestSisterOffersFromAllowedAgents(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "two repos", "", false, nil)
+	os.MkdirAll(tv.RunDir, 0o755)
+	ask := "---\nstatus: done\n---\n# What changed\nx\n\n---\n\n## Sister tasks\n\n### %s\n\nEcho it.\n"
+	for i, s := range []struct{ key, agent, file, repo string }{{"impl-1", "impl", "IMPLEMENT-1.md", "okai-tcp-server"}, {"review-1", "review", "REVIEW-1.md", "FirebaseFunctions"}} {
+		os.WriteFile(filepath.Join(tv.RunDir, s.file), []byte(strings.ReplaceAll(ask, "%s", s.repo)), 0o644)
+		_ = a.db.SaveStep(store.Step{ID: store.StepID(tv.ID, s.key), TaskID: tv.ID, Key: s.key, Agent: s.agent, N: 1, Seq: i + 1, State: store.Done})
+	}
+	v, _ := a.GetTask(tv.ID)
+	if len(v.Next.Sisters) != 1 || v.Next.Sisters[0].Repo != "okai-tcp-server" || !strings.HasSuffix(v.Next.Sisters[0].From, "IMPLEMENT-1.md") {
+		t.Fatalf("offers: %+v", v.Next.Sisters)
+	}
+	if err := a.writePlugin(); err != nil {
+		t.Fatal(err)
+	}
+	for cmd, want := range map[string]bool{"implement": true, "review": false} {
+		b, _ := os.ReadFile(filepath.Join(a.Home, "plugin", "commands", cmd+".md"))
+		if strings.Contains(string(b), "## Sister tasks") != want {
+			t.Errorf("%s: sister rules %v", cmd, !want)
+		}
+	}
+}

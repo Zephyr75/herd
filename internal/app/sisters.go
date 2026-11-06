@@ -14,14 +14,16 @@ import (
 	"slices"
 	"strings"
 
+	"herd/internal/settings"
 	"herd/internal/store"
 )
 
-// SisterOffer is a repository the plan needs, without a sister task yet.
+// SisterOffer is a repository a step asks for, without a sister task yet.
 type SisterOffer struct {
-	Repo    string `json:"repo"`    // as PLAN.md names it, e.g. okai-tcp-server
+	Repo    string `json:"repo"`    // as the artifact names it, e.g. okai-tcp-server
 	Scope   string `json:"scope"`   // what that part covers
 	Project string `json:"project"` // the herd project for it; "" when not added yet
+	From    string `json:"-"`       // the artifact that asks for it
 }
 
 // SisterRef is a sister task, for the header link.
@@ -111,23 +113,34 @@ func (a *App) projectFor(repo string) (string, bool) {
 	return "", false
 }
 
-// sisterOffers lists the repositories the task's latest plan needs that have
-// no sister task yet.
-func (a *App) sisterOffers(t store.Task, steps []StepView, plan string) []SisterOffer {
+// sisterOffers lists the repositories that the succeeded steps of agents
+// allowed to (Settings > Agents: Plan, Implement…) ask for, without a sister
+// task yet. A later step's description of a repository wins.
+func (a *App) sisterOffers(t store.Task, steps []StepView, agents []settings.Agent) []SisterOffer {
 	out := []SisterOffer{}
 	if t.Archived {
 		return out
 	}
-	var body string
+	var asked []SisterOffer
 	for _, s := range steps {
-		if s.Agent == plan && s.Succeeded() {
-			if art, _ := a.artifactFor(s.Step); art.Exists {
-				body = art.Body
+		if !agentFor(agents, s.Agent).Sisters || !s.Succeeded() {
+			continue
+		}
+		art, _ := a.artifactFor(s.Step)
+		if !art.Exists {
+			continue
+		}
+		for _, o := range planRepos(art.Body) {
+			o.From = art.Path
+			if i := slices.IndexFunc(asked, func(x SisterOffer) bool { return x.Repo == o.Repo }); i >= 0 {
+				asked[i] = o
+			} else {
+				asked = append(asked, o)
 			}
 		}
 	}
 	sis := a.sisters(t.ID)
-	for _, o := range planRepos(body) {
+	for _, o := range asked {
 		o.Project, _ = a.projectFor(o.Repo)
 		if o.Project == t.Project || slices.ContainsFunc(sis, func(x store.Task) bool { return o.Project != "" && x.Project == o.Project }) {
 			continue
@@ -151,7 +164,7 @@ func (a *App) CreateSister(taskID, repo string) (TaskView, error) {
 	}
 	i := slices.IndexFunc(v.Next.Sisters, func(o SisterOffer) bool { return o.Repo == repo })
 	if i < 0 {
-		return TaskView{}, fmt.Errorf("the plan does not ask for a sister task in %s", repo)
+		return TaskView{}, fmt.Errorf("no step asks for a sister task in %s", repo)
 	}
 	o := v.Next.Sisters[i]
 	if o.Project == "" {
@@ -163,8 +176,8 @@ func (a *App) CreateSister(taskID, repo string) (TaskView, error) {
 		ref = t.Title
 	}
 	desc := fmt.Sprintf("Sister task of %s task %s (%s). Handle only the %s part: %s\n\n"+
-		"The %s part is planned in %s. Read it, and keep what both repositories share (APIs, messages, field names) consistent with it.",
-		p.Name, ref, t.Title, repo, o.Scope, p.Name, filepath.Join(a.runDir(p, t), "PLAN.md"))
+		"The %s part is described in %s (its run folder %s holds the plan and every step). Read them, and keep what both repositories share (APIs, messages, field names) consistent with it.",
+		p.Name, ref, t.Title, repo, o.Scope, p.Name, o.From, a.runDir(p, t))
 	sv, err := a.createTask(o.Project, t.Issue, a.issueRepo(t), desc, branchName(t), false, nil)
 	if err != nil {
 		return TaskView{}, err

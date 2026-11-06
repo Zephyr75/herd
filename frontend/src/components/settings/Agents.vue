@@ -80,7 +80,7 @@ function addAgent() {
   const id = idFor(name)
   s.agents.push({
     id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '.md',
-    commit: false, push: false, ignoreRules: false, showDiff: false, next: [], onFail: [],
+    commit: false, push: false, ignoreRules: false, showDiff: false, sisters: false, next: [], onFail: [],
     instructions: 'Describe what this agent does and what it writes.',
   })
   selId.value = id
@@ -191,7 +191,7 @@ function pick(id: string) {
     </div>
     <div v-else-if="A" class="editor card">
       <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
-      <p v-if="index === 0" class="special">Special agent: it starts every task and every sister task, and the "## Sister tasks" section ending its artifact offers one sister task per repository. It always stays first.</p>
+      <p v-if="index === 0" class="special">Special agent: it starts every task and every sister task. It always stays first.</p>
       <div class="grid2">
         <label class="field">Name<input class="input" :value="A.name" @input="set('name', val($event))" /></label>
         <label class="field">Writes artifact<input class="input mono" :value="A.writes" @input="set('writes', val($event))" /></label>
@@ -212,6 +212,7 @@ function pick(id: string) {
         <label title="When it succeeds, herd commits (its artifact is the message), pushes and opens the draft PR, then Copilot reviews it"><input type="checkbox" :checked="A.push" @change="setGit('push', checked($event))" /> Commit, push and open the PR</label>
         <label title="The Rules in Settings > Context are not given to this agent"><input type="checkbox" :checked="A.ignoreRules" @change="set('ignoreRules', checked($event))" /> Ignore the common rules</label>
         <label title="A Diff button on its steps opens their changes in Zed"><input type="checkbox" :checked="A.showDiff" @change="set('showDiff', checked($event))" /> Show a Diff button</label>
+        <label title="When the work also needs other repositories, its artifact ends with a Sister tasks section and Next step offers to create each one in a click"><input type="checkbox" :checked="A.sisters" @change="set('sisters', checked($event))" /> Can create sister tasks</label>
       </div>
       <div v-for="[k, label] in ([['next', 'After it succeeds, Next step offers'], ['onFail', 'After it fails, Next step offers']] as [ListKey, string][])" :key="k" class="field">
         <span>{{ label }}</span>

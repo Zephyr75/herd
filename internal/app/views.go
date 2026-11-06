@@ -215,7 +215,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
 	v.Next.Sisters = []SisterOffer{}
 	if len(agents) > 0 {
-		v.Next.Sisters = a.sisterOffers(t, v.Steps, agents[0].ID)
+		v.Next.Sisters = a.sisterOffers(t, v.Steps, agents)
 	}
 	v.Sisters = []SisterRef{}
 	for _, x := range a.sisters(t.ID) {

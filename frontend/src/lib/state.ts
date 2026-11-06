@@ -68,6 +68,7 @@ class Herd {
   toasts: Toast[] = []
   systemLight = false
   artifactRev = 0
+  diagramRev = 0
   confirmDelete = ''
   leftWidth = savedWidth('left')
   rightWidth = savedWidth('right')
@@ -148,8 +149,9 @@ class Herd {
       // the echo of the previous save.
       if (Date.now() - this.lastEdit > 1500) this.settings = s
     })
-    on('artifact:changed', (d: { taskId: string }) => {
-      if (d.taskId === this.sel) this.artifactRev++
+    on('artifact:changed', (d: { taskId: string; file: string }) => {
+      if (d.file.endsWith('.html')) this.diagramRev++ // a diagram page: the embedded ones reload
+      else if (d.taskId === this.sel) this.artifactRev++
     })
     on('toast', (d: { title: string; body: string; error: boolean }) => this.toast(d.title, d.body, d.error))
     on('menu', (what: string) => this.command(what))
@@ -451,6 +453,19 @@ class Herd {
   /** The step and file shown in the changes pop-up; null when closed. */
   diffOf: { step: string; path: string; auto?: boolean } | null = null
 
+  /** The diagram page shown full size; null when closed. */
+  diagramOf: { task: string; file: string } | null = null
+
+  /** Opens a task's diagram page full size, over the other pop-ups. */
+  openDiagram(task: string, file: string) {
+    this.diagramOf = { task, file }
+    this.overlay = 'views'
+  }
+  closeDiagram() {
+    this.diagramOf = null
+    if (!this.artifactOf && !this.diffOf) this.overlay = 'none'
+  }
+
   /** Opens the artifact pop-up alone. */
   openArtifactPopup(step: string) {
     this.artifactOf = step
@@ -484,6 +499,7 @@ class Herd {
   closeViews() {
     this.artifactOf = ''
     this.diffOf = null
+    this.diagramOf = null
     this.overlay = 'none'
   }
 
@@ -628,7 +644,8 @@ class Herd {
         this.view = this.view === 'settings' ? 'board' : 'settings'
         return
       case 'close':
-        if (this.overlay !== 'none') this.overlay = 'none'
+        if (this.diagramOf) this.closeDiagram() // back to the pop-ups under it
+        else if (this.overlay !== 'none') this.overlay = 'none'
         else if (this.view === 'settings') this.view = 'board'
         return
     }

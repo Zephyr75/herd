@@ -1,7 +1,7 @@
 package app
 
-// Sister tasks: when a plan needs changes in other repositories, it lists
-// them under "## Other repositories" in PLAN.md. Next step then offers to
+// Sister tasks: when a plan needs changes in other repositories, it ends
+// PLAN.md with a "## Sister tasks" section, one per repository. Next step then offers to
 // create, in one click, a sister task per repository: same issue, its own
 // worktree, plan and PR. Sisters read each other's run folder to keep what
 // they share consistent.
@@ -30,25 +30,47 @@ type SisterRef struct {
 	Project string `json:"project"` // its project's name
 }
 
-var otherReposHeading = regexp.MustCompile(`(?mi)^#{1,6}\s*other repositories\s*$`)
+var sisterHeading = regexp.MustCompile(`(?mi)^(#{1,6})\s*(?:sister tasks|other repositories)\s*$`)
+var mdHeading = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
 var otherRepoLine = regexp.MustCompile(`^\s*[-*]\s*\**` + "`?" + `([A-Za-z0-9._/-]+)` + "`?" + `\**\s*(?::|—|–|-)\s*(.+)$`)
 
-// planRepos reads the "## Other repositories" section of a PLAN.md body:
-// one "- <repository>: <what that part covers>" line each.
+// planRepos reads the sister tasks a PLAN.md body asks for: after a "---"
+// line, a "## Sister tasks" section with one "### <repository>" each, then
+// the description of that task. The older "## Other repositories" section,
+// one "- <repository>: <what that part covers>" line each, still works.
 func planRepos(body string) []SisterOffer {
-	loc := otherReposHeading.FindStringIndex(body)
-	if loc == nil {
+	m := sisterHeading.FindStringSubmatchIndex(body)
+	if m == nil {
 		return nil
 	}
+	level := m[3] - m[2]
 	var out []SisterOffer
-	for _, l := range strings.Split(body[loc[1]:], "\n") {
-		if strings.HasPrefix(strings.TrimSpace(l), "#") {
-			break // the next section
-		}
-		if m := otherRepoLine.FindStringSubmatch(l); m != nil {
-			out = append(out, SisterOffer{Repo: filepath.Base(m[1]), Scope: strings.TrimSpace(m[2])})
+	var cur *SisterOffer
+	flush := func() {
+		if cur != nil {
+			cur.Scope = strings.TrimSpace(cur.Scope)
+			out = append(out, *cur)
+			cur = nil
 		}
 	}
+	for _, l := range strings.Split(body[m[1]:], "\n") {
+		if h := mdHeading.FindStringSubmatch(l); h != nil {
+			flush()
+			if len(h[1]) <= level {
+				break // the next section
+			}
+			if repo := strings.Trim(h[2], "`* "); repo != "" {
+				cur = &SisterOffer{Repo: filepath.Base(repo)}
+			}
+			continue
+		}
+		if cur != nil {
+			cur.Scope += l + "\n"
+		} else if r := otherRepoLine.FindStringSubmatch(l); r != nil {
+			out = append(out, SisterOffer{Repo: filepath.Base(r[1]), Scope: strings.TrimSpace(r[2])})
+		}
+	}
+	flush()
 	return out
 }
 

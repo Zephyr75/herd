@@ -193,9 +193,22 @@ func (a *App) writePlugin() error {
 		b.WriteString("## Instructions\n\n")
 		b.WriteString(strings.TrimSpace(ag.Instructions))
 		b.WriteString("\n")
+		stem := strings.TrimSuffix(ag.Writes, filepath.Ext(ag.Writes))
+		fmt.Fprintf(&b, diagramRules, stem, stem, stem)
 		if err := os.WriteFile(filepath.Join(dir, "commands", name+".md"), []byte(b.String()), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// diagramRules: how any agent draws a diagram so herd shows it in the artifact.
+const diagramRules = `
+## Diagrams
+
+Every diagram is an archify page: run the archify skill (Skill tool), never draw it by hand. herd shows the page inside your artifact, and the reader can open it full size.
+- Save it in the run directory as ` + "`%s.html`" + ` (` + "`%s-<topic>.html`" + ` for more than one); keep archify's working files in ` + "`$HERD_RUN_DIR/.archify/`" + `, never in the worktree.
+- Embed it in your artifact on its own line: ` + "`![<what it shows>](%s.html)`" + `.
+- Draw what the reader needs to understand, not every detail; mark what changes.
+- Write a ` + "```mermaid" + ` fence only when your instructions ask for mermaid, or when the archify skill is not in your skill list.
+`

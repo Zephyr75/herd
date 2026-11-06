@@ -1170,6 +1170,11 @@ func TestPlanRepos(t *testing.T) {
 	if len(got) != 2 || got[0].Repo != "okai-tcp-server" || got[0].Scope != "echo the pause id" || got[1].Repo != "FirebaseFunctions" || got[1].Scope != "forward it" {
 		t.Fatalf("plan repos: %+v", got)
 	}
+	body = "# Goal\nx\n\n---\n\n## Sister tasks\n\n### `okai-tcp-server`\n\nEcho the pause id in the ack.\nKeep the field name.\n\n### FirebaseFunctions\nForward it.\n"
+	got = planRepos(body)
+	if len(got) != 2 || got[0].Repo != "okai-tcp-server" || got[0].Scope != "Echo the pause id in the ack.\nKeep the field name." || got[1].Repo != "FirebaseFunctions" || got[1].Scope != "Forward it." {
+		t.Fatalf("sister tasks: %+v", got)
+	}
 	if planRepos("# Goal\n- a: b\n") != nil {
 		t.Fatal("repos without the section")
 	}

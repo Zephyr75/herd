@@ -73,7 +73,7 @@ function key(e: KeyboardEvent) {
         <div class="page">
           <p v-if="!art" class="empty">Loading…</p>
           <p v-else-if="!art.exists" class="empty">{{ art.file || 'The artifact' }} has not been written yet.</p>
-          <ArtifactView v-else :art="art" :zoom="1.6" />
+          <ArtifactView v-else :art="art" :task="task?.id ?? ''" :zoom="1.6" />
         </div>
       </div>
     </div>

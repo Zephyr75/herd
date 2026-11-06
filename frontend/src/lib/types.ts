@@ -203,6 +203,14 @@ export interface Field {
   v: string
 }
 
+/** A diagram page (archify HTML) in a task's run directory. */
+export interface Diagram {
+  file: string
+  title: string
+  step: string // the step whose artifact embeds it, e.g. Implement 2
+  mod: string
+}
+
 export interface Artifact {
   path: string
   file: string

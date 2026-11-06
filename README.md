@@ -42,7 +42,8 @@ make test    # Go tests, with a fake claude
 
 - **Agents** live in `~/.herd/agents.toml` (Settings → Agents). Rules in Settings → Context go into every session.
 - **Run files** (TASK.md, PLAN.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
-- **Several repos?** Plan lists them under `## Other repositories`; Next step then offers, in one click, a **sister task** in each: same issue, its own worktree, plan and PR, linked from the task header.
+- **Diagrams:** agents draw them with the [archify](https://github.com/tt-a1i/archify) skill (install it in `~/.claude/skills`): Plan draws the current flow and the new one, to compare at a glance. They appear inside the artifact; **Open full size** lists every diagram of the task. Without archify, agents fall back to mermaid.
+- **Several repos?** Plan ends with a `## Sister tasks` section (after a `---` line), one `### <repo>` each; Next step then offers, in one click, a **sister task** in each: same issue, its own worktree, plan and PR, linked from the task header.
 - **Edits outside the worktree** by mistake are spotted: Next step warns before Commit and push.
 - **Quitting herd** keeps working steps alive: the next herd reattaches them.
 - **Shortcuts:** Alt+E and Alt+A hide the side panels, Esc closes pop-ups.
@@ -55,7 +56,7 @@ internal/app         tasks, steps, hooks, commit, push
 internal/runner      one PTY per step  ·  holder keeps it alive across restarts
 internal/github      PRs, CI, Copilot reviews
 internal/…           store (SQLite), settings, gitops, hooks, artifacts, zed
-frontend/            Vue 3 + xterm.js + mermaid
+frontend/            Vue 3 + xterm.js + mermaid; archify pages in a sandboxed iframe
 plugin/              the Claude Code plugin herd ships
 ```
 

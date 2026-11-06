@@ -149,7 +149,7 @@ func Watch(ctx context.Context, root string, onWrite func(path string)) error {
 						continue
 					}
 				}
-				if !strings.HasSuffix(ev.Name, ".md") || ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
+				if !(strings.HasSuffix(ev.Name, ".md") || strings.HasSuffix(ev.Name, ".html")) || ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
 					continue
 				}
 				p := ev.Name

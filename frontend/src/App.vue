@@ -49,7 +49,7 @@ watchEffect(() => {
     <NewTask v-if="herd.overlay === 'new'" />
     <Activity v-if="herd.overlay === 'activity'" />
     <PushTitle v-if="herd.overlay === 'push' && herd.pushOpt" />
-    <ViewPopups v-if="herd.overlay === 'views' && (herd.diffOf || herd.artifactOf)" />
+    <ViewPopups v-if="herd.overlay === 'views' && (herd.diffOf || herd.artifactOf || herd.diagramOf)" />
   </div>
 </template>
 

@@ -53,7 +53,7 @@ func main() {
 		// herd's top bar is the titlebar: it drags the window and holds the
 		// window controls. macOS keeps its traffic lights (TitleBarHiddenInset).
 		Frameless:   runtime.GOOS != "darwin",
-		AssetServer: &assetserver.Options{Assets: assets},
+		AssetServer: &assetserver.Options{Assets: assets, Handler: svc.RunFiles()}, // RunFiles: the agents' diagrams
 		OnStartup:   shell.startup,
 		OnShutdown:  shell.shutdown,
 		Bind:        []interface{}{svc},

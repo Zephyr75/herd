@@ -415,6 +415,7 @@ export const api: Api = {
   OpenRunDir: () => ok(undefined),
   RevertStep: () => Promise.reject('Revert needs the desktop app'),
   RefreshPR: () => ok(undefined),
+  Diagrams: () => ok([]),
   CreateSister: () => Promise.reject('Sister tasks need the desktop app'),
   OpenURL: () => ok(undefined),
   MarkPRReady: (id) => { const t = find(id); t.draft = false; t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },

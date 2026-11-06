@@ -1,4 +1,5 @@
-// Artifact preview: markdown-it, with ```mermaid fences rendered by mermaid.
+// Artifact preview: markdown-it, with ```mermaid fences rendered by mermaid
+// and diagram pages (![title](PLAN.html), drawn with archify) embedded.
 
 import MarkdownIt from 'markdown-it'
 
@@ -13,6 +14,34 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return defaultFence(tokens, idx, options, env, self)
 }
 
+// A diagram page in the run directory: embedded, sandboxed (no access to the
+// app), with a button to open it full size.
+const defaultImage = md.renderer.rules.image!
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const tok = tokens[idx]
+  const file = String(tok.attrGet('src') ?? '')
+  const e = env as RenderEnv
+  if (!e?.task || !/^[\w.-]+\.html$/.test(file) || file.startsWith('.')) return defaultImage(tokens, idx, options, env, self)
+  const title = md.utils.escapeHtml(tok.content || file)
+  const f = md.utils.escapeHtml(file)
+  return (
+    `<figure class="diagram-fig"><iframe src="${md.utils.escapeHtml(diagramURL(e.task, file, !!e.dark, true) + '&v=' + (e.rev ?? 0))}" title="${title}" sandbox="allow-scripts" loading="lazy"></iframe>` +
+    `<figcaption><span>${title}</span><button type="button" data-diagram="${f}" title="Open ${f} full size">Open full size</button></figcaption></figure>`
+  )
+}
+
+/** diagramURL is where herd serves a task's diagram page to the webview. */
+export function diagramURL(task: string, file: string, dark: boolean, embed = false) {
+  return `/run/${encodeURIComponent(task)}/${encodeURIComponent(file)}?theme=${dark ? 'dark' : 'light'}${embed ? '&embed=1' : ''}`
+}
+
+export interface RenderEnv {
+  task?: string
+  dark?: boolean
+  rev?: number // bumped when a diagram page changes, to reload it
+  [k: string]: unknown
+}
+
 function firstLine(s: string) {
   return s.trim().split('\n')[0] ?? ''
 }
@@ -24,8 +53,8 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   return self.renderToken(tokens, idx, options)
 }
 
-export function render(src: string): string {
-  return md.render(src)
+export function render(src: string, env: RenderEnv = {}): string {
+  return md.render(src, { ...env })
 }
 
 let mermaidMod: typeof import('mermaid').default | null = null

@@ -1,17 +1,35 @@
 <script setup lang="ts">
-// An artifact rendered: its markdown with mermaid diagrams (the front matter
-// is left out: the step list already shows it). Used by the Preview tab and the artifact pop-up.
-import { computed, nextTick, ref, watch } from 'vue'
+// An artifact rendered: its markdown with mermaid diagrams and embedded
+// diagram pages (the front matter is left out: the step list already shows
+// it). Used by the Preview tab and the artifact pop-up.
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { herd } from '../lib/state'
 import { render, renderMermaid } from '../lib/markdown'
 import type { Artifact } from '../lib/types'
 
 // zoom enlarges mermaid diagrams up to that many times their natural size,
 // as far as the width allows (they render small by default).
-const props = withDefaults(defineProps<{ art: Artifact; zoom?: number }>(), { zoom: 1.3 })
+const props = withDefaults(defineProps<{ art: Artifact; task: string; zoom?: number }>(), { zoom: 1.3 })
 const body = ref<HTMLDivElement>()
 
-const html = computed(() => render(props.art.body))
+const html = computed(() => render(props.art.body, { task: props.task, dark: herd.theme === 'fleet-dark', rev: herd.diagramRev }))
+// An embedded diagram page reports its size (see embedFit in diagrams.go):
+// its iframe takes the diagram's shape, with no empty band under it.
+function fit(e: MessageEvent) {
+  const d = (e.data as { herdDiagram?: { ratio?: number; height?: number } })?.herdDiagram
+  const frame = d && [...(body.value?.querySelectorAll('iframe') ?? [])].find((f) => f.contentWindow === e.source)
+  if (!frame) return
+  if (d.ratio && d.ratio > 0) frame.style.aspectRatio = String(d.ratio)
+  else if (d.height && d.height > 0) frame.style.height = Math.min(d.height, 4000) + 'px'
+}
+window.addEventListener('message', fit)
+onBeforeUnmount(() => window.removeEventListener('message', fit))
+
+// "Open full size" on an embedded diagram page.
+function click(e: MouseEvent) {
+  const file = (e.target as HTMLElement).closest<HTMLElement>('[data-diagram]')?.dataset.diagram
+  if (file) herd.openDiagram(props.task, file)
+}
 watch(
   () => [html.value, herd.theme, body.value] as const,
   async () => {
@@ -34,7 +52,7 @@ watch(
 </script>
 
 <template>
-  <div ref="body" class="md"></div>
+  <div ref="body" class="md" @click="click"></div>
 </template>
 
 <style scoped>
@@ -109,6 +127,49 @@ watch(
   .md :deep(td) {
     border: 1px solid var(--border);
     padding: 4px 8px;
+  }
+  .md :deep(.diagram-fig) {
+    margin: 0 0 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .md :deep(.diagram-fig iframe) {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10; /* until the page reports its own shape */
+    border: 0;
+    background: var(--bg);
+  }
+  .md :deep(.diagram-fig figcaption) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 6px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .md :deep(.diagram-fig figcaption span) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .md :deep(.diagram-fig button) {
+    flex: none;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .md :deep(.diagram-fig button:hover) {
+    background: var(--hover);
   }
   .md :deep(.mermaid-fig) {
     margin: 0 0 10px;

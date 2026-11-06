@@ -191,7 +191,7 @@ function pick(id: string) {
     </div>
     <div v-else-if="A" class="editor card">
       <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
-      <p v-if="index === 0" class="special">Special agent: it starts every task and every sister task, and its "## Other repositories" section offers sister tasks. It always stays first.</p>
+      <p v-if="index === 0" class="special">Special agent: it starts every task and every sister task, and the "## Sister tasks" section ending its artifact offers one sister task per repository. It always stays first.</p>
       <div class="grid2">
         <label class="field">Name<input class="input" :value="A.name" @input="set('name', val($event))" /></label>
         <label class="field">Writes artifact<input class="input mono" :value="A.writes" @input="set('writes', val($event))" /></label>

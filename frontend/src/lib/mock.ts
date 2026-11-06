@@ -180,7 +180,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused && s.agent !== 'copilot', auto: !!a.trigger.startsWith('after:'),
-    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha,
+    artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha, revert: false,
     paused, manual: !!s.manual, fresh: !!s.manual && open,
     rerun: i === t.steps.length - 1 && a.commit && !open,
     external: s.agent === 'copilot',
@@ -197,7 +197,7 @@ function derive(t: MockTask): Task {
   if (t.archived) status = t.pr ? st(t.prState === 'merged' ? 'done' : 'idle', `PR #${t.pr} ${t.prState} · ${day}`, t.prState!) : st('idle', `Archived · ${day}`, 'archived')
   else if (!steps.length) status = st('idle', 'Not started', 'not started')
   else {
-    const pr = t.pr && t.prState === 'open' ? ` · PR #${t.pr}` : ''
+    const pr = t.pr && t.prState === 'open' ? ` · PR #${t.pr}${t.draft ? '' : ' Ready'}` : ''
     const of = (kind: StatusKind, word: string, s: Step) => st(kind, `${s.name} · ${word}${pr}`, word.toLowerCase())
     const live = steps.find((s) => s.state === 'approval' || s.state === 'running' || (s.paused && s.state !== 'done' && s.state !== 'failed'))
     if (live) status = live.state === 'running' && !live.paused ? of('running', 'Running', live) : of(live.state === 'approval' ? 'approval' : 'waiting', 'Waiting', live)
@@ -413,6 +413,8 @@ export const api: Api = {
   RestoreTask: (id) => { const t = find(id); if (t.removed) return Promise.reject('the worktree was removed'); t.archived = false; changed(t); return ok(undefined) },
   DeleteTask: (id) => { const i = T.findIndex((t) => t.id === id); if (i < 0 || !T[i].archived) return Promise.reject('archive the task before deleting it'); T.splice(i, 1); emit('task:removed', { id }); return ok(['removed the task']) },
   OpenRunDir: () => ok(undefined),
+  RevertStep: () => Promise.reject('Revert needs the desktop app'),
+  RefreshPR: () => ok(undefined),
   CreateSister: () => Promise.reject('Sister tasks need the desktop app'),
   OpenURL: () => ok(undefined),
   MarkPRReady: (id) => { const t = find(id); t.draft = false; t.labels = [...(t.labels ?? []), 'ready']; changed(t); return ok(undefined) },

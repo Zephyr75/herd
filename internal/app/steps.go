@@ -329,6 +329,7 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 	}
 
 	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(append(steps, s), s.Seq)}
+	a.snapshot(t, s.ID) // what Revert goes back to
 	if err := a.writeTaskFile(p, t); err != nil {
 		return launch{}, err
 	}
@@ -637,10 +638,11 @@ func (a *App) setPaused(stepID string, on bool) {
 
 // complete runs the orchestrator's actions the first time a step finishes
 // with a success: commit, push, start the automatic agents. A failed step
-// leaves the worktree as it is.
+// leaves the worktree as it is, and its actions still run if the user gets it
+// to succeed in the same conversation.
 func (a *App) complete(stepID string) {
 	s, first := a.updateStep(stepID, func(s *store.Step) bool {
-		if s.Completed || s.State != store.Done {
+		if s.Completed || !s.Succeeded() {
 			return false
 		}
 		s.Completed = true
@@ -706,7 +708,10 @@ func (a *App) afterDone(s store.Step) {
 	}
 
 	if ag.Push {
+		a.pushing.Store(s.ID, true)
 		a.push(t, s, say)
+		a.pushing.Delete(s.ID)
+		a.emitTask(t.ID)
 	}
 
 	for _, next := range a.settings.Agents() {

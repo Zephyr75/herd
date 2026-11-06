@@ -125,7 +125,7 @@ function key(e: KeyboardEvent) {
         <div v-if="file" class="fhead">
           <span :class="['st', statusCls(file.status)]" :title="statusTitle(file.status)">{{ file.status === '?' ? 'U' : file.status }}</span>
           <span class="path mono" :title="file.path"><span class="dir">{{ split(file.path).dir }}</span>{{ split(file.path).name }}</span>
-          <button class="zed" :title="changes?.source === 'commit' ? `Open commit ${changes.sha} in Zed's diff view` : 'Open the worktree in Zed, where it shows the uncommitted changes'" @click="openInZed">Zed diff</button>
+          <button class="zed" :title="changes?.source === 'commit' ? `Open commit ${changes.sha} in Zed's diff view` : 'Open the worktree in Zed, where it shows the uncommitted changes'" @click="openInZed"><Icon name="eye" :size="12" />Diff</button>
         </div>
         <div class="scroll">
           <p v-if="error" class="empty err">{{ error }}</p>

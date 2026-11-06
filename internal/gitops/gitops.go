@@ -254,3 +254,51 @@ func (g Git) Push(ctx context.Context, worktree, branch string) error {
 	_, err := g.Run(ctx, worktree, "push", "--force-with-lease", "-u", "origin", branch)
 	return err
 }
+
+// privateIndex runs git in worktree with its own index file, so the
+// worktree's real index is never touched.
+func (g Git) privateIndex(ctx context.Context, worktree, index string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, g.bin(), append([]string{"-C", worktree}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+index, "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Snapshot stores the worktree's content, untracked files included (not
+// ignored ones), as a tree and returns its hash.
+func (g Git) Snapshot(ctx context.Context, worktree, index string) (string, error) {
+	if _, err := g.privateIndex(ctx, worktree, index, "add", "-A"); err != nil {
+		return "", err
+	}
+	return g.privateIndex(ctx, worktree, index, "write-tree")
+}
+
+// Restore puts the worktree back to a Snapshot tree, as uncommitted changes
+// on top of HEAD: anything changed since is discarded.
+func (g Git) Restore(ctx context.Context, worktree, tree, index string) error {
+	if _, err := g.Run(ctx, worktree, "reset", "--hard", "HEAD"); err != nil {
+		return err
+	}
+	if _, err := g.Run(ctx, worktree, "clean", "-fd"); err != nil {
+		return err
+	}
+	gone, err := g.Run(ctx, worktree, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=D", "HEAD", tree)
+	if err != nil {
+		return err
+	}
+	if _, err := g.privateIndex(ctx, worktree, index, "read-tree", tree); err != nil {
+		return err
+	}
+	if _, err := g.privateIndex(ctx, worktree, index, "checkout-index", "-a", "-f"); err != nil {
+		return err
+	}
+	for _, rel := range strings.Split(gone, "\n") {
+		if rel != "" {
+			_ = os.Remove(filepath.Join(worktree, rel))
+		}
+	}
+	return nil
+}

@@ -35,6 +35,8 @@ export interface Api {
   SessionElsewhere(step: string): Promise<Proc[]>
   StepChanges(step: string): Promise<Changes>
   FileDiff(step: string, path: string): Promise<FileDiff>
+  RevertStep(step: string): Promise<void>
+  RefreshPR(task: string): Promise<void>
   SetFocused(focused: boolean): Promise<void>
   SetNotifications(on: boolean): Promise<void>
   SetMaxTabs(n: number): Promise<void>

@@ -342,5 +342,11 @@ func (d *DB) Externals(taskID string) ([]ExternalFile, error) {
 	return out, rows.Err()
 }
 
+// DeleteStepsFrom removes a task's steps from seq on (their kv state too).
+func (d *DB) DeleteStepsFrom(taskID string, seq int) error {
+	_, err := d.db.Exec(`DELETE FROM steps WHERE task_id = ? AND seq >= ?`, taskID, seq)
+	return err
+}
+
 // StepID builds a step id from its task and key.
 func StepID(taskID, key string) string { return fmt.Sprintf("%s/%s", taskID, key) }

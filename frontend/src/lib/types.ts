@@ -123,6 +123,7 @@ export interface Step {
   artifact: string
   commits: boolean
   diff: boolean // Diff has something to open: its segment's commit, or the uncommitted work
+  revert: boolean // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
   paused: boolean // stopped by the user until Resume
   manual: boolean // created without running: the user drives its session
   fresh: boolean // no transcript yet: claude --session-id, not --resume

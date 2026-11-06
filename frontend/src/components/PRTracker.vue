@@ -2,7 +2,7 @@
 // The Copilot step's tab: where the PR is in CI, and whether Copilot has
 // reviewed it. herd refreshes both every minute; the review itself is the
 // step's artifact (COPILOT-n.md) in the Preview tab.
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
 import { unsuccessful, type CICheck, type Step, type Task } from '../lib/types'
@@ -29,6 +29,12 @@ const word = (b: string) => ({ fail: 'failed', cancel: 'cancelled', pending: 'ru
 const waiting = computed(() => props.step.state === 'running')
 const open = (link: string) => link && herd.attempt('Could not open the link', () => api.OpenURL(link))
 const stop = () => herd.attempt('Could not stop waiting', () => api.MarkDone(props.step.id))
+const refreshing = ref(false)
+async function refresh() {
+  refreshing.value = true
+  await herd.attempt('Could not refresh PR #' + props.task.pr, () => api.RefreshPR(props.task.id))
+  refreshing.value = false
+}
 </script>
 
 <template>
@@ -37,6 +43,7 @@ const stop = () => herd.attempt('Could not stop waiting', () => api.MarkDone(pro
       <span class="title">PR #{{ task.pr }}</span>
       <span class="muted small">{{ task.branch }} → {{ task.baseBranch }}</span>
       <span class="grow"></span>
+      <button v-if="task.prState === 'open' && !task.archived" class="act" :disabled="refreshing" title="Check Copilot's review and the CI checks now instead of waiting for the next minute" @click="refresh"><Icon name="rerun" :size="13" />{{ refreshing ? 'Refreshing…' : 'Refresh' }}</button>
       <button v-if="task.prUrl" class="act" @click="open(task.prUrl)"><Icon name="external" :size="13" />Open on GitHub</button>
     </div>
 

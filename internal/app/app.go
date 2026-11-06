@@ -85,6 +85,8 @@ type App struct {
 	checks   map[string][]github.Check // CI checks of each open PR, by task id
 	labels   map[string][]string       // labels of each open PR, by task id
 	drafts   map[string]bool           // whether each open PR is a draft, by task id
+
+	pushing sync.Map // ids of the push steps herd is committing and pushing
 }
 
 // New creates the service; call Start before use.

@@ -537,6 +537,14 @@ func (a *App) draftOf(taskID string) bool {
 	return a.drafts[taskID]
 }
 
+// prReady: the open PR is known to be ready for review, not a draft.
+func (a *App) prReady(taskID string) bool {
+	a.checksMu.Lock()
+	defer a.checksMu.Unlock()
+	draft, known := a.drafts[taskID]
+	return known && !draft
+}
+
 func (a *App) labelsOf(taskID string) []string {
 	a.checksMu.Lock()
 	defer a.checksMu.Unlock()
@@ -570,26 +578,44 @@ func (a *App) pollPRs() {
 		return
 	}
 	for _, t := range tasks {
-		if t.Archived || t.PRNumber == 0 || t.PRState != "open" {
-			continue
-		}
-		p := a.projectOf(t)
-		pr, err := a.gh.PRState(a.ctx, p.Repo, t.PRNumber)
-		if err == nil {
-			a.setPR(t.ID, pr.Labels, pr.Draft)
-		}
-		if err != nil || pr.State == "open" || pr.State == "" {
-			a.collectChecks(t)
-			a.collectCopilot(t)
-			continue
-		}
-		a.stopTaskSessions(t.ID)
-		_ = a.updateTask(t.ID, func(t *store.Task) error {
-			t.PRState, t.Archived, t.ArchivedAt = pr.State, true, pr.At
-			return nil
-		})
-		a.toast("Archived "+refOf(t), fmt.Sprintf("PR #%d was %s", t.PRNumber, pr.State), false)
+		a.pollPR(t)
 	}
+}
+
+// RefreshPR checks the task's PR now: its state, CI checks and Copilot's
+// review, without waiting for the next minute.
+func (a *App) RefreshPR(taskID string) error {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return err
+	}
+	a.pollMu.Lock() // after a poll already running
+	defer a.pollMu.Unlock()
+	a.pollPR(t)
+	a.emitTask(t.ID)
+	return nil
+}
+
+func (a *App) pollPR(t store.Task) {
+	if t.Archived || t.PRNumber == 0 || t.PRState != "open" {
+		return
+	}
+	p := a.projectOf(t)
+	pr, err := a.gh.PRState(a.ctx, p.Repo, t.PRNumber)
+	if err == nil {
+		a.setPR(t.ID, pr.Labels, pr.Draft)
+	}
+	if err != nil || pr.State == "open" || pr.State == "" {
+		a.collectChecks(t)
+		a.collectCopilot(t)
+		return
+	}
+	a.stopTaskSessions(t.ID)
+	_ = a.updateTask(t.ID, func(t *store.Task) error {
+		t.PRState, t.Archived, t.ArchivedAt = pr.State, true, pr.At
+		return nil
+	})
+	a.toast("Archived "+refOf(t), fmt.Sprintf("PR #%d was %s", t.PRNumber, pr.State), false)
 }
 
 func refOf(t store.Task) string {

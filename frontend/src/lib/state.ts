@@ -204,6 +204,13 @@ class Herd {
     const before = i >= 0 ? this.tasks[i] : null
     if (i >= 0) this.tasks[i] = t
     else this.tasks.push(t)
+    // Tabs of steps that are gone (a Revert removed them) close.
+    const ids = new Set(t.steps.map((s) => s.id))
+    const kept = this.tabs.filter((tb) => tb.task !== t.id || ids.has(tb.step))
+    if (kept.length !== this.tabs.length) {
+      this.tabs = kept
+      this.active = Math.min(this.active, kept.length - 1)
+    }
     if (!before) return
     // A step that started by itself (automatic agents) opens a tab, and takes
     // focus when the user was watching the step before it.
@@ -415,6 +422,20 @@ class Herd {
     this.guidance = ''
     this.openStep(taskId, step.id)
     await this.copyResume(step)
+  }
+
+  /** The step whose Revert waits for its second click. */
+  confirmRevert = ''
+
+  /** revertStep puts the worktree back to the step's start and removes it
+   *  and later steps; the first click only asks. */
+  async revertStep(step: Step) {
+    if (this.confirmRevert !== step.id) {
+      this.confirmRevert = step.id
+      return
+    }
+    this.confirmRevert = ''
+    if (await this.attempt('Could not revert ' + step.name, () => api.RevertStep(step.id).then(() => true))) this.toast('Reverted ' + step.name, 'The worktree is back to how it was when it started.')
   }
 
   /** rerunStep runs a finished step again in its own session. */

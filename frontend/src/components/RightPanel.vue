@@ -71,8 +71,8 @@ async function archive() {
         <div class="title-row">
           <TaskRef :issue="t.issue" />
           <span class="title">{{ t.title }}</span>
-          <button v-if="t.issue && (t.issueRepo || t.repo)" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue">GitHub</button>
-          <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()">Edit</button>
+          <button v-if="t.issue && (t.issueRepo || t.repo)" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue"><Icon name="external" :size="12" />GitHub</button>
+          <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()"><Icon name="pencil" :size="12" />Edit</button>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>
         <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
@@ -104,8 +104,9 @@ async function archive() {
             <span class="sub">{{ s.external ? 'run by herd · PR #' + t.pr : s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
           <span class="acts">
-            <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="play" :size="12" />Rerun</button>
-            <button v-if="s.diff && diffs(s)" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)">Diff</button>
+            <button v-if="s.revert" class="act" :class="{ danger: herd.confirmRevert === s.id }" :title="`Put the worktree back to how it was when ${s.name} started, and remove it and the steps after it`" @click="herd.revertStep(s)">{{ herd.confirmRevert === s.id ? 'Discard its changes?' : 'Revert' }}</button>
+            <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="rerun" :size="12" />Rerun</button>
+            <button v-if="s.diff && diffs(s)" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)"><Icon name="eye" :size="12" />Diff</button>
           </span>
         </div>
         <div v-if="t.next.ghost" class="row ghost">
@@ -349,5 +350,9 @@ async function archive() {
   }
   .chip:hover {
     background: var(--hover);
+  }
+  .act.danger {
+    border-color: var(--approval-dot);
+    color: var(--approval);
   }
 </style>

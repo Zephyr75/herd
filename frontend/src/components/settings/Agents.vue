@@ -11,7 +11,11 @@ import Dropdown from '../ui/Dropdown.vue'
 
 const agents = computed(() => herd.settings?.agents ?? [])
 const selId = ref(herd.settings?.agents[1]?.id ?? herd.settings?.agents[0]?.id ?? '')
-const A = computed(() => agents.value.find((a) => a.id === selId.value) ?? agents.value[0])
+const A = computed(() => (selId.value === COPILOT ? undefined : agents.value.find((a) => a.id === selId.value) ?? agents.value[0]))
+// Copilot is herd's own step after each push, not a Claude agent: shown for
+// the pipeline's sake, nothing to edit.
+const COPILOT = 'copilot'
+const pusher = computed(() => agents.value.find((a) => a.push))
 const confirmDelete = ref(false)
 
 const models: [string, string][] = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]
@@ -66,7 +70,7 @@ const newName = ref('')
 const idFor = (name: string) => {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent'
   let id = base
-  for (let i = 2; agents.value.some((a) => a.id === id); i++) id = `${base}-${i}`
+  for (let i = 2; id === COPILOT || agents.value.some((a) => a.id === id); i++) id = `${base}-${i}`
   return id
 }
 function addAgent() {
@@ -143,6 +147,10 @@ function pick(id: string) {
   <div class="pipeline">
     <template v-for="(a, i) in agents" :key="a.id">
       <span class="pp" :class="{ auto: isAuto(a) }">{{ a.name }}{{ isAuto(a) ? ' (auto)' : '' }}</span>
+      <template v-if="a.push">
+        <span class="muted" aria-hidden="true">→</span>
+        <span class="pp auto">Copilot (auto)</span>
+      </template>
       <span v-if="i < agents.length - 1" class="muted" aria-hidden="true">→</span>
     </template>
   </div>
@@ -152,6 +160,10 @@ function pick(id: string) {
       <button v-for="a in agents" :key="a.id" class="list-btn" :class="{ on: a.id === A?.id }" @click="pick(a.id)">
         <span class="name">{{ a.name }}</span>
         <span class="sub">{{ modelLabel(a.model) }} · {{ isAuto(a) ? 'automatic after ' + afterName(a) : 'manual' }}</span>
+      </button>
+      <button v-if="pusher" class="list-btn" :class="{ on: selId === COPILOT }" @click="pick(COPILOT)">
+        <span class="name">Copilot</span>
+        <span class="sub">run by herd · automatic after {{ pusher.name }}</span>
       </button>
       <input
         v-if="adding"
@@ -166,7 +178,18 @@ function pick(id: string) {
       <span v-if="adding && newName.trim()" class="muted small new-id">id <span class="mono">{{ idFor(newName) }}</span></span>
     </div>
 
-    <div v-if="A" class="editor card">
+    <div v-if="selId === COPILOT && pusher" class="editor card">
+      <p class="special">
+        Special agent, run by herd itself (no Claude session, nothing to set). After each {{ pusher.name }} that opens or updates the PR, it asks
+        Copilot for a review, then waits for the review and the CI checks (checked every minute). It writes COPILOT-n.md with Copilot's comments
+        and the failing checks, and fails when there is something to fix.
+      </p>
+      <div class="field">
+        <span>Next step offers</span>
+        <span class="muted small">What {{ pusher.name }} offers after it succeeds: <span v-for="(id, i) in pusher.next ?? []" :key="id">{{ i ? ', ' : '' }}{{ nameOf(id) }}</span><span v-if="!pusher.next?.length">nothing</span>. Change it on {{ pusher.name }}.</span>
+      </div>
+    </div>
+    <div v-else-if="A" class="editor card">
       <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
       <p v-if="index === 0" class="special">Special agent: it starts every task and every sister task, and its "## Other repositories" section offers sister tasks. It always stays first.</p>
       <div class="grid2">

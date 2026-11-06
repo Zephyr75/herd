@@ -903,16 +903,18 @@ func TestStatus(t *testing.T) {
 		steps []StepView
 		kind  string
 		label string
+		ready bool
 	}{
-		"next":     {store.Task{}, []StepView{step("plan", 1, store.Done, "")}, "waiting", "Plan · Waiting for next step"},
-		"done":     {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}}, "done", "Copilot 1 · Success · PR #7"},
-		"failure":  {store.Task{}, []StepView{step("impl", 1, store.Done, ""), step("review", 1, store.Done, store.Failure)}, "failed", "Review 1 · Failure"},
-		"running":  {open, []StepView{step("impl", 2, store.Running, "")}, "running", "Implement 2 · Running · PR #7"},
-		"waiting":  {open, []StepView{step("impl", 2, store.Idle, "")}, "waiting", "Implement 2 · Waiting · PR #7"},
-		"approval": {store.Task{}, []StepView{step("impl", 1, store.Approval, "")}, "approval", "Implement 1 · Waiting"},
-		"ended":    {store.Task{}, []StepView{step("impl", 1, store.Failed, "")}, "failed", "Implement 1 · Failure"},
+		"next":     {store.Task{}, []StepView{step("plan", 1, store.Done, "")}, "waiting", "Plan · Waiting for next step", false},
+		"done":     {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}}, "done", "Copilot 1 · Success · PR #7", false},
+		"failure":  {store.Task{}, []StepView{step("impl", 1, store.Done, ""), step("review", 1, store.Done, store.Failure)}, "failed", "Review 1 · Failure", false},
+		"running":  {open, []StepView{step("impl", 2, store.Running, "")}, "running", "Implement 2 · Running · PR #7", false},
+		"waiting":  {open, []StepView{step("impl", 2, store.Idle, "")}, "waiting", "Implement 2 · Waiting · PR #7", false},
+		"approval": {store.Task{}, []StepView{step("impl", 1, store.Approval, "")}, "approval", "Implement 1 · Waiting", false},
+		"ended":    {store.Task{}, []StepView{step("impl", 1, store.Failed, "")}, "failed", "Implement 1 · Failure", false},
+		"ready":    {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}}, "done", "Copilot 1 · Success · PR #7 Ready", true},
 	} {
-		if s := statusOf(c.task, c.steps); s.Kind != c.kind || s.Label != c.label {
+		if s := statusOf(c.task, c.steps, c.ready); s.Kind != c.kind || s.Label != c.label {
 			t.Errorf("%s: %+v, want %s %q", name, s, c.kind, c.label)
 		}
 	}
@@ -945,7 +947,8 @@ func TestNextAfterOutcome(t *testing.T) {
 		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2"},
 		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Commit and push, Implement 2"},
 		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Plan"},
-		"pushed":           {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Implement 2"},
+		"push unfinished":  {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Commit and push, Implement 2"},
+		"pushing":          {append(base, step("test", 1, ""), StepView{Step: store.Step{Agent: "push", N: 1, State: store.Done}, Name: "Commit and push", Pushing: true}), store.Task{PRNumber: 7}, ""},
 		"copilot comments": {append(base, step("push", 1, ""), copilotStep(1, store.Done, store.Failure)), store.Task{PRNumber: 7}, "Implement 2"},
 		"copilot waiting":  {append(base, step("push", 1, ""), copilotStep(1, store.Running, "")), store.Task{PRNumber: 7}, "Implement 2"},
 	} {
@@ -1223,5 +1226,94 @@ func TestSisterTask(t *testing.T) {
 	spec := a.spec(launch{task: task, proj: a.projectOf(task), agent: agentFor(a.settings.Agents(), "impl"), step: store.Step{ID: sv.ID + "/impl-1", Key: "impl-1", N: 1}})
 	if !slices.Contains(spec.Args, tv.RunDir) || !strings.Contains(strings.Join(spec.Args, " "), "sister task "+tv.ID+" handles the pony-core part") {
 		t.Fatalf("sister spec: %v", spec.Args)
+	}
+}
+
+func TestRevertStep(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "revert an implement", "", true, nil)
+	plan := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "plan", func() bool { return stepState(a, plan) == store.Done })
+	wt := tv.Worktree
+	os.WriteFile(filepath.Join(wt, "keep.txt"), []byte("mine\n"), 0o644) // before Implement: survives
+	if _, err := a.StartStep(tv.ID, "impl", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	impl, rev := store.StepID(tv.ID, "impl-1"), store.StepID(tv.ID, "review-1")
+	waitFor(t, "review", func() bool { return stepState(a, rev) == store.Done })
+	if _, err := a.StartStep(tv.ID, "test", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	test := store.StepID(tv.ID, "test-1")
+	waitFor(t, "test", func() bool { return stepState(a, test) == store.Done })
+	os.WriteFile(filepath.Join(wt, "by-hand.txt"), []byte("x\n"), 0o644)
+	os.Remove(filepath.Join(wt, "README.md"))
+
+	v, _ := a.GetTask(tv.ID)
+	revert := map[string]bool{}
+	for _, s := range v.Steps {
+		revert[s.ID] = s.Revert
+	}
+	if revert[plan] || !revert[impl] || revert[rev] || revert[test] { // only the latest Implement
+		t.Fatalf("revert offered: %v", revert)
+	}
+	if err := a.RevertStep(impl); err != nil {
+		t.Fatal(err)
+	}
+	for f, want := range map[string]bool{"keep.txt": true, "README.md": true, "file-1.txt": false, "by-hand.txt": false} {
+		if _, err := os.Stat(filepath.Join(wt, f)); (err == nil) != want {
+			t.Errorf("%s exists=%v after the revert", f, err == nil)
+		}
+	}
+	steps, _ := a.db.Steps(tv.ID)
+	if len(steps) != 1 || steps[0].ID != plan {
+		t.Fatalf("steps after the revert: %+v", steps)
+	}
+	if _, err := os.Stat(filepath.Join(tv.RunDir, "IMPLEMENT-1.md")); err == nil {
+		t.Fatal("IMPLEMENT-1.md left behind")
+	}
+	if v, _ := a.GetTask(tv.ID); v.Next.Options[0].Label != "Implement 1" {
+		t.Fatalf("next after the revert: %+v", v.Next.Options)
+	}
+}
+
+func TestNoRevertOnceCommitted(t *testing.T) {
+	a, _ := newTestApp(t)
+	reviewCommits(t, a)
+	tv, _ := a.CreateTask("core", "", "committed work", "", true, nil)
+	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
+	a.StartStep(tv.ID, "impl", "", 0)
+	rev := store.StepID(tv.ID, "review-1")
+	waitFor(t, "review commit", func() bool { s, _ := a.db.Step(rev); return s.SHA != "" })
+	waitFor(t, "view", func() bool {
+		v, _ := a.GetTask(tv.ID)
+		return len(v.Steps) == 3 && v.Steps[2].State == store.Done
+	})
+	v, _ := a.GetTask(tv.ID)
+	for _, s := range v.Steps {
+		if s.Revert {
+			t.Fatalf("%s revertable after its commit", s.ID)
+		}
+	}
+	if err := a.RevertStep(rev); err == nil {
+		t.Fatal("reverted committed work")
+	}
+}
+
+// A step that failed, then succeeds in the same conversation, still gets its
+// commit, push and automatic next steps.
+func TestCompleteAfterAFailure(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "retry in the conversation", "", false, nil)
+	id := store.StepID(tv.ID, "test-1")
+	_ = a.db.SaveStep(store.Step{ID: id, TaskID: tv.ID, Key: "test-1", Agent: "test", N: 1, Seq: 1, State: store.Done, Verdict: store.Failure})
+	a.complete(id)
+	if s, _ := a.db.Step(id); s.Completed {
+		t.Fatal("a failure completed the step")
+	}
+	a.updateStep(id, func(s *store.Step) bool { s.Verdict = ""; return true })
+	a.complete(id)
+	if s, _ := a.db.Step(id); !s.Completed {
+		t.Fatal("the success after a failure did not complete the step")
 	}
 }

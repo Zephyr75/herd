@@ -27,11 +27,13 @@ type StepView struct {
 	Artifact string `json:"artifact"`
 	Commits  bool   `json:"commits"`
 	Diff     bool   `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
+	Revert   bool   `json:"revert"`   // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
 	Paused   bool   `json:"paused"`   // stopped by the user until Resume
 	Manual   bool   `json:"manual"`   // created without running: the user drives its session
 	Fresh    bool   `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
 	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
 	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
+	Pushing  bool   `json:"-"`        // herd is committing, pushing and opening the PR after it
 }
 
 // Option is one next-step button.
@@ -170,6 +172,9 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	}
 	// Steps share their segment's commit, or the uncommitted work after the last commit.
 	commits := a.branchCommits(t)
+	for i := range v.Steps {
+		v.Steps[i].Revert = a.revertable(t, v.Steps, i, commits)
+	}
 	dirty := -1 // unknown until a step needs it
 	for i := range v.Steps {
 		sv := &v.Steps[i]
@@ -202,7 +207,10 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Checks == nil {
 		v.Checks = []github.Check{}
 	}
-	v.Status = statusOf(t, v.Steps)
+	for i := range v.Steps {
+		_, v.Steps[i].Pushing = a.pushing.Load(v.Steps[i].ID)
+	}
+	v.Status = statusOf(t, v.Steps, a.prReady(t.ID))
 	v.Next = nextOf(t, v.Steps, agents)
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
 	v.Next.Sisters = []SisterOffer{}
@@ -301,8 +309,9 @@ func sourceText(t store.Task, p settings.Project) string {
 
 // statusOf is the task's badge: its current (or last) step with Running,
 // Waiting, Failure or, only for a Copilot step that passed (the task is
-// done), Success; and the open PR. Any other success waits for the next step.
-func statusOf(t store.Task, steps []StepView) Status {
+// done), Success; and the open PR, with Ready once it is ready for review.
+// Any other success waits for the next step.
+func statusOf(t store.Task, steps []StepView, ready bool) Status {
 	if t.Archived {
 		day := t.ArchivedAt.Format("Jan 2")
 		if t.PRNumber > 0 && t.PRState != "" && t.PRState != "open" {
@@ -320,6 +329,9 @@ func statusOf(t store.Task, steps []StepView) Status {
 	pr := ""
 	if t.PRNumber > 0 && t.PRState == "open" {
 		pr = fmt.Sprintf(" · PR #%d", t.PRNumber)
+		if ready {
+			pr += " Ready"
+		}
 	}
 	st := func(kind, word string, s StepView) Status {
 		return Status{kind, s.Name + " · " + word + pr, strings.ToLower(word)}
@@ -527,16 +539,16 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		return nx
 	}
 	if ag.Push {
-		if t.PRNumber > 0 {
-			nx.Text = fmt.Sprintf("PR #%d is open. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
-			if len(afterPush) > 0 {
-				nx.Text += " If Copilot or the CI checks ask for changes, start " + first(afterPush) + ", then push again."
-				nx.Options = append(nx.Options, afterPush...)
-			}
+		// A push that worked is followed by its Copilot step.
+		if last.Pushing {
+			nx.Text = "herd is committing, pushing and opening the PR."
 			return nx
 		}
-		nx.Text = "The push did not open a pull request. Check the Push tab, then run Push again."
+		nx.Text = "herd did not finish committing, pushing and opening the PR: the " + last.Name + " terminal says why. Run it again."
 		nx.Options = append(nx.Options, option(ag, last.N+1, ""))
+		if len(afterPush) > 0 {
+			nx.Options = append(nx.Options, afterPush...)
+		}
 		return nx
 	}
 	if autoNext != nil {

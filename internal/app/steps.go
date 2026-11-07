@@ -38,7 +38,6 @@ const (
 	modeNew    launchMode = iota // a new session with the agent's prompt
 	modeResume                   // --resume the step's session
 	modeRerun                    // --resume it and send the agent's prompt again
-	modeBlank                    // a new session with no prompt (a manual step)
 )
 
 func (l launch) placeholders(guidance string) *strings.Replacer {
@@ -67,14 +66,14 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	fmt.Fprintf(&b, "- step: %s ({n} = %d)\n", l.agent.DisplayName(l.step.N), l.step.N)
 	if l.task.Issue != "" {
 		fmt.Fprintf(&b, "- {issue} = %s (%s)\n", l.task.Issue, a.issueRepo(l.task))
+		if l.task.IssueRepo != "" && l.task.IssueRepo != l.proj.Repo {
+			fmt.Fprintf(&b, "- the issue lives in another repository: refer to it as %s#%s; its main task closes it\n", l.task.IssueRepo, l.task.Issue)
+		}
 	} else {
 		b.WriteString("- LOCAL task: no GitHub issue\n")
 	}
 	if l.prevSHA != "" {
 		fmt.Fprintf(&b, "- {sha} = %s (the latest commit herd made)\n", l.prevSHA)
-	}
-	if pt, ok := a.prTitle(l.task.ID); ok && l.agent.Push {
-		fmt.Fprintf(&b, "- pull request title (chosen by the user; herd uses it): %s\n", pt.Format(l.task.Issue))
 	}
 	if l.mode == modeRerun {
 		b.WriteString("- rerun: you already ran this step in this conversation. The user changed the worktree since; do the step again on the current state and rewrite your artifact\n")
@@ -82,7 +81,7 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	fmt.Fprintf(&b, "- worktree (cwd): %s, branch %s; {base} = %s (the base branch)\n", wt, branchName(l.task), l.proj.BaseBranch)
 	for _, x := range a.sisters(l.task.ID) {
 		xp := a.projectOf(x)
-		fmt.Fprintf(&b, "- sister task %s handles the %s part of this work, in %s; its run directory %s holds its PLAN.md and IMPLEMENT files: keep what both share consistent with it, and change only this repository\n", x.ID, xp.Name, worktreePath(xp, x), a.runDir(xp, x))
+		fmt.Fprintf(&b, "- sister task %s handles the %s part of this work, in %s; its run directory %s holds every artifact of that task: keep what both share consistent with it, and change only this repository\n", x.ID, xp.Name, worktreePath(xp, x), a.runDir(xp, x))
 	}
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
@@ -143,8 +142,6 @@ func (a *App) spec(l launch) runner.Spec {
 		args = append(args, "--resume", l.step.SessionID)
 	case modeRerun:
 		args = append(args, "--resume", l.step.SessionID, "--", a.prompt(l))
-	case modeBlank:
-		args = append(args, "--session-id", l.step.SessionID)
 	default:
 		args = append(args, "--session-id", l.step.SessionID, "--", a.prompt(l))
 	}
@@ -220,23 +217,24 @@ func (a *App) StartStep(taskID, agentID, guidance string, n int) (StepView, erro
 	return a.stepView(l.task, l.step.ID), nil
 }
 
-// StartManualStep adds a step without running anything: its session is for
-// the user to drive outside herd (claude --session-id <id>, e.g. in Zed), or
-// to Resume in herd. The agent that follows it then waits to be started.
-func (a *App) StartManualStep(taskID, agentID, guidance string, n int) (StepView, error) {
-	l, err := a.newStep(taskID, agentID, guidance, n, store.Idle)
-	if err != nil {
-		return StepView{}, err
+// convertManualSteps turns the steps made by the former "manually" button
+// (no prompt; the user drove their session) into ordinary ones, once.
+func (a *App) convertManualSteps() {
+	tasks, _ := a.db.Tasks()
+	for _, t := range tasks {
+		steps, _ := a.db.Steps(t.ID)
+		for _, s := range steps {
+			if v, _ := a.db.Get("manual:" + s.ID); v == "" {
+				continue
+			}
+			if s.State != store.Done && s.State != store.Failed {
+				s.State, s.EndedAt, s.Completed = store.Done, time.Now(), true
+				_ = a.db.SaveStep(s)
+				a.setPaused(s.ID, false)
+			}
+			_ = a.db.Set("manual:"+s.ID, "")
+		}
 	}
-	_ = a.db.Set("manual:"+l.step.ID, "1")
-	a.setPaused(l.step.ID, true)
-	a.emitTask(taskID)
-	return a.stepView(l.task, l.step.ID), nil
-}
-
-func (a *App) manual(stepID string) bool {
-	v, _ := a.db.Get("manual:" + stepID)
-	return v != ""
 }
 
 func (a *App) stepView(t store.Task, stepID string) StepView {
@@ -266,6 +264,9 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 	ag, ok := a.settings.Agent(agentID)
 	if !ok {
 		return launch{}, fmt.Errorf("unknown agent %q", agentID)
+	}
+	if ag.Builtin {
+		return launch{}, fmt.Errorf("%s is run by herd: it starts by itself after the agent it follows", ag.Name)
 	}
 	p := a.projectOf(t)
 	if _, err := os.Stat(worktreePath(p, t)); err != nil {
@@ -316,11 +317,6 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 			x.State, x.EndedAt, x.Completed, x.Verdict = store.Done, time.Now(), true, skipped
 			_ = a.db.SaveStep(x)
 		}
-		if x.State != store.Done && x.State != store.Failed && a.manual(x.ID) {
-			x.State, x.EndedAt, x.Completed = store.Done, time.Now(), true
-			_ = a.db.SaveStep(x)
-			a.setPaused(x.ID, false)
-		}
 	}
 	err = a.db.SaveStep(s)
 	a.mu.Unlock()
@@ -330,6 +326,11 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 
 	l := launch{task: t, proj: p, agent: ag, step: s, prevSHA: latestSHA(append(steps, s), s.Seq)}
 	a.snapshot(t, s.ID) // what Revert goes back to
+	if first, ok := settings.First(a.settings.Agents()); ok && first.ID == agentID && t.Issue != "" {
+		if err := a.writeIssueFile(p, t); err != nil { // the issue may have changed since
+			a.toast("Could not copy issue #"+t.Issue, err.Error(), true)
+		}
+	}
 	if err := a.writeTaskFile(p, t); err != nil {
 		return launch{}, err
 	}
@@ -361,10 +362,7 @@ func (a *App) resume(stepID string) error {
 	mode := modeResume
 	if !sessionSaved(s.SessionID) {
 		ag := agentFor(a.settings.Agents(), s.Agent)
-		if !a.manual(s.ID) {
-			return fmt.Errorf("Claude Code never saved this %s session: its process ended before the first prompt was recorded, so there is nothing to resume. Use Retry %s to run the step again", ag.DisplayName(s.N), ag.DisplayName(s.N))
-		}
-		mode = modeBlank // a manual step nobody used yet: start its session here
+		return fmt.Errorf("Claude Code never saved this %s session: its process ended before the first prompt was recorded, so there is nothing to resume. Use Retry %s to run the step again", ag.DisplayName(s.N), ag.DisplayName(s.N))
 	}
 	p := a.projectOf(t)
 	ag := agentFor(a.settings.Agents(), s.Agent)
@@ -446,8 +444,12 @@ func (a *App) onHook(ev hooks.Event) {
 			if ev.IsPermission() && s.State != store.Done {
 				s.State = store.Approval
 			}
+		case "PreToolUse":
+			if ev.ToolName == hooks.AskTool && s.State != store.Done {
+				s.State = store.Idle // Claude asks the user in a form
+			}
 		case "PostToolUse":
-			if s.State == store.Approval {
+			if s.State == store.Approval || s.State == store.Idle && ev.ToolName == hooks.AskTool {
 				s.State = store.Running
 			}
 		case "Stop":
@@ -585,7 +587,7 @@ func (a *App) RerunStep(stepID string) error {
 	}
 	steps, _ := a.db.Steps(t.ID)
 	if v, _ := a.view(t); !slices.ContainsFunc(v.Steps, func(x StepView) bool { return x.ID == s.ID && x.Rerun }) {
-		return fmt.Errorf("only the cycle's review can be rerun, before Test and commit; start a new %s instead", ag.Name)
+		return fmt.Errorf("%s cannot be rerun: only the task's latest step, of an agent with Rerun on, once every step finished; start a new %s instead", ag.DisplayName(s.N), ag.Name)
 	}
 	if !sessionSaved(s.SessionID) {
 		return fmt.Errorf("Claude Code never saved the %s session", ag.DisplayName(s.N))
@@ -651,7 +653,12 @@ func (a *App) complete(stepID string) {
 	if !first {
 		return
 	}
-	go a.afterDone(s)
+	a.busy.Store(s.ID, true) // until its actions and automatic next steps ran
+	go func() {
+		defer a.emitTask(s.TaskID)
+		defer a.busy.Delete(s.ID)
+		a.afterDone(s)
+	}()
 }
 
 func (a *App) afterDone(s store.Step) {
@@ -659,7 +666,6 @@ func (a *App) afterDone(s store.Step) {
 	if err != nil {
 		return
 	}
-	p := a.projectOf(t)
 	ag := agentFor(a.settings.Agents(), s.Agent)
 	sess, _ := a.run.Get(s.ID)
 	say := func(line string) {
@@ -672,107 +678,100 @@ func (a *App) afterDone(s store.Step) {
 		return
 	}
 	if ag.Commit {
-		wt := worktreePath(p, t)
-		msg := fmt.Sprintf("[%s] %s", t.Slug, strings.ToLower(strings.ReplaceAll(ag.DisplayName(s.N), " ", "-")))
-		// The Commit agent's artifact is the message: a title line, then a body.
-		if art, _ := a.artifactFor(s); art.Exists {
-			if title, body := splitTitle(art.Body); title != "" {
-				msg = strings.TrimSpace(title + "\n\n" + strings.TrimSpace(body))
-			}
-		}
-		// A rerun folds the new changes into the step's own commit while it
-		// is still the unpushed tip, so the step keeps one diff per cycle.
-		amend := s.SHA != "" && a.git.CanAmend(a.ctx, wt, s.SHA)
-		var sha string
-		var err error
-		if amend {
-			sha, err = a.git.AmendAll(a.ctx, wt)
-		} else {
-			sha, err = a.git.CommitAll(a.ctx, wt, msg)
-		}
-		switch {
-		case err != nil:
-			a.toast("Commit failed", err.Error(), true)
-			say("commit failed: " + err.Error())
-		case sha == "":
-			say("nothing new to commit")
-		default:
-			a.updateStep(s.ID, func(x *store.Step) bool { x.SHA = sha; return true })
-			if amend {
-				say(fmt.Sprintf("amended %s into %s", msg, sha))
-			} else {
-				say(fmt.Sprintf("committed %s %q", sha, msg))
-			}
-			a.emitTask(t.ID)
-		}
-	}
-
-	if ag.Push {
-		a.pushing.Store(s.ID, true)
-		a.push(t, s, say)
-		a.pushing.Delete(s.ID)
 		a.emitTask(t.ID)
+		err := a.gitActions(t, s, ag, say)
+		_ = a.db.Set(gitErrKey(s.ID), errText(err))
+		a.emitTask(t.ID)
+		if err != nil {
+			a.toast(err.Error(), "", true)
+			return // what follows needs these actions (Copilot needs the PR)
+		}
 	}
 
 	for _, next := range a.settings.Agents() {
-		if next.AfterAgent() == s.Agent && !a.manual(s.ID) { // after a manual step, the user starts it
-			if _, err := a.StartStep(t.ID, next.ID, "", 0); err != nil {
-				a.toast("Could not start "+next.Name, err.Error(), true)
-			} else {
-				say(next.Name + " started automatically")
-			}
+		if next.AfterAgent() != s.Agent {
+			continue
+		}
+		if next.Builtin {
+			a.runCopilot(t.ID, say)
+			continue
+		}
+		if _, err := a.StartStep(t.ID, next.ID, "", 0); err != nil {
+			a.toast("Could not start "+next.Name, err.Error(), true)
+		} else {
+			say(next.Name + " started automatically")
 		}
 	}
 }
 
-// push pushes the branch, opens the PR from PR.md and starts waiting for the
-// Copilot review.
-func (a *App) push(t store.Task, s store.Step, say func(string)) {
+func gitErrKey(stepID string) string { return "giterr:" + stepID }
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// gitActions runs the agent's git actions in order, stopping at the first
+// that fails: commit (the artifact's title line and body are the message),
+// push the branch, open or update the draft PR (the same title and body).
+func (a *App) gitActions(t store.Task, s store.Step, ag settings.Agent, say func(string)) error {
 	p := a.projectOf(t)
 	wt := worktreePath(p, t)
-	runDir := a.runDir(p, t)
 	g := gitops.Git{Log: say}
-	// PR.md is both the commit message and the pull request: its title line
-	// (or the one chosen in the Push popup), then its body.
-	ag := agentFor(a.settings.Agents(), s.Agent)
-	art, _ := artifacts.Read(filepath.Join(runDir, ag.ArtifactName(s.N)))
-	title, body := splitTitle(art.Body)
-	if pt, ok := a.prTitle(t.ID); ok {
-		title = pt.Format(t.Issue)
+	title, body := "", ""
+	art, _ := a.artifactFor(s)
+	if art.Exists {
+		title, body = splitTitle(art.Body)
+	}
+	msg := fmt.Sprintf("[%s] %s", t.Slug, strings.ToLower(strings.ReplaceAll(ag.DisplayName(s.N), " ", "-")))
+	if title != "" {
+		msg = strings.TrimSpace(title + "\n\n" + strings.TrimSpace(body))
+	}
+	// A rerun folds the new changes into the step's own commit while it is
+	// still the unpushed tip, so the step keeps one diff per cycle.
+	amend := s.SHA != "" && a.git.CanAmend(a.ctx, wt, s.SHA)
+	var sha string
+	var err error
+	if amend {
+		sha, err = g.AmendAll(a.ctx, wt)
+	} else {
+		sha, err = g.CommitAll(a.ctx, wt, msg)
+	}
+	switch {
+	case err != nil:
+		say("commit failed: " + err.Error())
+		return fmt.Errorf("herd could not commit: %w", err)
+	case sha == "":
+		say("nothing new to commit")
+	default:
+		a.updateStep(s.ID, func(x *store.Step) bool { x.SHA = sha; return true })
+		say(fmt.Sprintf("committed %s %q", sha, strings.SplitN(msg, "\n", 2)[0]))
+	}
+	a.emitTask(t.ID)
+	if !ag.Push {
+		return nil
+	}
+	if err := g.Push(a.ctx, wt, branchName(t)); err != nil {
+		say("push failed: " + err.Error())
+		return fmt.Errorf("herd could not push: %w", err)
+	}
+	say("pushed " + branchName(t))
+	if !ag.OpenPR {
+		return nil
 	}
 	if title == "" {
 		title = t.Title
 	}
-	title, body = withIssue(title, t.Issue), prBody(t, body)
-	msg := strings.TrimSpace(title + "\n\n" + strings.TrimSpace(body))
-	if sha, err := g.CommitAll(a.ctx, wt, msg); err != nil {
-		say("commit failed: " + err.Error())
-		a.toast("Commit failed", err.Error(), true)
-		return
-	} else if sha != "" {
-		a.updateStep(s.ID, func(x *store.Step) bool { x.SHA = sha; return true })
-		say(fmt.Sprintf("committed %s %q", sha, title))
-	}
-	if err := g.Push(a.ctx, wt, branchName(t)); err != nil {
-		say("push failed: " + err.Error())
-		a.toast("Push failed", err.Error(), true)
-		return
-	}
-	if !art.Exists {
-		say("no " + ag.ArtifactName(s.N) + ", so no pull request was opened")
-		return
-	}
-	bodyFile := filepath.Join(runDir, "PR-body.md")
+	bodyFile := filepath.Join(a.runDir(p, t), "PR-body.md")
 	if err := os.WriteFile(bodyFile, []byte(body), 0o644); err != nil {
-		say(err.Error())
-		return
+		return err
 	}
-	gh := github.GH{Log: say}
-	n, url, err := gh.CreatePR(a.ctx, wt, p.Repo, p.BaseBranch, branchName(t), title, bodyFile)
+	n, url, err := github.GH{Log: say}.CreatePR(a.ctx, wt, p.Repo, p.BaseBranch, branchName(t), title, bodyFile)
 	if err != nil {
 		say("gh pr create failed: " + err.Error())
-		a.toast("Could not open the PR", err.Error(), true)
-		return
+		return fmt.Errorf("herd could not open the PR: %w", err)
 	}
 	if t.PRNumber == n {
 		say(fmt.Sprintf("updated PR #%d %s", n, url))
@@ -783,18 +782,31 @@ func (a *App) push(t store.Task, s store.Step, say func(string)) {
 			return nil
 		})
 	}
-	if err := a.gh.RequestCopilot(a.ctx, p.Repo, n); err != nil {
-		say("could not ask Copilot for a review: " + err.Error())
-	} else {
-		say(fmt.Sprintf("asked Copilot to review PR #%d", n))
+	go a.pollPRs()
+	return nil
+}
+
+// runCopilot starts the Copilot step: it asks Copilot to review the task's
+// PR, then waits for the review and the CI checks (see settleCopilotStep).
+func (a *App) runCopilot(taskID string, say func(string)) {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return
+	}
+	if t.PRNumber > 0 {
+		if err := a.gh.RequestCopilot(a.ctx, a.projectOf(t).Repo, t.PRNumber); err != nil {
+			say("could not ask Copilot for a review: " + err.Error())
+		} else {
+			say(fmt.Sprintf("asked Copilot to review PR #%d", t.PRNumber))
+		}
 	}
 	a.startCopilotStep(t.ID)
 	go a.pollPRs()
 }
 
-// copilotAgent is the step herd runs itself after each push: it waits for
-// Copilot's review and writes it to COPILOT-<n>.md (no Claude session).
-const copilotAgent = "copilot"
+// copilotAgent is the built-in step herd runs itself: it waits for Copilot's
+// review and the CI checks and writes them to COPILOT-<n>.md (no Claude).
+const copilotAgent = settings.CopilotID
 
 // skipped is the Verdict of a Copilot step herd stopped waiting on.
 const skipped = "skipped"
@@ -849,7 +861,7 @@ const ciGrace = 5 * time.Minute
 // settleCopilotStep ends the waiting Copilot step once its review is in and
 // it can tell the outcome: at once when Copilot left comments, else when the
 // PR's CI finished. It succeeds only when Copilot found nothing and every
-// check passed; COPILOT-n.md then lists the CI result for the next Implement.
+// check passed; COPILOT-n.md then lists the CI result for the next step.
 func (a *App) settleCopilotStep(t store.Task) {
 	s := a.waitingCopilot(t.ID)
 	if s == nil {
@@ -952,7 +964,7 @@ func splitTitle(md string) (string, string) {
 }
 
 // collectCopilot writes each new Copilot review of the PR to its own Copilot
-// step (COPILOT-n.md), where the next Implement reads it; a review that
+// step (COPILOT-n.md), where the next step reads it; a review that
 // arrives while no Copilot step waits gets a new one. The kv key holds the last review id seen.
 func (a *App) collectCopilot(t store.Task) {
 	p := a.projectOf(t)

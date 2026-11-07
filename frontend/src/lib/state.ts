@@ -6,9 +6,9 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import { unsuccessful, type Option, type PRTitle, type Proc, type Settings, type Step, type TabRef, type Task } from './types'
+import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task } from './types'
 
-export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'push' | 'views'
+export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'views'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
 export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts' | 'about'
 
@@ -190,10 +190,6 @@ class Herd {
     if (scope === 'project' || scope === 'worktree' || scope === 'branch') this.scope = scope
     const overlay = q.get('overlay')
     if (overlay === 'palette' || overlay === 'scope' || overlay === 'new' || overlay === 'activity') this.overlay = overlay
-    if (overlay === 'push') {
-      const o = this.selTask?.next.options.find((x) => this.isPush(x.agent))
-      if (o) this.askPush(o)
-    }
     if (q.get('right') === 'changes') this.rightTab = 'changes'
     this.previewQuery = q.get('q') ?? ''
     this.previewNew = q.get('new') ?? ''
@@ -415,17 +411,6 @@ class Herd {
 
   // ---- actions on the selected task ----
 
-  /** runManual creates a step without running it and copies the command
-   *  to use its session outside herd. */
-  async runManual(opt: Option, taskId = this.sel) {
-    const guidance = this.guidance
-    const step = await this.attempt('Could not create ' + opt.label, () => api.StartManualStep(taskId, opt.agent, guidance, opt.n))
-    if (!step) return
-    this.guidance = ''
-    this.openStep(taskId, step.id)
-    await this.copyResume(step)
-  }
-
   /** The step whose Revert waits for its second click. */
   confirmRevert = ''
 
@@ -503,36 +488,7 @@ class Herd {
     this.overlay = 'none'
   }
 
-  /** The push step waiting for its PR title (the Push popup). */
-  pushOpt: (Option & { task: string }) | null = null
-
-  isPush(agent: string) {
-    return !!this.settings?.agents.find((a) => a.id === agent)?.push
-  }
-
-  askPush(opt: Option, taskId = this.sel) {
-    this.pushOpt = { ...opt, task: taskId }
-    this.overlay = 'push'
-  }
-
-  /** startPush runs the push step with the title chosen in the popup. */
-  async startPush(title: PRTitle): Promise<string> {
-    const o = this.pushOpt
-    if (!o) return ''
-    try {
-      const step = await api.StartPush(o.task, o.agent, this.guidance, o.n, title)
-      this.guidance = ''
-      this.pushOpt = null
-      this.overlay = 'none'
-      this.openStep(o.task, step.id)
-      return ''
-    } catch (e) {
-      return errorText(e)
-    }
-  }
-
   async run(opt: Option, taskId = this.sel) {
-    if (this.isPush(opt.agent)) return this.askPush(opt, taskId) // the PR title comes first
     const guidance = this.guidance
     const step = await this.attempt('Could not start ' + opt.label, () => api.StartStep(taskId, opt.agent, guidance, opt.n))
     if (!step) return
@@ -692,8 +648,7 @@ class Herd {
   }
 }
 
-/** resumeCommand continues a step's session elsewhere; a manual step nobody
- *  used yet has no transcript, so it starts the session with its id. */
-export const resumeCommand = (step: Step) => (step.fresh ? `claude --session-id ${step.session}` : `claude --resume ${step.session}`)
+/** resumeCommand continues a step's session elsewhere. */
+export const resumeCommand = (step: Step) => `claude --resume ${step.session}`
 
 export const herd = reactive(new Herd())

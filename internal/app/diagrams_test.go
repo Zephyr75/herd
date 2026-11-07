@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"herd/internal/settings"
 	"herd/internal/store"
 )
 
@@ -75,5 +76,52 @@ func TestSisterOffersFromAllowedAgents(t *testing.T) {
 		if strings.Contains(string(b), "## Sister tasks") != want {
 			t.Errorf("%s: sister rules %v", cmd, !want)
 		}
+	}
+}
+
+// An agent can ask the user in a form (the step waits for them), then herd
+// commits with its artifact's title and body and pushes, in that order; a
+// push that fails stops there and Next step offers to run it again.
+func TestFormThenCommitAndPush(t *testing.T) {
+	a, repo := newTestApp(t)
+	origin := filepath.Join(filepath.Dir(repo), "origin.git")
+	run(t, filepath.Dir(repo), "git", "init", "-q", "--bare", origin)
+	ags := append(a.settings.Agents(), settings.Agent{ID: "form", Name: "Form", Command: "/herd:form {task}", Trigger: "manual", Writes: "FORM.md", Commit: true, Push: true})
+	if err := a.SaveAgents(ags); err != nil {
+		t.Fatal(err)
+	}
+	tv, _ := a.CreateTask("core", "", "ask then push", "", false, nil)
+	os.WriteFile(filepath.Join(tv.Worktree, "change.txt"), []byte("x\n"), 0o644)
+	sv, err := a.StartStep(tv.ID, "form", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "form open", func() bool { return stepState(a, sv.ID) == store.Idle })
+	sess, _ := a.run.Get(sv.ID)
+	sess.Write([]byte("feat\r"))
+	waitFor(t, "done", func() bool { return stepState(a, sv.ID) == store.Done })
+	waitFor(t, "push failed", func() bool { v, _ := a.GetTask(tv.ID); return v.Steps[0].GitError != "" })
+	v, _ := a.GetTask(tv.ID)
+	if !strings.Contains(v.Steps[0].GitError, "could not push") || v.Next.Options[0].Label != "Form" {
+		t.Fatalf("no origin: %q %+v", v.Steps[0].GitError, v.Next)
+	}
+	if msg := run(t, tv.Worktree, "git", "log", "-1", "--format=%B"); msg != "feat(x): the title #1\n\nThe body." {
+		t.Fatalf("commit message %q", msg)
+	}
+
+	run(t, tv.Worktree, "git", "remote", "add", "origin", origin)
+	sv2, _ := a.StartStep(tv.ID, "form", "", 0)
+	waitFor(t, "form open", func() bool { return stepState(a, sv2.ID) == store.Idle })
+	sess, _ = a.run.Get(sv2.ID)
+	sess.Write([]byte("feat\r"))
+	waitFor(t, "pushed", func() bool {
+		v, _ := a.GetTask(tv.ID)
+		return len(v.Steps) == 2 && v.Steps[1].State == store.Done && v.Steps[1].Completed && !v.Steps[1].Busy
+	})
+	if v, _ := a.GetTask(tv.ID); v.Steps[1].GitError != "" {
+		t.Fatal(v.Steps[1].GitError)
+	}
+	if got := run(t, origin, "git", "log", "-1", "--format=%s", v.Branch); got != "feat(x): the title #1" {
+		t.Fatalf("origin has %q", got)
 	}
 }

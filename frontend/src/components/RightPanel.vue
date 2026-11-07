@@ -11,17 +11,21 @@ import { unsuccessful, type Step } from '../lib/types'
 const t = computed(() => herd.selTask)
 // Agents set to "Show a Diff button" (Implement and Test by default) get one.
 const diffs = (s: Step) => !!herd.settings?.agents.find((a) => a.id === s.agent)?.showDiff
+const refreshIssue = async () => {
+  const task = t.value
+  if (task && (await herd.attempt('Could not refresh the issue', () => api.RefreshIssue(task.id).then(() => true)))) herd.toast('Issue #' + task.issue + ' copied again', 'ISSUE.md is up to date.')
+}
 const openIssue = () => t.value && herd.attempt('Could not open the issue', () => api.OpenURL(`https://github.com/${t.value!.issueRepo || t.value!.repo}/issues/${t.value!.issue}`))
 
 function meta(s: Step): { text: string; cls: string } {
-  if (s.paused && s.state !== 'done' && s.state !== 'failed') return { text: s.manual ? 'manual' : 'paused', cls: s.manual ? 'c-waiting' : '' }
+  if (s.paused && s.state !== 'done' && s.state !== 'failed') return { text: 'paused', cls: '' }
   if (s.state === 'running') return { text: s.external ? 'waiting for Copilot' : 'running', cls: 'c-running' }
   if (s.state === 'approval') return { text: 'needs approval', cls: 'c-waiting' }
   if (s.state === 'idle') return { text: 'waiting for you', cls: 'c-waiting' }
   if (s.state === 'failed') return { text: 'ended early', cls: 'c-approval' }
   if (unsuccessful(s)) return { text: 'failed', cls: 'c-approval' }
   const task = t.value
-  if (task && s.state === 'done' && task.pr && herd.settings?.agents.find((a) => a.id === s.agent)?.push) return { text: 'PR #' + task.pr, cls: '' }
+  if (task && s.state === 'done' && task.pr && herd.settings?.agents.find((a) => a.id === s.agent)?.openPR) return { text: 'PR #' + task.pr, cls: '' }
   return { text: '', cls: '' }
 }
 const dotCls = (s: Step) => (unsuccessful(s) ? 'd-failed' : s.state === 'done' ? 'd-done' : s.paused ? 'd-paused' : s.state === 'running' ? 'd-running' : s.state === 'failed' ? 'd-failed' : 'd-waiting')
@@ -71,7 +75,8 @@ async function archive() {
         <div class="title-row">
           <TaskRef :issue="t.issue" />
           <span class="title">{{ t.title }}</span>
-          <button v-if="t.issue && (t.issueRepo || t.repo)" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue"><Icon name="external" :size="12" />GitHub</button>
+          <button v-if="t.issue && (t.issueRepo || t.repo)" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue"><Icon name="external" :size="12" />Open issue</button>
+          <button v-if="t.issue && !t.archived" class="act" :title="`Copy issue #${t.issue} and its comments to ISSUE.md again (herd also does it before each run of the first agent)`" @click="refreshIssue"><Icon name="rerun" :size="12" />Issue</button>
           <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()"><Icon name="pencil" :size="12" />Edit</button>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>
@@ -113,11 +118,7 @@ async function archive() {
           <span class="rail"><span class="sdot pending"></span></span>
           <span class="step static">
             <span class="name">{{ t.next.ghost.name }}</span>
-            <span v-if="t.next.ghost.manual" class="small muted">Start it when you are done with {{ t.next.ghost.after }}</span>
-            <span v-else class="small muted">Starts automatically if {{ t.next.ghost.after }} succeeds</span>
-          </span>
-          <span v-if="t.next.ghost.start" class="acts">
-            <button class="act" @click="herd.run(t.next.ghost.start)"><Icon name="play" :size="12" />Start</button>
+            <span class="small muted">Starts automatically if {{ t.next.ghost.after }} succeeds</span>
           </span>
         </div>
       </div>

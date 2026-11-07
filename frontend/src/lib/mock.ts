@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import { afterOf, unsuccessful, type CICheck, type PRTitle, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind } from './types'
+import { afterOf, unsuccessful, type CICheck, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -24,15 +24,17 @@ const projects: Project[] = [
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
 const agents: Agent[] = [
-  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', commit: false, push: false, ignoreRules: false, showDiff: false, sisters: true, next: ['impl'], onFail: ['plan'],
+  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: true, builtin: false, ignoreRules: false, showDiff: false, sisters: true, next: ['impl', 'discuss'], onFail: ['plan'],
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
-  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, ignoreRules: false, showDiff: true, sisters: true, next: [], onFail: ['impl', 'plan'],
+  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, openPR: false, revert: true, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: true, next: [], onFail: ['impl', 'discuss', 'plan'],
     instructions: 'Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md when they exist.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, ignoreRules: false, showDiff: false, sisters: false, next: ['test', 'impl'], onFail: ['impl'],
+  { id: 'discuss', name: 'Discuss', command: '/herd:discuss {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'DISCUSS-{n}.md', commit: false, push: false, openPR: false, revert: true, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: true, next: ['review', 'impl'], onFail: ['discuss', 'impl'],
+    instructions: 'This step is a conversation: implement the plan together with the user.\nOnly when the user says the work is done, write DISCUSS-{n}.md: What changed, Files, Notes for the reviewer.\nEnd with status: done.' },
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: true, choose: false, builtin: false, ignoreRules: false, showDiff: false, sisters: false, next: ['test', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
     instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nWrite REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: Commit and push commits once the tests pass.' },
-  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, ignoreRules: false, showDiff: true, sisters: false, next: ['push', 'impl'], onFail: ['impl'],
+  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: false, next: ['push', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
-  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: false, push: true, ignoreRules: true, showDiff: false, sisters: false, next: ['impl'], onFail: [],
+  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: true, push: true, openPR: true, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: true, showDiff: false, sisters: false, next: ['impl', 'discuss'], onFail: [],
     instructions: 'First rebase on origin/{base} when it has new commits (git rebase --autostash); on a conflict, abort and end with status: failed.\nWrite PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
@@ -61,7 +63,7 @@ interface Fx {
   diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]; options?: boolean // the plan lists options
 }
 interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
-interface MockTask { labels?: string[]; draft?: boolean; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; prTitle?: PRTitle; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
+interface MockTask { labels?: string[]; draft?: boolean; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
 
 const T: MockTask[] = [
   { id: 'core:4356', project: 'core', issue: '4356', slug: '4356', title: 'Retry BLE unlock on flaky connections', description: '',
@@ -167,7 +169,7 @@ const T: MockTask[] = [
 
 const proj = (id: string) => projects.find((p) => p.id === id) ?? projects[0]
 // herd's own step after a push: it waits for Copilot's review.
-const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '', model: '', trigger: 'manual', writes: 'COPILOT-{n}.md', commit: false, push: false, ignoreRules: false, showDiff: false, sisters: false, next: [], onFail: [], instructions: '' }
+const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '', model: '', trigger: 'manual', writes: 'COPILOT-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: true, ignoreRules: false, showDiff: false, sisters: false, next: [], onFail: [], instructions: '' }
 const agent = (id: string) => (id === 'copilot' ? copilotA : agents.find((a) => a.id === id) ?? agents[0])
 const displayName = (a: Agent, n: number) => (a.writes.includes('{n}') ? `${a.name} ${n}` : a.name)
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -175,14 +177,14 @@ const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { mont
 function stepView(t: MockTask, s: MockStep, i: number): Step {
   const a = agent(s.agent)
   const open = s.state !== 'done' && s.state !== 'failed'
-  const paused = new URLSearchParams(location.search).get('paused') === `${t.id}/${s.key}` || (!!s.manual && open) // ?paused=<step id>
+  const paused = new URLSearchParams(location.search).get('paused') === `${t.id}/${s.key}`  // ?paused=<step id>
   return {
     id: `${t.id}/${s.key}`, taskId: t.id, key: s.key, agent: s.agent, n: s.n, seq: i + 1, state: s.state, guidance: s.guide ?? '',
     session: s.session, sha: s.sha ?? '', verdict: s.verdict ?? '', model: a.model, completed: s.state === 'done', startedAt: '', endedAt: '',
     name: displayName(a, s.n), live: s.state !== 'done' && !paused && s.agent !== 'copilot', auto: !!a.trigger.startsWith('after:'),
     artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha, revert: false,
-    paused, manual: !!s.manual, fresh: !!s.manual && open,
-    rerun: i === t.steps.length - 1 && a.commit && !open,
+    paused, gitError: '',
+    rerun: i === t.steps.length - 1 && a.rerun && !open,
     external: s.agent === 'copilot',
   }
 }
@@ -214,9 +216,7 @@ function derive(t: MockTask): Task {
   else {
     const la = agent(last.agent)
     const autoNext = agents.find((a) => afterOf(a.trigger) === last.agent && !unsuccessful(last))
-    if (autoNext && last.state !== 'done') next.ghost = { name: displayName(autoNext, count(autoNext.id) + 1), after: last.name, manual: false, start: null }
-    const manualNext = autoNext && last.manual && last.state !== 'failed' ? opt(autoNext, count(autoNext.id) + 1) : undefined
-    if (manualNext) next.ghost = { name: manualNext.label, after: last.name, manual: true, start: manualNext }
+    if (autoNext && last.state !== 'done') next.ghost = { name: displayName(autoNext, count(autoNext.id) + 1), after: last.name }
     const appr = steps.find((s) => s.state === 'approval')
     const run = steps.find((s) => s.state === 'running')
     const idx = agents.indexOf(la)
@@ -231,14 +231,13 @@ function derive(t: MockTask): Task {
       if (pushFix) { next.text += ` Start ${pushFix.label} for fixes (Copilot comments, failing CI), then push again.`; next.options.push(pushFix) }
     }
     else if (run) next.text = `${run.name} is running. ` + (autoNext && run.id === last.id ? `${displayName(autoNext, count(autoNext.id) + 1)} starts automatically if it succeeds.` : 'You will be asked for the next step when it finishes.')
-    else if (manualNext) { next.options.push(manualNext); next.text = `${last.name} is yours: use its session outside herd (copy the claude command in its toolbar) or Resume it here. Start ${manualNext.label} when you are done.` }
     else if (last.state === 'idle') { next.text = `Claude is waiting for you in the ${last.name} terminal. Mark it done if ${last.artifact} is complete.`; next.markDone = last.id }
     else if (last.state === 'failed') { next.text = `${last.name} ended before ${last.artifact} was done.`; next.options.push(opt(la, last.n, 'Retry ')); next.markDone = last.id }
     else if (unsuccessful(last)) {
       next.text = `${last.name} failed: ${last.artifact} says why.`
       const again = opt(la, count(la.id) + 1)
       next.options = !fix ? [again] : afterOf(la.trigger) ? [fix, again] : [again, fix]
-    } else if (la.push) {
+    } else if (la.openPR) {
       next.text = `PR #${t.pr} is open. The task moves to Archive when the PR is merged or closed.`
       if (fix) { next.text += ` If Copilot or the CI checks ask for changes, start ${fix.label}, then push again.`; next.options.push(fix) }
     } else {
@@ -253,7 +252,7 @@ function derive(t: MockTask): Task {
     id: t.id, project: t.project, slug: t.slug, issue: t.issue, title: t.title, description: t.description, createdAt: '',
     archived: !!t.archived, archivedAt: t.archivedOn ?? '', pr: t.pr ?? 0, prUrl: '', prState: t.prState ?? '', worktreeRemoved: !!t.removed,
     projectName: p.name, repo: p.repo, issueRepo: '', sisters: [], baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
-    branch: t.branch ?? 'ar-' + t.slug, prTitle: t.prTitle ?? null, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
+    branch: t.branch ?? 'ar-' + t.slug, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
     status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false,
   }
@@ -383,21 +382,7 @@ export const api: Api = {
     })
     return ok(derive(t).steps.find((x) => x.key === key)!)
   },
-  StartPush: (tid, agentId, guidance, n, title) => {
-    if (!title.scope.trim()) return Promise.reject('name the part of the code the PR changes, e.g. vehicles')
-    find(tid).prTitle = title
-    return api.StartStep(tid, agentId, guidance, n)
-  },
   SetBranchPrefix: (prefix) => { settings.config.branchPrefix = prefix; emit('settings:changed', settings); return ok(undefined) },
-  StartManualStep: (tid, agentId, guidance, n) => {
-    const t = find(tid)
-    if (!n) n = Math.max(0, ...t.steps.filter((s) => s.agent === agentId).map((s) => s.n)) + 1
-    for (const x of t.steps) if (x.manual && x.state !== 'done') x.state = 'done'
-    const s: MockStep = { key: `${agentId}-${n}`, agent: agentId, n, state: 'idle', guide: guidance, session: crypto.randomUUID(), manual: true }
-    t.steps.push(s)
-    changed(t)
-    return ok(derive(t).steps.find((x) => x.key === s.key)!)
-  },
   RerunStep: (sid) => {
     const t = find(sid.slice(0, sid.lastIndexOf('/'))), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)
     if (!s) return Promise.reject('no such step')
@@ -415,6 +400,7 @@ export const api: Api = {
   OpenRunDir: () => ok(undefined),
   RevertStep: () => Promise.reject('Revert needs the desktop app'),
   RefreshPR: () => ok(undefined),
+  RefreshIssue: () => ok(undefined),
   Diagrams: () => ok([]),
   CreateSister: () => Promise.reject('Sister tasks need the desktop app'),
   OpenURL: () => ok(undefined),

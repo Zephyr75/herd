@@ -146,7 +146,7 @@ func TestPlanImplementReview(t *testing.T) {
 	plan := store.StepID(tv.ID, "plan-1")
 	waitFor(t, "plan done", func() bool { return stepState(a, plan) == store.Done })
 	v, _ := a.GetTask(tv.ID)
-	if v.Status.Label != "Plan · Waiting for next step" || len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Implement 1" {
+	if v.Status.Label != "Plan 1 · Waiting for next step" || len(v.Next.Options) != 2 || v.Next.Options[0].Label != "Implement 1" || v.Next.Options[1].Label != "Discuss 1" {
 		t.Fatalf("after plan: %+v %+v", v.Status, v.Next)
 	}
 
@@ -174,7 +174,7 @@ func TestPlanImplementReview(t *testing.T) {
 			return strings.Join(l, ", ") == want
 		})
 	}
-	next("Test 1, Implement 2")
+	next("Test 1, Implement 2, Discuss 1")
 	if _, err := a.StartStep(tv.ID, "test", "", 0); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestPlanImplementReview(t *testing.T) {
 	if n := run(t, wt, "git", "rev-list", "--count", "main..HEAD"); n != "0" {
 		t.Fatalf("committed before Commit and push: %s commits", n)
 	}
-	next("Commit and push, Implement 2")
+	next("Commit and push, Implement 2, Discuss 1")
 	// Nothing is committed yet: every step shares the uncommitted work.
 	for _, id := range []string{plan, impl, rev, store.StepID(tv.ID, "test-1")} {
 		if ch, _ := a.StepChanges(id); ch.Source != "worktree" || len(ch.Files) == 0 || ch.Files[0].Path != "file-1.txt" {
@@ -245,7 +245,7 @@ func TestExitWithoutArtifactFails(t *testing.T) {
 	sess.Write([]byte("bye\r"))
 	waitFor(t, "failed", func() bool { return stepState(a, id) == store.Failed })
 	v, _ := a.GetTask(tv.ID)
-	if len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Retry Plan" || v.Next.MarkDone != id {
+	if len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Retry Plan 1" || v.Next.MarkDone != id {
 		t.Fatalf("%+v", v.Next)
 	}
 	// Opening the failed step shows the output of the run that just ended
@@ -454,7 +454,7 @@ func TestNotifications(t *testing.T) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		for _, e := range f.events {
-			if strings.HasPrefix(e, "notify:Plan finished: LOCAL notify me") {
+			if strings.HasPrefix(e, "notify:Plan 1 finished: LOCAL notify me") {
 				return true
 			}
 		}
@@ -559,59 +559,6 @@ func TestRulesAndKnowledge(t *testing.T) {
 	}
 }
 
-func TestManualStep(t *testing.T) {
-	a, _ := newTestApp(t)
-	os.MkdirAll(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects"), 0o755) // transcripts are tracked
-	tv, _ := a.CreateTask("core", "", "implement it myself", "", true, nil)
-	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
-	sv, err := a.StartManualStep(tv.ID, "impl", "", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, live := a.run.Get(sv.ID); live || !sv.Manual || !sv.Paused || !sv.Fresh || sv.State != store.Idle {
-		t.Fatalf("manual step: live=%v %+v", live, sv)
-	}
-	v, _ := a.GetTask(tv.ID)
-	if v.Next.Ghost == nil || !v.Next.Ghost.Manual || v.Next.Ghost.Start == nil || v.Next.Ghost.Start.Agent != "review" {
-		t.Fatalf("ghost: %+v", v.Next.Ghost)
-	}
-	if len(v.Next.Options) != 1 || v.Next.Options[0].Label != "Review 1" {
-		t.Fatalf("options: %+v", v.Next.Options)
-	}
-	// Resume in herd starts its session there, without a prompt.
-	if _, err := a.ResumeStep(sv.ID); err != nil {
-		t.Fatal(err)
-	}
-	sess, ok := a.run.Get(sv.ID)
-	if !ok {
-		t.Fatal("not resumed")
-	}
-	waitFor(t, "blank session", func() bool { _, b := sess.Attach(); return strings.Contains(string(b), "fake claude: "+sv.SessionID) })
-	waitFor(t, "impl done", func() bool { return stepState(a, sv.ID) == store.Done })
-	time.Sleep(300 * time.Millisecond)
-	if steps, _ := a.db.Steps(tv.ID); len(steps) != 2 {
-		t.Fatalf("Review started by itself after a manual step: %d steps", len(steps))
-	}
-	sess.Write([]byte("bye\r"))
-	waitFor(t, "impl exited", func() bool { _, live := a.run.Get(sv.ID); return !live })
-	if _, err := a.StartStep(tv.ID, "review", "", 0); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestManualStepClosedByNextStep(t *testing.T) {
-	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "manual then review", "", true, nil)
-	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
-	sv, _ := a.StartManualStep(tv.ID, "impl", "", 0)
-	if _, err := a.StartStep(tv.ID, "review", "", 0); err != nil {
-		t.Fatal(err)
-	}
-	if s, _ := a.db.Step(sv.ID); s.State != store.Done || a.paused(sv.ID) {
-		t.Fatalf("manual step left open: %+v", s)
-	}
-}
-
 func TestRerunAmendsTheReviewCommit(t *testing.T) {
 	a, repo := newTestApp(t)
 	reviewCommits(t, a)
@@ -666,55 +613,18 @@ func TestTaskBranch(t *testing.T) {
 	}
 }
 
-func TestIssueInTitleAndBody(t *testing.T) {
-	for in, want := range map[string]string{
-		"feat(x): do it":             "feat(x): do it #12",
-		"feat(x): do it #12":         "feat(x): do it #12",
-		"feat(x): #12 do it #12":     "feat(x): do it #12",
-		"feat(x): do it #123":        "feat(x): do it #123 #12",
-		"fix(y): see #12, then more": "fix(y): see, then more #12",
-	} {
-		if got := withIssue(in, "12"); got != want {
-			t.Errorf("withIssue(%q) = %q, want %q", in, got, want)
-		}
-	}
-	if got := withIssue("feat(x): local", ""); got != "feat(x): local" {
-		t.Errorf("LOCAL title %q", got)
-	}
-	if got := withCloses("Why\n", "12"); got != "Why\n\nCloses #12\n" {
-		t.Errorf("body %q", got)
-	}
-	for _, done := range []string{"Fixes #12", "closes #12\nmore", "Resolved #12."} {
-		if got := withCloses(done, "12"); got != done {
-			t.Errorf("withCloses(%q) = %q", done, got)
-		}
-	}
-	if got := withCloses("Closes #123", "12"); !strings.HasSuffix(got, "Closes #12\n") {
-		t.Errorf("#123 taken for #12: %q", got)
-	}
-}
-
-func TestPRTitle(t *testing.T) {
-	a, _ := newTestApp(t)
-	tv, _ := a.CreateTask("core", "", "pr title", "ar-take-a-vehicle-sent-back-to-prod-out-of-QA", false, nil)
-	task, _ := a.db.Task(tv.ID)
-	p, err := a.normalizePRTitle(task, PRTitle{Kind: "fix", Scope: "vehicles"})
-	if err != nil {
+func TestIssueMarkdown(t *testing.T) {
+	var d github.IssueDoc
+	if err := json.Unmarshal([]byte(`{"number":12,"title":"Pause ids","body":"Echo them.","state":"OPEN","url":"https://x/12",
+		"createdAt":"2026-11-01T10:00:00Z","author":{"login":"ana"},"labels":[{"name":"okai"},{"name":"bug"}],
+		"comments":[{"author":{"login":"bo"},"body":"Also the ack.","createdAt":"2026-11-02T09:30:00Z"}]}`), &d); err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Format("9726"); got != "fix(vehicles): take a vehicle sent back to prod out of QA #9726" {
-		t.Fatalf("title %q", got)
-	}
-	if got := p.Format(""); got != "fix(vehicles): take a vehicle sent back to prod out of QA" {
-		t.Fatalf("LOCAL title %q", got)
-	}
-	for _, bad := range []PRTitle{{Kind: "chore", Scope: "x"}, {Kind: "feat"}, {Kind: "feat", Scope: "two words"}} {
-		if _, err := a.normalizePRTitle(task, bad); err == nil {
-			t.Fatalf("accepted %+v", bad)
+	md := issueMarkdown(d, "pony-lab/pony-core")
+	for _, want := range []string{"issue: 12\nrepo: pony-lab/pony-core", "state: open", "labels: okai, bug", "# Pause ids\n\nEcho them.", "## Comments", "### bo · 2026-11-02 09:30\n\nAlso the ack."} {
+		if !strings.Contains(md, want) {
+			t.Errorf("ISSUE.md lacks %q:\n%s", want, md)
 		}
-	}
-	if got := defaultPRDesc("agent/local-fix-it", "ar-"); got != "local fix it" {
-		t.Fatalf("old branch desc %q", got)
 	}
 }
 
@@ -905,7 +815,7 @@ func TestStatus(t *testing.T) {
 		label string
 		ready bool
 	}{
-		"next":     {store.Task{}, []StepView{step("plan", 1, store.Done, "")}, "waiting", "Plan · Waiting for next step", false},
+		"next":     {store.Task{}, []StepView{step("plan", 1, store.Done, "")}, "waiting", "Plan 1 · Waiting for next step", false},
 		"done":     {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}}, "done", "Copilot 1 · Success · PR #7", false},
 		"failure":  {store.Task{}, []StepView{step("impl", 1, store.Done, ""), step("review", 1, store.Done, store.Failure)}, "failed", "Review 1 · Failure", false},
 		"running":  {open, []StepView{step("impl", 2, store.Running, "")}, "running", "Implement 2 · Running · PR #7", false},
@@ -942,15 +852,18 @@ func TestNextAfterOutcome(t *testing.T) {
 		task  store.Task
 		want  string
 	}{
-		"review passed":    {base, store.Task{}, "Test 1, Implement 2"},
-		"review failed":    {[]StepView{step("plan", 1, ""), step("impl", 1, ""), step("review", 1, store.Failure)}, store.Task{}, "Implement 2"},
-		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2"},
-		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Commit and push, Implement 2"},
-		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Plan"},
-		"push unfinished":  {append(base, step("test", 1, ""), step("push", 1, "")), store.Task{PRNumber: 7}, "Commit and push, Implement 2"},
-		"pushing":          {append(base, step("test", 1, ""), StepView{Step: store.Step{Agent: "push", N: 1, State: store.Done}, Name: "Commit and push", Pushing: true}), store.Task{PRNumber: 7}, ""},
-		"copilot comments": {append(base, step("push", 1, ""), copilotStep(1, store.Done, store.Failure)), store.Task{PRNumber: 7}, "Implement 2"},
-		"copilot waiting":  {append(base, step("push", 1, ""), copilotStep(1, store.Running, "")), store.Task{PRNumber: 7}, "Implement 2"},
+		"review passed":    {base, store.Task{}, "Test 1, Implement 2, Discuss 1"},
+		"review failed":    {[]StepView{step("plan", 1, ""), step("impl", 1, ""), step("review", 1, store.Failure)}, store.Task{}, "Implement 2, Discuss 1"},
+		"test failed":      {append(base, step("test", 1, store.Failure)), store.Task{}, "Implement 2, Discuss 1"},
+		"test passed":      {append(base, step("test", 1, "")), store.Task{}, "Commit and push, Implement 2, Discuss 1"},
+		"implement failed": {[]StepView{step("plan", 1, ""), step("impl", 1, store.Failure)}, store.Task{}, "Implement 2, Discuss 1, Plan 2"},
+		"git failed":       {append(base, step("test", 1, ""), StepView{Step: store.Step{Agent: "push", N: 1, State: store.Done, Completed: true}, Name: "Commit and push", GitError: "herd could not push: rejected"}), store.Task{PRNumber: 7}, "Commit and push"},
+		"copilot not run":  {append(base, step("test", 1, ""), StepView{Step: store.Step{Agent: "push", N: 1, State: store.Done, Completed: true}, Name: "Commit and push"}), store.Task{PRNumber: 7}, "Commit and push, Implement 2, Discuss 1"},
+		"pushing":          {append(base, step("test", 1, ""), StepView{Step: store.Step{Agent: "push", N: 1, State: store.Done}, Name: "Commit and push", Busy: true}), store.Task{PRNumber: 7}, ""},
+		"copilot comments": {append(base, step("push", 1, ""), copilotStep(1, store.Done, store.Failure)), store.Task{PRNumber: 7}, "Implement 2, Discuss 1"},
+		"copilot waiting":  {append(base, step("push", 1, ""), copilotStep(1, store.Running, "")), store.Task{PRNumber: 7}, "Implement 2, Discuss 1"},
+		"discuss done":     {[]StepView{step("plan", 1, ""), step("discuss", 1, "")}, store.Task{}, "Review 1, Implement 1"},
+		"discuss failed":   {[]StepView{step("plan", 1, ""), step("discuss", 1, store.Failure)}, store.Task{}, "Discuss 2, Implement 1"},
 	} {
 		if got := labels(nextOf(c.task, c.steps, agents)); got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
@@ -1036,7 +949,7 @@ func TestPlanOptionsWarning(t *testing.T) {
 	tv, _ := a.CreateTask("core", "", "two ways to do it", "", true, nil)
 	waitFor(t, "plan", func() bool { return stepState(a, store.StepID(tv.ID, "plan-1")) == store.Done })
 	v, _ := a.GetTask(tv.ID)
-	if !strings.Contains(v.Next.Warning, "PLAN.md lists several options") || !strings.Contains(v.Next.Warning, "Implement 1") {
+	if !strings.Contains(v.Next.Warning, "PLAN-1.md lists several options") || !strings.Contains(v.Next.Warning, "Implement 1") {
 		t.Fatalf("warning %q", v.Next.Warning)
 	}
 }
@@ -1178,14 +1091,6 @@ func TestPlanRepos(t *testing.T) {
 	if planRepos("# Goal\n- a: b\n") != nil {
 		t.Fatal("repos without the section")
 	}
-	main := store.Task{Issue: "9855"}
-	if got := prBody(main, "Why"); got != "Why\n\nCloses #9855\n" {
-		t.Errorf("main PR body %q", got)
-	}
-	sister := store.Task{Issue: "9855", IssueRepo: "pony-lab/pony-core"}
-	if got := prBody(sister, "Why\n"); got != "Why\n\nPart of pony-lab/pony-core#9855\n" {
-		t.Errorf("sister PR body %q", got)
-	}
 }
 
 func TestSisterTask(t *testing.T) {
@@ -1217,7 +1122,7 @@ func TestSisterTask(t *testing.T) {
 	}
 	waitFor(t, "sister plan", func() bool { return stepState(a, store.StepID(sv.ID, "plan-1")) == store.Done })
 	md, _ := os.ReadFile(filepath.Join(sv.RunDir, "TASK.md"))
-	if !strings.Contains(string(md), "Handle only the okai-tcp-server part: echo the pause id") || !strings.Contains(string(md), filepath.Join(tv.RunDir, "PLAN.md")) {
+	if !strings.Contains(string(md), "Handle only the okai-tcp-server part: echo the pause id") || !strings.Contains(string(md), filepath.Join(tv.RunDir, "PLAN-1.md")) {
 		t.Fatalf("sister TASK.md: %s", md)
 	}
 	for id, other := range map[string]string{tv.ID: sv.ID, sv.ID: tv.ID} {

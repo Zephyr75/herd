@@ -12,13 +12,14 @@ One task, one git worktree, one pipeline, while you sip your coffee. ☕</p>
 ## 🐎 The ride
 
 ```
-Plan → Implement → Review → Test → Commit and push → Copilot
-         ↑___________ fails send you back here _________|
+Plan → Implement ─→ Review → Test → Commit and push → Copilot
+     ↘ Discuss ──↗   ↑____ fails send you back to Implement or Discuss ____|
 ```
 
-- **Implement** kicks off **Review** by itself. Happy? Go to **Test**. Not happy? Edit by hand and **Rerun** the review.
-- **Test** fails? Back to **Implement**. Nothing is committed before **Commit and push**.
-- **Commit and push** commits, pushes and opens a **draft** PR (`#issue` in the title, `Closes #issue` in the body), asks Copilot for a review and tracks CI. **Mark ready** when you are.
+- **Implement** codes on its own and kicks off **Review** by itself. **Discuss** is the hands-on version: you and Claude implement it together in its terminal, then you pick **Review**, or hand over to **Implement**.
+- Review happy? Go to **Test**. Not happy? Edit by hand and **Rerun** the review.
+- **Test** fails? Back to **Implement** or **Discuss**. Nothing is committed before **Commit and push**.
+- **Commit and push** asks you for the PR's type, scope and title in a small form, writes `PR.md`, then herd commits, pushes and opens a **draft** PR with it. **Copilot** then reviews it and herd tracks CI. **Mark ready** when you are.
 
 Every step is a real `claude` session in its own terminal: watch it, answer it, or take it over in Zed.
 
@@ -40,11 +41,12 @@ make test    # Go tests, with a fake claude
 
 ## 🧭 Good to know
 
-- **Agents** live in `~/.herd/agents.toml` (Settings → Agents). Rules in Settings → Context go into every session.
-- **Run files** (TASK.md, PLAN.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
+- **Agents** live in `~/.herd/agents.toml` (Settings → Agents) and are all yours to change: what they read and write is in their instructions; boxes set what herd does around them (commit → push → open the PR, Revert, Rerun, sister tasks…). The first one starts every task. Only **Copilot** is built in: herd runs it, since it works with GitHub. Rules in Settings → Context go into every session.
+- **The issue** is copied, comments included, to `ISSUE.md` when the task is created and before each run of the first agent (or with **Issue** in the task header).
+- **Run files** (TASK.md, ISSUE.md, PLAN-n.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
 - **Diagrams:** agents draw them with the [archify](https://github.com/tt-a1i/archify) skill (install it in `~/.claude/skills`): Plan draws the current flow and the new one, to compare at a glance. They appear inside the artifact; **Open full size** lists every diagram of the task. Without archify, agents fall back to mermaid.
 - **Several repos?** Plan or Implement (any agent with *Can create sister tasks* in Settings → Agents) ends its artifact with a `## Sister tasks` section (after a `---` line), one `### <repo>` each; Next step then offers, in one click, a **sister task** in each: same issue, its own worktree, plan and PR, linked from the task header.
-- **Edits outside the worktree** by mistake are spotted: Next step warns before Commit and push.
+- **Edits outside the worktree** by mistake are spotted: Next step warns before any step that commits.
 - **Quitting herd** keeps working steps alive: the next herd reattaches them.
 - **Shortcuts:** Alt+E and Alt+A hide the side panels, Esc closes pop-ups.
 

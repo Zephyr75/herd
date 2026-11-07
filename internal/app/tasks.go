@@ -231,13 +231,16 @@ func (a *App) createTask(projectID, issue, issueRepo, description, branch string
 	if err := copyAttachments(a.runDir(p, t), files); err != nil {
 		return TaskView{}, err
 	}
+	if err := a.writeIssueFile(p, t); err != nil {
+		a.toast("Could not copy issue #"+t.Issue, err.Error(), true)
+	}
 	if err := a.writeTaskFile(p, t); err != nil {
 		return TaskView{}, err
 	}
 	if runPlan {
-		if agents := a.settings.Agents(); len(agents) > 0 {
-			if _, err := a.StartStep(t.ID, agents[0].ID, "", 0); err != nil {
-				a.toast("Could not start "+agents[0].Name, err.Error(), true)
+		if first, ok := settings.First(a.settings.Agents()); ok {
+			if _, err := a.StartStep(t.ID, first.ID, "", 0); err != nil {
+				a.toast("Could not start "+first.Name, err.Error(), true)
 			}
 		}
 	}

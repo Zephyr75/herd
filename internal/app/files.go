@@ -81,7 +81,11 @@ func (a *App) writeTaskFile(p settings.Project, t store.Task) error {
 	b.WriteString("---\n\n")
 	fmt.Fprintf(&b, "# %s\n\n", t.Title)
 	if t.Issue != "" {
-		fmt.Fprintf(&b, "GitHub issue #%s in %s. Plan reads it with `gh issue view %s --repo %s`; later steps rely on PLAN.md.\n\n", t.Issue, a.issueRepo(t), t.Issue, a.issueRepo(t))
+		if _, err := os.Stat(filepath.Join(dir, issueFile)); err == nil {
+			fmt.Fprintf(&b, "GitHub issue #%s in %s: herd copied it, comments included, to %s in this folder.\n\n", t.Issue, a.issueRepo(t), issueFile)
+		} else {
+			fmt.Fprintf(&b, "GitHub issue #%s in %s: herd could not copy it, so read it with `gh issue view %s --repo %s --comments`.\n\n", t.Issue, a.issueRepo(t), t.Issue, a.issueRepo(t))
+		}
 	} else {
 		b.WriteString("LOCAL task: there is no GitHub issue. Work from the description only and make no GitHub calls.\n\n")
 	}

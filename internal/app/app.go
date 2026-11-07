@@ -86,7 +86,7 @@ type App struct {
 	labels   map[string][]string       // labels of each open PR, by task id
 	drafts   map[string]bool           // whether each open PR is a draft, by task id
 
-	pushing sync.Map // ids of the push steps herd is committing and pushing
+	busy sync.Map // ids of the steps whose post-success actions (git, automatic next steps) are running
 }
 
 // New creates the service; call Start before use.
@@ -115,6 +115,7 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 	if a.db, err = store.Open(filepath.Join(a.Home, "herd.db")); err != nil {
 		return err
 	}
+	a.convertManualSteps()
 	a.run = runner.New(a.onExit)
 	a.run.Hold, a.run.SockDir = a.HoldCmd, filepath.Join(a.Home, "sessions")
 	a.focused.Store(true)

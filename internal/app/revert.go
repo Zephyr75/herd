@@ -1,7 +1,7 @@
 package app
 
-// Revert: the latest Implement, while nothing committed after it, can be
-// undone. herd keeps a snapshot of the worktree as each step starts; Revert
+// Revert: the latest step of an agent that can be reverted (Implement,
+// Discuss), while nothing committed after it, can be undone. herd keeps a snapshot of the worktree as each step starts; Revert
 // puts the worktree back to Implement's and removes it and every later step.
 
 import (
@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 
-	"herd/internal/settings"
 	"herd/internal/store"
 )
 
@@ -28,27 +27,18 @@ func (a *App) snapshot(t store.Task, stepID string) {
 	}
 }
 
-// implementAgent is the agent that writes the code: the one the first agent
-// (Plan) offers first as its next step.
-func implementAgent(agents []settings.Agent) string {
-	if len(agents) == 0 || len(agents[0].Next) == 0 {
-		return ""
-	}
-	return agents[0].Next[0]
-}
-
-// revertable reports whether step i can be reverted: the latest Implement
-// step, with no committing step after it, everything after it finished,
-// nothing committed since it started, and a snapshot of its start.
+// revertable reports whether step i can be reverted: its agent can be
+// (Settings > Agents), no step of such an agent or of one that commits ran
+// after it, it and every step after it finished, nothing was committed since
+// it started, and herd has a snapshot of its start.
 func (a *App) revertable(t store.Task, steps []StepView, i int, commits []commit) bool {
 	s := steps[i]
 	agents := a.settings.Agents()
-	impl := implementAgent(agents)
-	if t.Archived || t.WorktreeRemoved || s.External || impl == "" || s.Agent != impl {
+	if t.Archived || t.WorktreeRemoved || s.External || !agentFor(agents, s.Agent).Revert {
 		return false
 	}
 	for _, x := range steps[i+1:] {
-		if ag := agentFor(agents, x.Agent); x.Agent == impl || ag.Commit || ag.Push {
+		if ag := agentFor(agents, x.Agent); ag.Revert || ag.Commit {
 			return false
 		}
 	}
@@ -85,7 +75,7 @@ func (a *App) RevertStep(stepID string) error {
 	}
 	i := slices.IndexFunc(v.Steps, func(x StepView) bool { return x.ID == stepID })
 	if i < 0 || !v.Steps[i].Revert {
-		return errors.New("only the latest Implement can be reverted, once finished and while nothing committed after it")
+		return errors.New("this step cannot be reverted: only the latest step of an agent with Revert on, once finished and while nothing was committed after it")
 	}
 	snap, _ := a.db.Get(snapKey(stepID))
 	p := a.projectOf(t)

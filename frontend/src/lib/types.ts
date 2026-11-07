@@ -19,12 +19,17 @@ export interface Agent {
   model: string
   trigger: string // manual | after:<id> (when that step succeeds)
   writes: string
-  commit: boolean
-  push: boolean
+  commit: boolean // herd commits when it succeeds: its artifact's title line and body are the message
+  push: boolean // then pushes the branch (needs commit)
+  openPR: boolean // then opens or updates the draft PR from its artifact (needs push)
+  revert: boolean // its latest step can be reverted while nothing is committed after it
+  rerun: boolean // its step can be run again while it is the latest
+  choose: boolean // when its artifact lists Options, Next step asks which one to take
+  builtin: boolean // run by herd itself, not Claude: Copilot
   ignoreRules: boolean // the common rules are not given to this agent
   showDiff: boolean // its steps have a Diff button (open their changes in Zed)
   sisters: boolean // its artifact can ask for sister tasks in other repositories
-  next: string[] // agents Next step offers after it succeeds, first highlighted (empty: the next manual agent)
+  next: string[] // agents Next step offers after it succeeds, first highlighted
   onFail: string[] // agents Next step offers after it fails (empty: itself again)
   instructions: string
 }
@@ -126,9 +131,8 @@ export interface Step {
   diff: boolean // Diff has something to open: its segment's commit, or the uncommitted work
   revert: boolean // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
   paused: boolean // stopped by the user until Resume
-  manual: boolean // created without running: the user drives its session
-  fresh: boolean // no transcript yet: claude --session-id, not --resume
-  rerun: boolean // Rerun applies: the cycle's Review, until a manual step (Test and commit) runs
+  rerun: boolean // Rerun applies: the latest step, of an agent that can be rerun
+  gitError: string // why herd's commit, push or PR after it failed
   external: boolean // run by herd, not Claude: the Copilot review step
 }
 
@@ -151,9 +155,9 @@ export interface Next {
   approval: string
   markDone: string
   warning: string // e.g. the plan lists options: name one in the guidance
-  elsewhere: string[] // before Commit and push: repositories outside the worktree with uncommitted agent edits
+  elsewhere: string[] // before a step that commits: repositories outside the worktree with uncommitted agent edits
   sisters: SisterOffer[] // repositories the plan also needs, with no sister task yet
-  ghost: { name: string; after: string; manual: boolean; start: Option | null } | null
+  ghost: { name: string; after: string } | null
 }
 
 export interface Task {
@@ -183,21 +187,12 @@ export interface Task {
   status: { kind: StatusKind; label: string; short: string }
   steps: Step[]
   next: Next
-  prTitle: PRTitle | null // chosen at the last Push
   projectGone: boolean // its project was removed from Settings > Projects
   checks: CICheck[] // CI checks of the open PR
   labels: string[] // labels of the open PR
   draft: boolean // the open PR is a draft (herd opens them so)
 }
 
-export type PRKind = 'feat' | 'fix' | 'perf' | 'test'
-
-/** The pull request title chosen in the Push popup. */
-export interface PRTitle {
-  kind: PRKind
-  scope: string
-  desc: string
-}
 
 export interface Field {
   k: string

@@ -63,8 +63,13 @@ type Agent struct {
 	Model        string   `toml:"model" json:"model"`
 	Trigger      string   `toml:"trigger" json:"trigger"` // manual | after:<agent id> (when that step succeeds)
 	Writes       string   `toml:"writes" json:"writes"`
-	Commit       bool     `toml:"commit,omitempty" json:"commit"`
-	Push         bool     `toml:"push,omitempty" json:"push"`
+	Commit       bool     `toml:"commit,omitempty" json:"commit"`            // herd commits when it succeeds: its artifact's title line and body are the message
+	Push         bool     `toml:"push,omitempty" json:"push"`                // then pushes the branch (needs Commit)
+	OpenPR       bool     `toml:"open_pr,omitempty" json:"openPR"`           // then opens (or updates) the draft PR from its artifact (needs Push)
+	Revert       bool     `toml:"revert,omitempty" json:"revert"`            // its latest step can be reverted while nothing is committed after it
+	Rerun        bool     `toml:"rerun,omitempty" json:"rerun"`              // its step can be run again on the current worktree while it is the latest
+	Choose       bool     `toml:"choose,omitempty" json:"choose"`            // when its artifact lists Options, Next step asks which one to take
+	Builtin      bool     `toml:"builtin,omitempty" json:"builtin"`          // run by herd itself, not Claude: Copilot
 	IgnoreRules  bool     `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
 	ShowDiff     bool     `toml:"show_diff,omitempty" json:"showDiff"`       // its steps have a Diff button (open their changes in Zed)
 	Sisters      bool     `toml:"sisters,omitempty" json:"sisters"`          // its artifact can ask for sister tasks in other repositories
@@ -161,7 +166,7 @@ func (s *Store) Reload() error {
 	if len(af.Agent) == 0 {
 		af.Agent = DefaultAgents()
 	}
-	af.Agent = withLists(af.Agent)
+	af.Agent = normalize(af.Agent)
 
 	km := DefaultKeymap()
 	if b, err := os.ReadFile(s.path("keymap.json")); err == nil {
@@ -336,21 +341,74 @@ func (s *Store) SaveAgents(agents []Agent) error {
 			if !seen[id] {
 				return fmt.Errorf("%s offers %q next, which is not an agent", a.Name, id)
 			}
+			if id == CopilotID {
+				return fmt.Errorf("%s offers Copilot next: Copilot starts by itself after the agent it follows", a.Name)
+			}
+		}
+		if a.AfterAgent() == CopilotID {
+			return fmt.Errorf("%s starts after Copilot: start it from Copilot's next steps instead", a.Name)
 		}
 	}
+	agents = normalize(agents)
 	if err := writeTOML(s.path("agents.toml"), agentsFile{Agent: agents}); err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.ags = withLists(agents)
+	s.ags = agents
 	s.mu.Unlock()
 	return nil
 }
 
-// withLists copies agents with empty (not nil) Next and OnFail, so the UI
-// always gets lists.
-func withLists(agents []Agent) []Agent {
-	out := append([]Agent(nil), agents...)
+// CopilotID is the built-in agent herd runs itself: it asks Copilot for a
+// review of the PR, then waits for the review and the CI checks.
+const CopilotID = "copilot"
+
+// Copilot is the built-in agent with its fixed parts; the user sets its
+// trigger and its next steps.
+func Copilot() Agent {
+	return Agent{ID: CopilotID, Name: "Copilot", Trigger: "manual", Writes: "COPILOT-{n}.md", Builtin: true}
+}
+
+// normalize makes agents consistent: lists are never nil (the UI always
+// gets lists), Push needs Commit and Open the PR needs Push, and Copilot is
+// there once with its fixed parts, never first.
+func normalize(agents []Agent) []Agent {
+	out := []Agent{}
+	var cop *Agent
+	for _, a := range agents {
+		if a.ID == CopilotID {
+			c := Copilot()
+			c.Trigger, c.Next, c.OnFail = a.Trigger, a.Next, a.OnFail
+			cop = &c
+			continue
+		}
+		if a.Push && !a.Commit { // the former "Commit, push and open the PR" box
+			a.OpenPR = true
+		}
+		a.Push = a.Push || a.OpenPR
+		a.Commit = a.Commit || a.Push
+		a.Builtin = false
+		out = append(out, a)
+	}
+	if cop == nil { // an agents.toml from before Copilot was listed: it follows the PR agent, offering what that one did
+		c := Copilot()
+		for _, a := range out {
+			if a.OpenPR {
+				c.Trigger, c.Next, c.OnFail = "after:"+a.ID, a.Next, a.OnFail
+				break
+			}
+		}
+		cop = &c
+	}
+	i := len(out)
+	if t := cop.AfterAgent(); t != "" {
+		for j, a := range out {
+			if a.ID == t {
+				i = j + 1
+			}
+		}
+	}
+	out = append(out[:i], append([]Agent{*cop}, out[i:]...)...)
 	for i := range out {
 		if out[i].Next == nil {
 			out[i].Next = []string{}
@@ -360,6 +418,16 @@ func withLists(agents []Agent) []Agent {
 		}
 	}
 	return out
+}
+
+// First is the agent that starts every task: the first in the list.
+func First(agents []Agent) (Agent, bool) {
+	for _, a := range agents {
+		if !a.Builtin {
+			return a, true
+		}
+	}
+	return Agent{}, false
 }
 
 // checkTriggers refuses "after:" triggers on a missing agent, on the agent

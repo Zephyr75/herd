@@ -21,7 +21,6 @@ const model = (m: string) => (m ? m[0].toUpperCase() + m.slice(1) : '')
 const chip = computed(() => {
   const s = step.value
   if (!s) return null
-  if (s.manual && s.paused && !s.live) return { cls: 's-idle', text: 'Manual · not running in herd' }
   if (s.paused && !s.live) return { cls: 's-idle', text: 'Paused' }
   if (s.state === 'approval') return { cls: 's-approval', text: 'Live · waiting for approval' }
   if (s.state === 'running' || s.state === 'idle') return { cls: 's-running', text: s.state === 'idle' ? 'Live · waiting for you' : 'Live' }
@@ -57,7 +56,7 @@ const chip = computed(() => {
           </button>
           <template v-else>
             <button class="tb" :title="'Copy ' + resumeCommand(step)" @click="herd.copyResume(step)">
-              <Icon name="copy" :size="14" />Copy <span class="mono-s">{{ step.fresh ? 'claude --session-id' : 'claude --resume' }} {{ step.session.slice(0, 8) }}</span>
+              <Icon name="copy" :size="14" />Copy <span class="mono-s">claude --resume {{ step.session.slice(0, 8) }}</span>
             </button>
             <button v-if="step.paused" class="tb" title="Resume this session in herd" @click="herd.resumeStep(step)"><Icon name="play" :size="13" />Resume</button>
           </template>

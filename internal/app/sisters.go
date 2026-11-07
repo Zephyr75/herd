@@ -189,9 +189,9 @@ func (a *App) CreateSister(taskID, repo string) (TaskView, error) {
 		return sv, err
 	}
 	// Linked first, so its Plan already sees the sister.
-	if agents := a.settings.Agents(); len(agents) > 0 {
-		if _, err := a.StartStep(sv.ID, agents[0].ID, "", 0); err != nil {
-			a.toast("Could not start "+agents[0].Name, err.Error(), true)
+	if first, ok := settings.First(a.settings.Agents()); ok {
+		if _, err := a.StartStep(sv.ID, first.ID, "", 0); err != nil {
+			a.toast("Could not start "+first.Name, err.Error(), true)
 		}
 	}
 	a.emitTask(t.ID)

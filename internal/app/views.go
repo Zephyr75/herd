@@ -29,11 +29,10 @@ type StepView struct {
 	Diff     bool   `json:"diff"`     // Diff has something to open: its segment's commit, or the uncommitted work
 	Revert   bool   `json:"revert"`   // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
 	Paused   bool   `json:"paused"`   // stopped by the user until Resume
-	Manual   bool   `json:"manual"`   // created without running: the user drives its session
-	Fresh    bool   `json:"fresh"`    // its session has no transcript yet: claude --session-id, not --resume
 	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
 	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
-	Pushing  bool   `json:"-"`        // herd is committing, pushing and opening the PR after it
+	GitError string `json:"gitError"` // why herd's commit, push or PR after it failed
+	Busy     bool   `json:"-"`        // herd is running what follows its success: git actions, the automatic next step
 }
 
 // Option is one next-step button.
@@ -43,13 +42,11 @@ type Option struct {
 	Label string `json:"label"`
 }
 
-// Ghost is the pending step after the latest one, shown in the timeline:
-// automatic, or (after a manual step) waiting for the user to start it.
+// Ghost is the automatic step about to start after the latest one, shown in
+// the timeline.
 type Ghost struct {
-	Name   string  `json:"name"`
-	After  string  `json:"after"`
-	Manual bool    `json:"manual"`
-	Start  *Option `json:"start"` // set when the user starts it
+	Name  string `json:"name"`
+	After string `json:"after"`
 }
 
 // Next is the next-step box for a task.
@@ -59,8 +56,8 @@ type Next struct {
 	Approval string   `json:"approval"` // step id waiting for permission
 	MarkDone string   `json:"markDone"` // step id that can be marked done
 	Warning  string   `json:"warning"`  // e.g. the plan lists options: pick one in the guidance
-	// Elsewhere: before Commit and push, the repositories outside the
-	// worktree where agents left uncommitted edits (only the worktree is pushed).
+	// Elsewhere: before a step that commits, the repositories outside the
+	// worktree where agents left uncommitted edits (only the worktree is committed).
 	Elsewhere []string `json:"elsewhere"`
 	// Sisters: repositories the plan also needs, with no sister task yet.
 	Sisters []SisterOffer `json:"sisters"`
@@ -81,7 +78,6 @@ type TaskView struct {
 	Status      Status         `json:"status"`
 	Steps       []StepView     `json:"steps"`
 	Next        Next           `json:"next"`
-	PRTitle     *PRTitle       `json:"prTitle"`     // chosen at the last Push
 	ProjectGone bool           `json:"projectGone"` // its project was removed from Settings > Projects
 	Checks      []github.Check `json:"checks"`      // CI checks of the open PR, refreshed every minute
 	Labels      []string       `json:"labels"`      // labels of the open PR
@@ -160,12 +156,12 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		_, live := a.run.Get(s.ID)
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
-			Artifact: ag.ArtifactName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID), Manual: a.manual(s.ID),
+			Artifact: ag.ArtifactName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID),
 			External: s.Agent == copilotAgent,
 		})
-		if sv := &v.Steps[len(v.Steps)-1]; sv.Manual && sv.State != store.Done {
-			sv.Fresh = !sessionSaved(s.SessionID)
-		}
+		sv := &v.Steps[len(v.Steps)-1]
+		sv.GitError, _ = a.db.Get(gitErrKey(s.ID))
+		_, sv.Busy = a.busy.Load(s.ID)
 	}
 	if v.Steps == nil {
 		v.Steps = []StepView{}
@@ -192,9 +188,6 @@ func (a *App) view(t store.Task) (TaskView, error) {
 			sv.Diff = dirty == 1
 		}
 	}
-	if pt, ok := a.prTitle(t.ID); ok {
-		v.PRTitle = &pt
-	}
 	_, known := a.settings.Project(t.Project)
 	v.ProjectGone = !known
 	a.markRerun(t, v.Steps, agents)
@@ -206,9 +199,6 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	v.Checks = a.checksOf(t.ID)
 	if v.Checks == nil {
 		v.Checks = []github.Check{}
-	}
-	for i := range v.Steps {
-		_, v.Steps[i].Pushing = a.pushing.Load(v.Steps[i].ID)
 	}
 	v.Status = statusOf(t, v.Steps, a.prReady(t.ID))
 	v.Next = nextOf(t, v.Steps, agents)
@@ -223,7 +213,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	}
 	v.Next.Elsewhere = []string{}
 	for _, o := range v.Next.Options {
-		if agentFor(agents, o.Agent).Push {
+		if agentFor(agents, o.Agent).Commit {
 			v.Next.Elsewhere = a.outsideRepos(t)
 			break
 		}
@@ -233,14 +223,14 @@ func (a *App) view(t store.Task) (TaskView, error) {
 
 var optionsHeading = regexp.MustCompile(`(?mi)^#{1,6}\s*options\b`)
 
-// optionsWarning asks the user to choose when the latest step's artifact (a
-// plan) lists Options and the next step is to be started by hand.
+// optionsWarning asks the user to choose when the latest step's agent asks
+// for a choice (Settings > Agents) and its artifact lists Options.
 func (a *App) optionsWarning(t store.Task, steps []StepView, nx Next) string {
 	if len(steps) == 0 || len(nx.Options) == 0 || t.Archived {
 		return ""
 	}
 	last := steps[len(steps)-1]
-	if !last.Succeeded() {
+	if !last.Succeeded() || !agentFor(a.settings.Agents(), last.Agent).Choose {
 		return ""
 	}
 	art, _ := a.artifactFor(last.Step)
@@ -250,10 +240,9 @@ func (a *App) optionsWarning(t store.Task, steps []StepView, nx Next) string {
 	return fmt.Sprintf("%s lists several options. Read them, then name the one to take in the guidance before starting %s.", last.Artifact, nx.Options[0].Label)
 }
 
-// markRerun sets Rerun on the Review of the current cycle (the automatic
-// steps after the latest manual one) once every step finished: it reviews
-// again, e.g. after hand edits. Manual steps (Test and commit) run again as
-// new steps, and once one ran the cycle is over.
+// markRerun sets Rerun on the task's latest step when its agent can be rerun
+// (Settings > Agents) and every step finished: it runs again in its own
+// conversation on the current worktree, e.g. a Review after hand edits.
 func (a *App) markRerun(t store.Task, steps []StepView, agents []settings.Agent) {
 	if t.Archived || t.WorktreeRemoved || len(steps) == 0 {
 		return
@@ -263,12 +252,8 @@ func (a *App) markRerun(t store.Task, steps []StepView, agents []settings.Agent)
 			return
 		}
 	}
-	cand := -1
-	for i := len(steps) - 1; i >= 0 && agentFor(agents, steps[i].Agent).AfterAgent() != ""; i-- {
-		cand = i
-	}
-	if cand > 0 {
-		steps[cand].Rerun = true
+	if last := &steps[len(steps)-1]; agentFor(agents, last.Agent).Rerun && !last.External {
+		last.Rerun = true
 	}
 }
 
@@ -371,24 +356,8 @@ func countAgent(steps []StepView, id string) int {
 	return n
 }
 
-// successIDs are the agents Next step offers after ag succeeds: its list,
-// else the next manual agent of the pipeline.
-func successIDs(agents []settings.Agent, ag settings.Agent) []string {
-	if len(ag.Next) > 0 {
-		return ag.Next
-	}
-	for i, x := range agents {
-		if x.ID != ag.ID {
-			continue
-		}
-		for _, y := range agents[i+1:] {
-			if y.AfterAgent() == "" {
-				return []string{y.ID}
-			}
-		}
-	}
-	return nil
-}
+// successIDs are the agents Next step offers after ag succeeds: its list.
+func successIDs(ag settings.Agent) []string { return ag.Next }
 
 // failureIDs are the agents Next step offers after ag fails: its list, else
 // ag again.
@@ -419,12 +388,13 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		}
 		return nx
 	}
-	if len(agents) == 0 {
+	start, ok := settings.First(agents)
+	if !ok {
 		nx.Text = "No agents are defined. Add one in Settings > Agents."
 		return nx
 	}
 	if len(steps) == 0 {
-		nx.Options = append(nx.Options, option(agents[0], 1, ""))
+		nx.Options = append(nx.Options, option(start, 1, ""))
 		return nx
 	}
 	last := steps[len(steps)-1]
@@ -447,16 +417,6 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	if autoNext != nil && last.State != store.Done {
 		nx.Ghost = &Ghost{Name: autoNext.DisplayName(countAgent(steps, autoNext.ID) + 1), After: last.Name}
 	}
-	// After a manual step the next agent waits for the user, whatever its trigger.
-	if autoNext != nil && last.Manual && last.State != store.Failed {
-		o := option(*autoNext, countAgent(steps, autoNext.ID)+1, "")
-		nx.Ghost = &Ghost{Name: o.Label, After: last.Name, Manual: true, Start: &o}
-		if last.State != store.Running && last.State != store.Approval {
-			nx.Options = append(nx.Options, o)
-			nx.Text = last.Name + " is yours: use its session outside herd (copy the claude command in its toolbar) or Resume it here. Start " + o.Label + " when you are done."
-			return nx
-		}
-	}
 
 	for _, s := range steps {
 		if s.State == store.Approval {
@@ -466,7 +426,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		}
 	}
 	// What Next step offers comes from the agents' lists: after a success,
-	// after a failure; after the push and its Copilot step, the push's.
+	// after a failure (Copilot's own lists too).
 	offer := func(ids []string) []Option {
 		var out []Option
 		for _, id := range ids {
@@ -478,28 +438,17 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		}
 		return out
 	}
-	var afterPush []Option
-	for _, s := range steps {
-		if p := agentFor(agents, s.Agent); p.Push {
-			afterPush = offer(successIDs(agents, p))
-		}
-	}
-	first := func(os []Option) string {
-		if len(os) == 0 {
-			return "a fix"
-		}
-		return os[0].Label
-	}
+	cop := agentFor(agents, copilotAgent)
 	for _, s := range steps {
 		if s.State == store.Running && s.External {
 			nx.Text = fmt.Sprintf("Waiting for Copilot's review and the CI checks of PR #%d (checked every minute). Start a fix any time, or Mark done to stop waiting.", t.PRNumber)
 			nx.MarkDone = s.ID
-			nx.Options = append(nx.Options, afterPush...)
+			nx.Options = append(nx.Options, offer(failureIDs(cop))...)
 			return nx
 		}
 		if s.State == store.Running {
 			nx.Text = s.Name + " is running. "
-			if autoNext != nil && s.ID == last.ID && !last.Manual {
+			if autoNext != nil && s.ID == last.ID {
 				nx.Text += autoNext.DisplayName(countAgent(steps, autoNext.ID)+1) + " starts automatically if it succeeds."
 			} else {
 				nx.Text += "You will be asked for the next step when it finishes."
@@ -520,17 +469,17 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	}
 	// The last step finished.
 	if last.External {
-		if last.Unsuccessful() {
+		ids := successIDs(cop)
+		switch {
+		case last.Unsuccessful():
 			nx.Text = fmt.Sprintf("PR #%d needs fixes: %s lists Copilot's comments and the failing CI checks.", t.PRNumber, last.Artifact)
-		} else if last.Verdict == skipped {
+			ids = failureIDs(cop)
+		case last.Verdict == skipped:
 			nx.Text = fmt.Sprintf("herd stopped waiting for Copilot on PR #%d.", t.PRNumber)
-		} else {
+		default:
 			nx.Text = fmt.Sprintf("Copilot found nothing to fix and CI passed on PR #%d. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
 		}
-		if len(afterPush) > 0 {
-			nx.Text += " Start " + first(afterPush) + " for fixes (Copilot comments, failing CI), then push again."
-			nx.Options = append(nx.Options, afterPush...)
-		}
+		nx.Options = append(nx.Options, offer(ids)...)
 		return nx
 	}
 	if last.Unsuccessful() {
@@ -538,31 +487,60 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		nx.Options = append(nx.Options, offer(failureIDs(ag))...)
 		return nx
 	}
-	if ag.Push {
-		// A push that worked is followed by its Copilot step.
-		if last.Pushing {
-			nx.Text = "herd is committing, pushing and opening the PR."
-			return nx
+	if last.Busy {
+		if ag.Commit {
+			nx.Text = "herd is " + gitWords(ag) + "."
+		} else if autoNext != nil {
+			nx.Text = autoNext.DisplayName(countAgent(steps, autoNext.ID)+1) + " is starting."
 		}
-		nx.Text = "herd did not finish committing, pushing and opening the PR: the " + last.Name + " terminal says why. Run it again."
-		nx.Options = append(nx.Options, option(ag, last.N+1, ""))
-		if len(afterPush) > 0 {
-			nx.Options = append(nx.Options, afterPush...)
+		if autoNext != nil {
+			nx.Ghost = &Ghost{Name: autoNext.DisplayName(countAgent(steps, autoNext.ID) + 1), After: last.Name}
+		}
+		return nx
+	}
+	if last.GitError != "" {
+		nx.Text = last.GitError + ". The " + last.Name + " terminal says more; run it again once it is fixed."
+		retry := option(ag, countAgent(steps, ag.ID)+1, "")
+		nx.Options = append(nx.Options, retry)
+		for _, o := range offer(failureIDs(ag)) {
+			if o != retry {
+				nx.Options = append(nx.Options, o)
+			}
 		}
 		return nx
 	}
 	if autoNext != nil {
-		nx.Text = autoNext.DisplayName(countAgent(steps, autoNext.ID)+1) + " is starting."
-		nx.Ghost = &Ghost{Name: autoNext.DisplayName(countAgent(steps, autoNext.ID) + 1), After: last.Name}
+		name := autoNext.DisplayName(countAgent(steps, autoNext.ID) + 1)
+		if !last.Completed {
+			nx.Text = name + " is starting."
+			nx.Ghost = &Ghost{Name: name, After: last.Name}
+			return nx
+		}
+		// It should have started when the step finished.
+		nx.Text = name + " did not start after " + last.Name + ". Run " + last.Name + " again, or pick the next step."
+		nx.Options = append(nx.Options, option(ag, last.N+1, ""))
+		nx.Options = append(nx.Options, offer(successIDs(ag))...)
 		return nx
 	}
 	if idx < 0 { // its agent was removed
-		nx.Options = append(nx.Options, option(agents[0], countAgent(steps, agents[0].ID)+1, ""))
+		nx.Options = append(nx.Options, option(start, countAgent(steps, start.ID)+1, ""))
 		return nx
 	}
-	nx.Options = append(nx.Options, offer(successIDs(agents, ag))...)
+	nx.Options = append(nx.Options, offer(successIDs(ag))...)
 	if len(nx.Options) == 0 {
 		nx.Text = "The pipeline is finished for this task."
 	}
 	return nx
+}
+
+// gitWords says what herd does after an agent's step: "committing",
+// "committing and pushing" or "committing, pushing and opening the PR".
+func gitWords(ag settings.Agent) string {
+	switch {
+	case ag.OpenPR:
+		return "committing, pushing and opening the PR"
+	case ag.Push:
+		return "committing and pushing"
+	}
+	return "committing"
 }

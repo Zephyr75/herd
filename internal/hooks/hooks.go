@@ -15,13 +15,14 @@ import (
 
 // Event is one hook call, decoded from Claude Code's JSON payload.
 type Event struct {
-	Name             string // SessionStart, UserPromptSubmit, Notification, PostToolUse, Stop
+	Name             string // SessionStart, UserPromptSubmit, Notification, PreToolUse, PostToolUse, Stop
 	StepID           string // <task id>/<step key>
 	PID              int    // the claude process that ran the hook (0 if unknown)
 	SessionID        string `json:"session_id"`
 	Source           string `json:"source"` // SessionStart: startup | resume | clear | compact
 	Message          string `json:"message"`
 	NotificationType string `json:"notification_type"`
+	ToolName         string `json:"tool_name"` // PreToolUse, PostToolUse
 	Raw              json.RawMessage
 }
 
@@ -67,7 +68,11 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Events herd listens to.
-var Events = []string{"SessionStart", "UserPromptSubmit", "Notification", "PostToolUse", "Stop"}
+var Events = []string{"SessionStart", "UserPromptSubmit", "Notification", "PreToolUse", "PostToolUse", "Stop"}
+
+// AskTool is Claude Code's question form: while it is open, the step waits
+// for the user. PreToolUse is only sent for it.
+const AskTool = "AskUserQuestion"
 
 // Command is the shell command a hook runs: it does nothing outside herd
 // sessions and never fails the hook. $HERD_ENDPOINT holds the current herd's
@@ -84,11 +89,16 @@ func Settings(excludes []string) ([]byte, error) {
 		Command string `json:"command"`
 	}
 	type matcher struct {
-		Hooks []hook `json:"hooks"`
+		Matcher string `json:"matcher,omitempty"`
+		Hooks   []hook `json:"hooks"`
 	}
 	all := map[string][]matcher{}
 	for _, e := range Events {
-		all[e] = []matcher{{Hooks: []hook{{Type: "command", Command: Command(e)}}}}
+		m := matcher{Hooks: []hook{{Type: "command", Command: Command(e)}}}
+		if e == "PreToolUse" {
+			m.Matcher = AskTool
+		}
+		all[e] = []matcher{m}
 	}
 	return json.MarshalIndent(map[string]any{"hooks": all, "claudeMdExcludes": excludes}, "", "  ")
 }

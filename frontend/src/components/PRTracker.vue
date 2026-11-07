@@ -44,7 +44,7 @@ async function refresh() {
       <span class="muted small">{{ task.branch }} → {{ task.baseBranch }}</span>
       <span class="grow"></span>
       <button v-if="task.prState === 'open' && !task.archived" class="act" :disabled="refreshing" title="Check Copilot's review and the CI checks now instead of waiting for the next minute" @click="refresh"><Icon name="rerun" :size="13" />{{ refreshing ? 'Refreshing…' : 'Refresh' }}</button>
-      <button v-if="task.prUrl" class="act" @click="open(task.prUrl)"><Icon name="external" :size="13" />Open on GitHub</button>
+      <button v-if="task.prUrl" class="act" :title="`Open PR #${task.pr} on GitHub`" @click="open(task.prUrl)"><Icon name="external" :size="13" />Open PR</button>
     </div>
 
     <section>

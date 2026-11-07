@@ -22,6 +22,9 @@ case "$HERD_STEP" in
   impl-*) echo "change $HERD_N" >> "file-$HERD_N.txt"
           printf -- '---\nstatus: done\n---\n# Changes\n- edited\n' > "$HERD_ARTIFACT" ;;
   review-*) printf -- "---\nstatus: ${FAKE_REVIEW:-done}\n---\n# Findings\n- one\n" > "$HERD_ARTIFACT" ;;
+  form-*) post PreToolUse '{"tool_name":"AskUserQuestion"}'
+          read -r answer; post PostToolUse '{"tool_name":"AskUserQuestion"}'
+          printf -- '---\nstatus: done\n---\nfeat(x): the title #1\n\nThe body.\n' > "$HERD_ARTIFACT" ;;
   ask-*) post Notification '{"notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}'
          read -r answer; post PostToolUse '{}'
          printf -- '---\nstatus: done\n---\n' > "$HERD_ARTIFACT" ;;

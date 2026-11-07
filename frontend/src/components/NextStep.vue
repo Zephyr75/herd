@@ -11,9 +11,6 @@ async function restore() {
   const task = t.value
   if (task) await herd.attempt('Could not restore', () => api.RestoreTask(task.id))
 }
-// An agent another one follows (Implement) can also be created manually: no
-// Claude runs, its session is for the user to drive outside herd.
-const manualOk = (agent: string) => !!herd.settings?.agents.some((a) => a.trigger === 'after:' + agent)
 // Deleting is for good: herd forgets the task and removes its worktree, local
 // branch and run files. Two clicks.
 async function deleteTask() {
@@ -58,21 +55,11 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
       <label for="guide" class="sr-only">Guidance for Claude</label>
       <p v-if="nx.warning" class="warn"><Icon name="warn" :size="14" />{{ nx.warning }}</p>
       <p v-if="nx.elsewhere.length" class="warn">
-        <Icon name="warn" :size="14" />Agents also edited files outside the worktree, in {{ nx.elsewhere.join(', ') }}. Commit and push only covers {{ t.branch }}: check those edits yourself.
+        <Icon name="warn" :size="14" />Agents also edited files outside the worktree, in {{ nx.elsewhere.join(', ') }}. herd only commits {{ t.branch }}: check those edits yourself.
       </p>
       <textarea id="guide" v-model="herd.guidance" rows="3" :class="{ need: nx.warning && !herd.guidance.trim() }" :placeholder="nx.warning ? 'Which option? e.g. take option B, because…' : 'Guidance for Claude (optional)'"></textarea>
       <div class="opts">
-        <template v-for="(o, i) in nx.options" :key="o.agent + o.n">
-          <button class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)"><Icon name="play" :size="13" />{{ o.label }}</button>
-          <button
-            v-if="manualOk(o.agent)"
-            class="btn"
-            :title="`Create ${o.label} without running Claude, and copy the command to use its session outside herd`"
-            @click="herd.runManual(o)"
-          >
-            <Icon name="terminal" :size="13" />{{ o.label }} manually
-          </button>
-        </template>
+        <button v-for="(o, i) in nx.options" :key="o.agent + o.n" class="btn" :class="{ primary: i === 0 }" @click="herd.run(o)"><Icon name="play" :size="13" />{{ o.label }}</button>
       </div>
     </template>
 

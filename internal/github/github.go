@@ -83,6 +83,39 @@ func (g GH) IssueTitle(ctx context.Context, repo, issue string) (string, error) 
 	return g.run(ctx, "", "issue", "view", issue, "--repo", repo, "--json", "title", "-q", ".title")
 }
 
+// IssueDoc is an issue with its comments, as herd copies it to ISSUE.md.
+type IssueDoc struct {
+	Number    int       `json:"number"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	State     string    `json:"state"`
+	URL       string    `json:"url"`
+	CreatedAt time.Time `json:"createdAt"`
+	Author    struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	Labels []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+	Comments []struct {
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		Body      string    `json:"body"`
+		CreatedAt time.Time `json:"createdAt"`
+	} `json:"comments"`
+}
+
+// Issue returns an issue with its comments.
+func (g GH) Issue(ctx context.Context, repo, issue string) (IssueDoc, error) {
+	out, err := g.run(ctx, "", "issue", "view", issue, "--repo", repo, "--json", "number,title,body,state,url,createdAt,author,labels,comments")
+	var d IssueDoc
+	if err != nil {
+		return d, err
+	}
+	return d, json.Unmarshal([]byte(out), &d)
+}
+
 // RequestCopilot asks Copilot to review a PR (again, after a new push).
 func (g GH) RequestCopilot(ctx context.Context, repo string, n int) error {
 	_, err := g.run(ctx, "", "pr", "edit", strconv.Itoa(n), "--repo", repo, "--add-reviewer", "@copilot")

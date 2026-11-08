@@ -636,6 +636,10 @@ class Herd {
 
   private onKey(e: KeyboardEvent) {
     if (!this.settings) return
+    // Ctrl+<letter> in a terminal is the terminal's (Ctrl+F moves the cursor,
+    // Ctrl+N recalls history): herd's shortcuts take it everywhere else.
+    const inTerm = (e.target as HTMLElement | null)?.closest?.('.xterm')
+    if (inTerm && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && /^[a-z]$/i.test(e.key)) return
     const action = actionFor(this.settings.keymap, e)
     if (!action) return
     // ⌘⏎ inside a popup belongs to the popup (Create and run Plan, open in Zed).

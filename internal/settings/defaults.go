@@ -126,12 +126,15 @@ Do not commit or push: herd commits every change with PR.md's title line and bod
 (or updates) the draft PR with them; then Copilot reviews it.
 End with status: done.`
 
-// DefaultKeymap binds only what is needed every day: hiding the side panels,
-// and Escape for popups. keymap.json can bind any other action the Shortcuts
-// page lists (palette, newTask, tab1…tab9, …). "Mod" is Cmd on macOS and Ctrl
-// elsewhere.
+// DefaultKeymap binds only what is needed every day: searching tasks, a new
+// task, hiding the side panels, and Escape for popups. keymap.json can bind
+// any other action the Shortcuts page lists (scope, tab1…tab9, …). "Mod" is
+// Cmd on macOS and Ctrl elsewhere; in a terminal, Ctrl+<letter> stays the
+// terminal's.
 func DefaultKeymap() Keymap {
 	return Keymap{
+		"palette":     {"Mod+F"},
+		"newTask":     {"Mod+N"},
 		"toggleLeft":  {"Alt+E"},
 		"toggleRight": {"Alt+A"},
 		"close":       {"Escape"},

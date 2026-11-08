@@ -485,6 +485,7 @@ func (a *App) collectChecks(t store.Task) {
 	if !had || !slices.Equal(old, cs) {
 		a.emitTask(t.ID)
 	}
+	a.settleCopilotStep(t) // a review waiting for CI ends when CI does
 }
 
 // readyLabel marks a PR ready for a human review.
@@ -564,7 +565,7 @@ func (a *App) OpenURL(link string) error {
 }
 
 // pollPRs archives tasks whose PR was merged or closed, and collects the CI
-// checks of the open ones.
+// checks and Copilot reviews of the open ones.
 func (a *App) pollPRs() {
 	if !a.pollMu.TryLock() {
 		return
@@ -579,8 +580,8 @@ func (a *App) pollPRs() {
 	}
 }
 
-// RefreshPR checks the task's PR now: its state and CI checks, without
-// waiting for the next minute.
+// RefreshPR checks the task's PR now: its state, CI checks and Copilot's
+// review, without waiting for the next minute.
 func (a *App) RefreshPR(taskID string) error {
 	t, err := a.db.Task(taskID)
 	if err != nil {
@@ -591,6 +592,64 @@ func (a *App) RefreshPR(taskID string) error {
 	a.pollPR(t)
 	a.emitTask(t.ID)
 	return nil
+}
+
+// RerunChecks starts the PR's CI checks again: the one whose link is given,
+// or every one when link is empty (each workflow run once).
+func (a *App) RerunChecks(taskID, link string) error {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return err
+	}
+	if t.PRNumber == 0 || t.PRState != "open" {
+		return errors.New("the task has no open pull request")
+	}
+	repo := a.projectOf(t).Repo
+	var errs []error
+	if link != "" {
+		run, job := github.RunOf(link)
+		if run == "" {
+			return errors.New("this check is not a GitHub Actions job: rerun it from GitHub")
+		}
+		errs = append(errs, a.gh.Rerun(a.ctx, repo, run, job))
+	} else {
+		checks := a.checksOf(t.ID)
+		seen := map[string]bool{}
+		for _, c := range checks {
+			if run, _ := github.RunOf(c.Link); run != "" && !seen[run] {
+				seen[run] = true
+				errs = append(errs, a.gh.Rerun(a.ctx, repo, run, ""))
+			}
+		}
+		if len(seen) == 0 {
+			return errors.New("no GitHub Actions check to rerun")
+		}
+	}
+	go a.RefreshPR(taskID)
+	return errors.Join(errs...)
+}
+
+// RequestCopilotReview asks Copilot to review the PR again. A Copilot step
+// waits for the review (a new one unless one already waits).
+func (a *App) RequestCopilotReview(taskID string) error {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return err
+	}
+	if t.PRNumber == 0 || t.PRState != "open" {
+		return errors.New("the task has no open pull request")
+	}
+	if a.waitingCopilot(t.ID) != nil {
+		return a.gh.RequestCopilot(a.ctx, a.projectOf(t).Repo, t.PRNumber)
+	}
+	var ferr error
+	a.runCopilot(t.ID, func(s string) {
+		if strings.HasPrefix(s, "could not") {
+			ferr = errors.New(s)
+		}
+	})
+	a.emitTask(t.ID)
+	return ferr
 }
 
 func (a *App) pollPR(t store.Task) {
@@ -604,6 +663,7 @@ func (a *App) pollPR(t store.Task) {
 	}
 	if err != nil || pr.State == "open" || pr.State == "" {
 		a.collectChecks(t)
+		a.collectCopilot(t)
 		return
 	}
 	a.stopTaskSessions(t.ID)

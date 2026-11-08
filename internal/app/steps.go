@@ -3,9 +3,11 @@ package app
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -247,6 +249,9 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 	if !ok {
 		return launch{}, fmt.Errorf("unknown agent %q", agentID)
 	}
+	if ag.Builtin {
+		return launch{}, fmt.Errorf("%s is run by herd: it starts by itself after the agent it follows", ag.Name)
+	}
 	p := a.projectOf(t)
 	if _, err := os.Stat(worktreePath(p, t)); err != nil {
 		return launch{}, fmt.Errorf("worktree missing: %s", worktreePath(p, t))
@@ -290,6 +295,12 @@ func (a *App) newStep(taskID, agentID, guidance string, n int, state string) (la
 	s := store.Step{
 		ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: agentID, N: n, Seq: seq, State: state,
 		Guidance: strings.TrimSpace(guidance), SessionID: uuid.NewString(), Model: ag.Model, StartedAt: time.Now(),
+	}
+	for _, x := range steps {
+		if x.Agent == copilotAgent && x.State == store.Running { // stop waiting: the user moved on
+			x.State, x.EndedAt, x.Completed, x.Verdict = store.Done, time.Now(), true, skipped
+			_ = a.db.SaveStep(x)
+		}
 	}
 	err = a.db.SaveStep(s)
 	a.mu.Unlock()
@@ -491,6 +502,9 @@ func (a *App) MarkDone(stepID string) error {
 			return false
 		}
 		s.State, s.EndedAt, s.Verdict = store.Done, time.Now(), "" // the user says it succeeded
+		if s.Agent == copilotAgent {
+			s.Verdict = skipped
+		}
 		return true
 	})
 	if changed {
@@ -654,12 +668,16 @@ func (a *App) afterDone(s store.Step) {
 		a.emitTask(t.ID)
 		if err != nil {
 			a.toast(err.Error(), "", true)
-			return // what follows needs these actions (e.g. a review of the PR)
+			return // what follows needs these actions (Copilot needs the PR)
 		}
 	}
 
 	for _, next := range a.settings.Agents() {
 		if next.AfterAgent() != s.Agent {
+			continue
+		}
+		if next.Builtin {
+			a.runCopilot(t.ID, say)
 			continue
 		}
 		if _, err := a.StartStep(t.ID, next.ID, "", 0); err != nil {
@@ -748,6 +766,170 @@ func (a *App) gitActions(t store.Task, s store.Step, ag settings.Agent, say func
 	return nil
 }
 
+// runCopilot starts the Copilot step: it asks Copilot to review the task's
+// PR, then waits for the review and the CI checks (see settleCopilotStep).
+func (a *App) runCopilot(taskID string, say func(string)) {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return
+	}
+	if t.PRNumber > 0 {
+		if err := a.gh.RequestCopilot(a.ctx, a.projectOf(t).Repo, t.PRNumber); err != nil {
+			say("could not ask Copilot for a review: " + err.Error())
+		} else {
+			say(fmt.Sprintf("asked Copilot to review PR #%d", t.PRNumber))
+		}
+	}
+	a.startCopilotStep(t.ID)
+	go a.pollPRs()
+}
+
+// copilotAgent is the built-in step herd runs itself: it waits for Copilot's
+// review and the CI checks and writes them to COPILOT-<n>.md (no Claude).
+const copilotAgent = settings.CopilotID
+
+// skipped is the Verdict of a Copilot step herd stopped waiting on.
+const skipped = "skipped"
+
+// takeCopilotReview writes a review to the waiting Copilot step, or to a new
+// one when none waits (e.g. after Mark done).
+func (a *App) takeCopilotReview(t store.Task, r github.Review) {
+	if a.waitingCopilot(t.ID) == nil {
+		a.startCopilotStep(t.ID)
+	}
+	a.finishCopilotStep(t, r)
+}
+
+func (a *App) startCopilotStep(taskID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	steps, err := a.db.Steps(taskID)
+	if err != nil {
+		return
+	}
+	n := 1
+	for _, s := range steps {
+		if s.Agent == copilotAgent && s.N >= n {
+			n = s.N + 1
+		}
+	}
+	seq, err := a.db.NextSeq(taskID)
+	if err != nil {
+		return
+	}
+	key := fmt.Sprintf("%s-%d", copilotAgent, n)
+	_ = a.db.SaveStep(store.Step{ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: copilotAgent, N: n, Seq: seq, State: store.Running, StartedAt: time.Now()})
+	a.emitTask(taskID)
+}
+
+// finishCopilotStep writes the review into the waiting Copilot step, if any:
+// it fails when Copilot left comments, so Next step offers a fix.
+func (a *App) finishCopilotStep(t store.Task, r github.Review) {
+	s := a.waitingCopilot(t.ID)
+	if s == nil {
+		return
+	}
+	md := fmt.Sprintf("---\npr: %d\ncomments: %d\n---\n\n%s", t.PRNumber, len(r.Comments), copilotMarkdown(t.PRNumber, r.Body, r.Comments))
+	_ = os.WriteFile(a.copilotPath(t, *s), []byte(md), 0o644)
+	a.settleCopilotStep(t)
+}
+
+// ciGrace is how long a Copilot step waits for CI checks that never appear
+// (a repository without CI) once the review is in.
+const ciGrace = 5 * time.Minute
+
+// settleCopilotStep ends the waiting Copilot step once its review is in and
+// it can tell the outcome: at once when Copilot left comments, else when the
+// PR's CI finished. It succeeds only when Copilot found nothing and every
+// check passed; COPILOT-n.md then lists the CI result for the next step.
+func (a *App) settleCopilotStep(t store.Task) {
+	s := a.waitingCopilot(t.ID)
+	if s == nil {
+		return
+	}
+	path := a.copilotPath(t, *s)
+	art, _ := artifacts.Read(path)
+	if !art.Exists { // the review has not arrived
+		return
+	}
+	comments := art.Get("comments") != "0"
+	checks := a.checksOf(t.ID)
+	ci := ciSummary(checks)
+	if !comments {
+		if ci == "CI running" {
+			return
+		}
+		if fi, err := os.Stat(path); ci == "" && err == nil && time.Since(fi.ModTime()) < ciGrace {
+			return
+		}
+	}
+	failed := comments || ci == "CI failed"
+	status := "done"
+	if failed {
+		status = "failed"
+	}
+	ciWord := "none"
+	if ci != "" {
+		ciWord = strings.TrimPrefix(ci, "CI ")
+	}
+	md := fmt.Sprintf("---\nstatus: %s\npr: %d\ncomments: %s\nci: %s\n---\n\n%s\n%s", status, t.PRNumber, art.Get("comments"),
+		ciWord, strings.TrimSpace(art.Body), ciMarkdown(checks))
+	_ = os.WriteFile(path, []byte(md), 0o644)
+	done, changed := a.updateStep(s.ID, func(x *store.Step) bool {
+		if x.State != store.Running {
+			return false
+		}
+		x.State, x.EndedAt, x.Verdict = store.Done, time.Now(), ""
+		if failed {
+			x.Verdict = store.Failure
+		}
+		return true
+	})
+	if changed {
+		a.notify(done)
+		a.complete(done.ID)
+		a.emitTask(t.ID)
+	}
+}
+
+// ciMarkdown is the CI section of COPILOT-n.md: the failing checks first.
+func ciMarkdown(cs []github.Check) string {
+	var b strings.Builder
+	b.WriteString("\n## CI checks\n\n")
+	switch ci := ciSummary(cs); ci {
+	case "":
+		b.WriteString("No CI checks reported.\n")
+		return b.String()
+	case "CI passed":
+		fmt.Fprintf(&b, "All %d checks passed.\n", len(cs))
+		return b.String()
+	case "CI running":
+		b.WriteString("Still running when the review arrived: `gh pr checks` shows the result.\n")
+	}
+	for _, c := range cs {
+		if c.Bucket == "fail" || c.Bucket == "cancel" {
+			word := map[string]string{"fail": "failed", "cancel": "cancelled"}[c.Bucket]
+			fmt.Fprintf(&b, "- **%s / %s** %s: %s\n", c.Workflow, c.Name, word, c.Link)
+		}
+	}
+	return b.String()
+}
+
+// waitingCopilot is the task's Copilot step waiting for its review or CI.
+func (a *App) waitingCopilot(taskID string) *store.Step {
+	steps, _ := a.db.Steps(taskID)
+	for i := range steps {
+		if steps[i].Agent == copilotAgent && steps[i].State == store.Running {
+			return &steps[i]
+		}
+	}
+	return nil
+}
+
+func (a *App) copilotPath(t store.Task, s store.Step) string {
+	return filepath.Join(a.runDir(a.projectOf(t), t), agentFor(a.settings.Agents(), copilotAgent).ArtifactName(s.N))
+}
+
 // splitTitle returns the first non-empty line (without #) and the rest.
 func splitTitle(md string) (string, string) {
 	lines := strings.Split(strings.TrimSpace(md), "\n")
@@ -759,6 +941,67 @@ func splitTitle(md string) (string, string) {
 		return title, strings.TrimSpace(strings.Join(lines[i+1:], "\n")) + "\n"
 	}
 	return "", ""
+}
+
+// collectCopilot writes each new Copilot review of the PR to its own Copilot
+// step (COPILOT-n.md), where the next step reads it; a review that
+// arrives while no Copilot step waits gets a new one. The kv key holds the last review id seen.
+func (a *App) collectCopilot(t store.Task) {
+	p := a.projectOf(t)
+	seen, _ := a.db.Get("copilot:" + t.ID)
+	after, _ := strconv.ParseInt(seen, 10, 64) // "timeout" (older herd): read them all
+	rs, err := a.gh.CopilotReviews(a.ctx, p.Repo, t.PRNumber, after)
+	if seen == "done" && len(rs) > 0 { // older herd appended the latest already
+		_ = a.db.Set("copilot:"+t.ID, strconv.FormatInt(rs[len(rs)-1].ID, 10))
+		return
+	}
+	for _, r := range rs {
+		a.takeCopilotReview(t, r)
+		_ = a.db.Set("copilot:"+t.ID, strconv.FormatInt(r.ID, 10))
+		a.toast("Copilot review arrived", fmt.Sprintf("PR #%d: %d comments", t.PRNumber, len(r.Comments)), false)
+	}
+	if err != nil {
+		log.Printf("copilot reviews of PR #%d: %v", t.PRNumber, err)
+	}
+}
+
+func copilotMarkdown(pr int, body string, comments []github.Comment) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Copilot review (PR #%d)\n\n", pr)
+	if strings.TrimSpace(body) != "" {
+		b.WriteString(strings.TrimSpace(body))
+		b.WriteString("\n\n")
+	}
+	if len(comments) == 0 {
+		b.WriteString("- No comments\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "### Comments (%d)\n\n", len(comments))
+	for i, c := range comments {
+		loc := c.Path
+		if c.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", c.Path, c.Line)
+		}
+		title := "`" + loc + "`"
+		if c.Title != "" {
+			title = c.Title
+		}
+		if c.Severity != "" {
+			title += " · " + c.Severity
+		}
+		fmt.Fprintf(&b, "#### %d. %s\n\n", i+1, title)
+		if c.Title != "" {
+			fmt.Fprintf(&b, "`%s`\n\n", loc)
+		}
+		if hunk := lastLines(c.Hunk, 6); hunk != "" {
+			fmt.Fprintf(&b, "```diff\n%s\n```\n\n", hunk)
+		}
+		b.WriteString(strings.TrimSpace(c.Body) + "\n\n")
+		for _, r := range c.Replies {
+			fmt.Fprintf(&b, "> **%s** replied: %s\n\n", r.Author, strings.ReplaceAll(strings.TrimSpace(r.Body), "\n", "\n> "))
+		}
+	}
+	return b.String()
 }
 
 // lastLines keeps the last n lines of s: the end of a diff hunk is the
@@ -779,8 +1022,8 @@ func (a *App) reconcile() {
 		return
 	}
 	for _, s := range steps {
-		if a.paused(s.ID) {
-			continue // the user resumes it
+		if a.paused(s.ID) || s.Agent == copilotAgent {
+			continue // the user resumes it; herd itself waits for Copilot
 		}
 		if _, err := a.run.Attach(s.ID); err == nil {
 			continue // still running in its holder since the last herd

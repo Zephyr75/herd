@@ -35,7 +35,7 @@ func (a *App) snapshot(t store.Task, stepID string) {
 func (a *App) revertable(t store.Task, steps []StepView, i int, commits []commit) bool {
 	s := steps[i]
 	agents := a.settings.Agents()
-	if t.Archived || t.WorktreeRemoved || !agentFor(agents, s.Agent).Revert {
+	if t.Archived || t.WorktreeRemoved || s.External || !agentFor(agents, s.Agent).Revert {
 		return false
 	}
 	for _, x := range steps[i+1:] {

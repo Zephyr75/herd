@@ -65,7 +65,8 @@ watch(
 )
 
 const file = computed(() => art.value?.file || step.value?.artifact || '')
-// The Changes tab only shows when the step changed files; Preview stands in otherwise.
+// The Changes tab only shows when the step changed files, the PR tab when the
+// task has a PR; the artifact's tab stands in otherwise.
 const task = computed(() => herd.selTask)
 const tab = computed(() =>
   herd.rightTab === 'pr' && task.value?.pr ? 'pr' : step.value && changes.value?.files.length && herd.rightTab === 'changes' ? 'changes' : 'preview',
@@ -76,22 +77,22 @@ const tab = computed(() =>
   <div class="wrap">
     <div class="bar">
       <div class="tab" role="tab" tabindex="0" :class="{ on: tab === 'preview' }" @click="herd.rightTab = 'preview'" @keydown.enter="herd.rightTab = 'preview'">
-        <Icon name="file" />Preview {{ file }}
+        <Icon name="file" />{{ file || 'Preview' }}
         <button v-if="step && art?.exists" class="big" aria-label="Open in a large pop-up" title="Open in a large pop-up" @click.stop="herd.openArtifactPopup(step.id)">
           <Icon name="maximize" :size="16" />
         </button>
       </div>
       <button v-if="step && changes?.files.length" class="tab" :class="{ on: tab === 'changes' }" @click="herd.rightTab = 'changes'">
-        Changes<span class="count">{{ changes.files.length }}</span>
+        <Icon name="diff" />Changes<span class="count">{{ changes.files.length }}</span>
       </button>
-      <button v-if="task?.pr" class="tab" :class="{ on: tab === 'pr' }" @click="herd.rightTab = 'pr'">PR #{{ task.pr }}</button>
+      <button v-if="task?.pr" class="tab" :class="{ on: tab === 'pr' }" @click="herd.rightTab = 'pr'"><Icon name="pr" />PR #{{ task.pr }}</button>
       <span class="grow"></span>
     </div>
     <div class="content">
       <PRTracker v-if="tab === 'pr' && task" :task="task" />
       <ChangesView v-else-if="tab === 'changes'" :changes="changes" />
       <p v-else-if="!step" class="empty">Open a step to preview the artifact it wrote.</p>
-      <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as Claude writes it.</p>
+      <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as {{ step.external ? "Copilot's review arrives" : 'Claude writes it' }}.</p>
       <ArtifactView v-else :art="art" :task="step!.taskId" />
     </div>
   </div>

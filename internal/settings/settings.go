@@ -71,6 +71,7 @@ type Agent struct {
 	Revert       bool     `toml:"revert,omitempty" json:"revert"`            // its latest step can be reverted while nothing is committed after it
 	Rerun        bool     `toml:"rerun,omitempty" json:"rerun"`              // its step can be run again on the current worktree while it is the latest
 	Choose       bool     `toml:"choose,omitempty" json:"choose"`            // when its artifact lists Options, Next step asks which one to take
+	Builtin      bool     `toml:"builtin,omitempty" json:"builtin"`          // run by herd itself, not Claude: Copilot
 	IgnoreRules  bool     `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
 	ShowDiff     bool     `toml:"show_diff,omitempty" json:"showDiff"`       // its steps have a Diff button (open their changes in Zed)
 	Sisters      bool     `toml:"sisters,omitempty" json:"sisters"`          // its artifact can ask for sister tasks in other repositories
@@ -366,6 +367,12 @@ func (s *Store) SaveAgents(agents []Agent) error {
 			if !seen[id] {
 				return fmt.Errorf("%s offers %q next, which is not an agent", a.Name, id)
 			}
+			if id == CopilotID {
+				return fmt.Errorf("%s offers Copilot next: Copilot starts by itself after the agent it follows", a.Name)
+			}
+		}
+		if a.AfterAgent() == CopilotID {
+			return fmt.Errorf("%s starts after Copilot: start it from Copilot's next steps instead", a.Name)
 		}
 	}
 	agents = normalize(agents)
@@ -378,45 +385,82 @@ func (s *Store) SaveAgents(agents []Agent) error {
 	return nil
 }
 
+// CopilotID is the built-in agent herd runs itself: it asks Copilot for a
+// review of the PR, then waits for the review and the CI checks.
+const CopilotID = "copilot"
+
+// Copilot is the built-in agent with its fixed parts; the user sets its
+// trigger and its next steps.
+func Copilot() Agent {
+	return Agent{ID: CopilotID, Name: "Copilot", Trigger: "manual", Writes: "COPILOT-{n}.md", Builtin: true}
+}
+
 // normalize makes agents consistent: lists are never nil (the UI always
-// gets lists), Push needs Commit and Open the PR needs Push.
+// gets lists), Push needs Commit and Open the PR needs Push, and Copilot is
+// there once with its fixed parts, never first.
 func normalize(agents []Agent) []Agent {
 	out := []Agent{}
+	var cop *Agent
 	for _, a := range agents {
+		if a.ID == CopilotID {
+			c := Copilot()
+			c.Trigger, c.Next, c.OnFail = a.Trigger, a.Next, a.OnFail
+			cop = &c
+			continue
+		}
 		if a.Push && !a.Commit { // the former "Commit, push and open the PR" box
 			a.OpenPR = true
 		}
 		a.Push = a.Push || a.OpenPR
 		a.Commit = a.Commit || a.Push
-		if a.ID == "copilot" && a.Command == "" { // the former built-in Copilot: now a Claude agent
-			c := DefaultCopilot()
-			c.Trigger, c.OnFail = a.Trigger, a.OnFail
-			a = c
+		a.Builtin = false
+		out = append(out, a)
+	}
+	if cop == nil { // an agents.toml from before Copilot was listed: it follows the PR agent, offering what that one did
+		c := Copilot()
+		for _, a := range out {
+			if a.OpenPR {
+				c.Trigger, c.Next, c.OnFail = "after:"+a.ID, a.Next, a.OnFail
+				break
+			}
 		}
-		if a.Next == nil {
-			a.Next = []string{}
+		cop = &c
+	}
+	i := len(out)
+	if t := cop.AfterAgent(); t != "" {
+		for j, a := range out {
+			if a.ID == t {
+				i = j + 1
+			}
 		}
-		if a.OnFail == nil {
-			a.OnFail = []string{}
+	}
+	out = append(out[:i], append([]Agent{*cop}, out[i:]...)...)
+	for i := range out {
+		if out[i].Next == nil {
+			out[i].Next = []string{}
+		}
+		if out[i].OnFail == nil {
+			out[i].OnFail = []string{}
 		}
 		allow := []string{}
-		for _, r := range a.Allow {
+		for _, r := range out[i].Allow {
 			if r = strings.TrimSpace(r); r != "" {
 				allow = append(allow, r)
 			}
 		}
-		a.Allow = allow
-		out = append(out, a)
+		out[i].Allow = allow
 	}
 	return out
 }
 
 // First is the agent that starts every task: the first in the list.
 func First(agents []Agent) (Agent, bool) {
-	if len(agents) == 0 {
-		return Agent{}, false
+	for _, a := range agents {
+		if !a.Builtin {
+			return a, true
+		}
 	}
-	return agents[0], true
+	return Agent{}, false
 }
 
 // checkTriggers refuses "after:" triggers on a missing agent, on the agent

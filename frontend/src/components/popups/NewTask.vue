@@ -64,7 +64,7 @@ const info = computed(
       none: { label: 'Missing', text: 'Add a GitHub issue number, a description, or both.', cls: 's-idle' },
     })[mode.value],
 )
-const first = computed(() => herd.settings?.agents[0]?.name ?? 'Plan')
+const first = computed(() => herd.settings?.agents.find((a) => !a.builtin)?.name ?? 'Plan')
 const valid = computed(() => mode.value !== 'none' && !!p.value && !busy.value && branchOk.value)
 
 function onIssue(e: Event) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Settings > Agents: the pipeline and one agent's definition. Edits save to
 // ~/.herd/agents.toml and regenerate the agent's /herd: command. The first
-// agent starts every task.
+// agent starts every task; Copilot is built in (herd runs it, not Claude).
 import { computed, ref } from 'vue'
 import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
@@ -11,9 +11,10 @@ import Icon from '../ui/Icon.vue'
 import Dropdown from '../ui/Dropdown.vue'
 
 const agents = computed(() => herd.settings?.agents ?? [])
-const firstId = computed(() => agents.value[0]?.id ?? '')
-const selId = ref(agents.value[0]?.id ?? '')
-const A = computed(() => agents.value.find((a) => a.id === selId.value) ?? agents.value[0])
+const claudeAgents = computed(() => agents.value.filter((a) => !a.builtin))
+const firstId = computed(() => claudeAgents.value[0]?.id ?? '')
+const selId = ref(claudeAgents.value[0]?.id ?? '')
+const A = computed(() => agents.value.find((a) => a.id === selId.value) ?? claudeAgents.value[0])
 const confirmDelete = ref(false)
 
 const models: [string, string][] = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]
@@ -40,7 +41,7 @@ const checked = (e: Event) => (e.target as HTMLInputElement).checked
 
 const nameOf = (id: string) => agents.value.find((x) => x.id === id)?.name ?? id
 const afterName = (a: Agent) => nameOf(afterOf(a.trigger))
-const sub = (a: Agent) => modelLabel(a.model) + ' · ' + (isAuto(a) ? 'automatic after ' + afterName(a) : 'manual')
+const sub = (a: Agent) => (a.builtin ? 'run by herd · ' : modelLabel(a.model) + ' · ') + (isAuto(a) ? 'automatic after ' + afterName(a) : a.builtin ? 'not started' : 'manual')
 
 // "Starts after X" would loop when X (or what X waits for) starts after this agent.
 function loops(a: Agent, target: string) {
@@ -50,12 +51,18 @@ function loops(a: Agent, target: string) {
   }
   return false
 }
-// An agent starts by hand, or when another one succeeds.
+// Claude agents start by hand or after another Claude agent; Copilot after
+// an agent that opens the PR (it reviews that PR), or never by itself.
 const triggers = computed(() => {
   const a = A.value
   if (!a) return []
+  if (a.builtin)
+    return [
+      { value: 'manual', label: 'Only when a review arrives on its own', disabled: false },
+      ...claudeAgents.value.filter((x) => x.openPR).map((x) => ({ value: 'after:' + x.id, label: 'Automatically when ' + x.name + ' opened or updated the PR', disabled: false })),
+    ]
   const out = [{ value: 'manual', label: 'Manually, with play', disabled: false }]
-  for (const x of agents.value) {
+  for (const x of claudeAgents.value) {
     if (x.id === a.id) continue
     const loop = loops(a, x.id)
     out.push({ value: 'after:' + x.id, label: 'Automatically when ' + x.name + ' succeeds' + (loop ? ' (would loop)' : ''), disabled: loop })
@@ -80,7 +87,7 @@ function addAgent() {
   const id = idFor(name)
   s.agents.push({
     id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '-{n}.md',
-    commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false,
+    commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: false,
     ignoreRules: false, showDiff: false, sisters: false, allow: [], next: [], onFail: [],
     instructions: 'Describe what this agent reads, what it does and what it writes.',
   })
@@ -89,21 +96,24 @@ function addAgent() {
   newName.value = ''
   changed()
 }
-// Any agent moves and goes; the first one starts every task.
-const index = computed(() => agents.value.findIndex((a) => a.id === A.value?.id))
+// Any Claude agent moves and goes; the first one starts every task. Copilot
+// sits after the agent it follows.
+const index = computed(() => claudeAgents.value.findIndex((a) => a.id === A.value?.id))
 function move(delta: number) {
   const s = herd.settings
   const a = A.value
-  if (!s || !a) return
-  const i = s.agents.findIndex((x) => x.id === a.id)
+  if (!s || !a || a.builtin) return
+  const list = s.agents.filter((x) => !x.builtin)
+  const i = list.findIndex((x) => x.id === a.id)
   const j = i + delta
-  if (j < 0 || j >= s.agents.length) return
-  ;[s.agents[i], s.agents[j]] = [s.agents[j], s.agents[i]]
+  if (j < 0 || j >= list.length) return
+  ;[list[i], list[j]] = [list[j], list[i]]
+  s.agents = [...list, ...s.agents.filter((x) => x.builtin)] // herd puts Copilot back after its agent
   changed()
 }
 function remove() {
   const s = herd.settings
-  if (!s || !A.value) return
+  if (!s || !A.value || A.value.builtin) return
   if (!confirmDelete.value) {
     confirmDelete.value = true
     return
@@ -115,14 +125,14 @@ function remove() {
     a.next = (a.next ?? []).filter((x) => x !== id)
     a.onFail = (a.onFail ?? []).filter((x) => x !== id)
   }
-  selId.value = s.agents[0]?.id ?? ''
+  selId.value = s.agents.find((a) => !a.builtin)?.id ?? ''
   confirmDelete.value = false
   changed()
 }
-// What Next step offers after an agent's step: two ordered lists of agents
-// (the first one is the highlighted button). Loops back are fine.
+// What Next step offers after an agent's step: two ordered lists of Claude
+// agents (the first one is the highlighted button). Loops back are fine.
 type ListKey = 'next' | 'onFail'
-const addable = (k: ListKey) => agents.value.filter((x) => !(A.value?.[k] ?? []).includes(x.id)).map((x) => ({ value: x.id, label: x.name }))
+const addable = (k: ListKey) => claudeAgents.value.filter((x) => !(A.value?.[k] ?? []).includes(x.id)).map((x) => ({ value: x.id, label: x.name }))
 const addTo = (k: ListKey, id: string) => A.value && set(k, [...(A.value[k] ?? []), id])
 const dropFrom = (k: ListKey, id: string) => A.value && set(k, (A.value[k] ?? []).filter((x) => x !== id))
 // The git boxes run in order, each needing the one before: ticking one
@@ -161,7 +171,7 @@ function pick(id: string) {
   <div class="split">
     <div class="list">
       <button v-for="a in agents" :key="a.id" class="list-btn" :class="{ on: a.id === A?.id }" @click="pick(a.id)">
-        <span class="name">{{ a.name }}<span v-if="a.id === firstId" class="badge" title="The first agent starts every task and every sister task"><Icon name="play" :size="9" />first</span></span>
+        <span class="name">{{ a.name }}<span v-if="a.id === firstId" class="badge" title="The first agent starts every task and every sister task"><Icon name="play" :size="9" />first</span><span v-if="a.builtin" class="badge">built in</span></span>
         <span class="sub">{{ sub(a) }}</span>
       </button>
       <input v-if="adding" v-model="newName" v-focus class="input new-name" placeholder="Name, then Enter" @keydown.enter="addAgent" @blur="adding = false" />
@@ -170,69 +180,82 @@ function pick(id: string) {
     </div>
 
     <div v-if="A" class="editor card">
-      <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
-      <p v-if="A.id === firstId" class="first"><Icon name="play" :size="12" />First in the list: it starts every task and every sister task. Move another agent above it to change that.</p>
-      <div class="grid2">
-        <label class="field">Name<input class="input" :value="A.name" @input="set('name', val($event))" /></label>
-        <label class="field">Writes artifact<input class="input mono" :value="A.writes" @input="set('writes', val($event))" /></label>
-      </div>
-      <label class="field">Command sent to Claude Code<input class="input mono" :value="A.command" @input="set('command', val($event))" /></label>
-      <div class="field">
-        <span>Model</span>
-        <div class="segs">
-          <button v-for="[v, l] in models" :key="v" class="seg" :class="{ on: A.model === v }" @click="set('model', v)">{{ l }}</button>
+      <template v-if="A.builtin">
+        <p class="special">
+          Built in: herd runs it, not Claude, because it works with GitHub. It asks Copilot to review the PR, then waits for the review and the CI checks
+          (checked every minute), writes {{ A.writes.replace('{n}', 'n') }} with Copilot's comments and the failing checks, and fails when there is something to
+          fix. When it passes, the task is done (green). Only when it starts and what Next step offers can change.
+        </p>
+      </template>
+      <template v-else>
+        <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
+        <p v-if="A.id === firstId" class="first"><Icon name="play" :size="12" />First in the list: it starts every task and every sister task. Move another agent above it to change that.</p>
+        <div class="grid2">
+          <label class="field">Name<input class="input" :value="A.name" @input="set('name', val($event))" /></label>
+          <label class="field">Writes artifact<input class="input mono" :value="A.writes" @input="set('writes', val($event))" /></label>
         </div>
-      </div>
+        <label class="field">Command sent to Claude Code<input class="input mono" :value="A.command" @input="set('command', val($event))" /></label>
+        <div class="field">
+          <span>Model</span>
+          <div class="segs">
+            <button v-for="[v, l] in models" :key="v" class="seg" :class="{ on: A.model === v }" @click="set('model', v)">{{ l }}</button>
+          </div>
+        </div>
+      </template>
       <div class="field">
         <span>Starts</span>
         <Dropdown class="starts" :items="triggers" :value="A.trigger" @pick="set('trigger', $event)" />
       </div>
-      <div class="field">
-        <span>When its step succeeds, herd</span>
-        <div class="checks">
-          <label title="Its artifact's title line and body are the commit message"><input type="checkbox" :checked="A.commit" @change="setGit('commit', checked($event))" /> commits</label>
-          <span class="muted" aria-hidden="true">→</span>
-          <label title="Pushes the branch to origin (needs the commit)"><input type="checkbox" :checked="A.push" @change="setGit('push', checked($event))" /> pushes</label>
-          <span class="muted" aria-hidden="true">→</span>
-          <label title="Opens the draft PR, or updates it, with its artifact's title line and body (needs the push)"><input type="checkbox" :checked="A.openPR" @change="setGit('openPR', checked($event))" /> opens the PR</label>
+      <template v-if="!A.builtin">
+        <div class="field">
+          <span>When its step succeeds, herd</span>
+          <div class="checks">
+            <label title="Its artifact's title line and body are the commit message"><input type="checkbox" :checked="A.commit" @change="setGit('commit', checked($event))" /> commits</label>
+            <span class="muted" aria-hidden="true">→</span>
+            <label title="Pushes the branch to origin (needs the commit)"><input type="checkbox" :checked="A.push" @change="setGit('push', checked($event))" /> pushes</label>
+            <span class="muted" aria-hidden="true">→</span>
+            <label title="Opens the draft PR, or updates it, with its artifact's title line and body (needs the push)"><input type="checkbox" :checked="A.openPR" @change="setGit('openPR', checked($event))" /> opens the PR</label>
+          </div>
+          <span class="hint">In that order, stopping at the first that fails; Next step then says why and offers to run it again.</span>
         </div>
-        <span class="hint">In that order, stopping at the first that fails; Next step then says why and offers to run it again.</span>
-      </div>
-      <div class="field">
-        <span>Its steps</span>
-        <label class="box"><input type="checkbox" :checked="A.revert" @change="set('revert', checked($event))" /> Can be reverted</label>
-        <span class="hint">On its latest step, once all steps finished and none committed since: undoes it and the steps after it.</span>
-        <label class="box"><input type="checkbox" :checked="A.rerun" @change="set('rerun', checked($event))" /> Can be rerun</label>
-        <span class="hint">On the latest step, once all steps finished: runs it again on the worktree as it is now.</span>
-        <label class="box"><input type="checkbox" :checked="A.choose" @change="set('choose', checked($event))" /> Asks you to choose</label>
-        <span class="hint">When its artifact has an Options section, Next step asks you to name the option to take in the guidance.</span>
-      </div>
-      <div class="checks">
-        <label title="The Rules in Settings > Context are not given to this agent"><input type="checkbox" :checked="A.ignoreRules" @change="set('ignoreRules', checked($event))" /> Ignore the common rules</label>
-        <label title="A Diff button on its steps opens their changes in Zed"><input type="checkbox" :checked="A.showDiff" @change="set('showDiff', checked($event))" /> Show a Diff button</label>
-        <label title="When the work also needs other repositories, its artifact ends with a Sister tasks section and Next step offers to create each one in a click"><input type="checkbox" :checked="A.sisters" @change="set('sisters', checked($event))" /> Can create sister tasks</label>
-      </div>
-      <div v-for="[k, label] in ([['next', 'After its step succeeds, Next step offers'], ['onFail', 'After its step fails, Next step offers']] as [ListKey, string][])" :key="k" class="field">
+        <div class="field">
+          <span>Its steps</span>
+          <label class="box"><input type="checkbox" :checked="A.revert" @change="set('revert', checked($event))" /> Can be reverted</label>
+          <span class="hint">On its latest step, once all steps finished and none committed since: undoes it and the steps after it.</span>
+          <label class="box"><input type="checkbox" :checked="A.rerun" @change="set('rerun', checked($event))" /> Can be rerun</label>
+          <span class="hint">On the latest step, once all steps finished: runs it again on the worktree as it is now.</span>
+          <label class="box"><input type="checkbox" :checked="A.choose" @change="set('choose', checked($event))" /> Asks you to choose</label>
+          <span class="hint">When its artifact has an Options section, Next step asks you to name the option to take in the guidance.</span>
+        </div>
+        <div class="checks">
+          <label title="The Rules in Settings > Context are not given to this agent"><input type="checkbox" :checked="A.ignoreRules" @change="set('ignoreRules', checked($event))" /> Ignore the common rules</label>
+          <label title="A Diff button on its steps opens their changes in Zed"><input type="checkbox" :checked="A.showDiff" @change="set('showDiff', checked($event))" /> Show a Diff button</label>
+          <label title="When the work also needs other repositories, its artifact ends with a Sister tasks section and Next step offers to create each one in a click"><input type="checkbox" :checked="A.sisters" @change="set('sisters', checked($event))" /> Can create sister tasks</label>
+        </div>
+      </template>
+      <div v-for="[k, label] in ([['next', A.builtin ? 'When it passes, Next step offers' : 'After its step succeeds, Next step offers'], ['onFail', A.builtin ? 'When there is something to fix (and while it waits), Next step offers' : 'After its step fails, Next step offers']] as [ListKey, string][])" :key="k" class="field">
         <span>{{ label }}</span>
         <div class="offers">
           <span v-for="(id, i) in A[k] ?? []" :key="id" class="offer" :class="{ main: i === 0 }" :title="i === 0 ? 'The highlighted button' : ''">{{ nameOf(id) }}<button class="x" :aria-label="'Remove ' + nameOf(id)" @click="dropFrom(k, id)">×</button></span>
           <Dropdown v-if="addable(k).length" :items="addable(k)" @pick="addTo(k, $event)"><Icon name="plus" :size="11" />Add</Dropdown>
-          <span v-if="k === 'onFail' && !(A[k] ?? []).length" class="muted small">{{ A.name }} again</span>
+          <span v-if="k === 'onFail' && !(A[k] ?? []).length && !A.builtin" class="muted small">{{ A.name }} again</span>
         </div>
       </div>
-      <label class="field"
-        >Runs without asking (one Claude Code permission rule per line)
-        <textarea class="area mono" rows="2" placeholder="Bash(make test-path:*)" :value="(A.allow ?? []).join('\n')" @input="set('allow', val($event).split('\n'))"></textarea>
-        <span class="hint flat">Tools and commands this agent may use without a permission prompt. Your rules still apply: only list what they allow.</span>
-      </label>
-      <label class="field">Instructions (the agent's skill: what it reads, does and writes)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
-      <div class="actions">
-        <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue} {base}' }}</span>
-        <span class="grow"></span>
-        <button class="btn ghost" :disabled="index <= 0" @click="move(-1)">Move up</button>
-        <button class="btn ghost" :disabled="index === agents.length - 1" @click="move(1)">Move down</button>
-        <button class="btn" :class="confirmDelete ? 'danger' : 'ghost'" @click="remove">{{ confirmDelete ? 'Remove ' + A.name + '?' : 'Remove' }}</button>
-      </div>
+      <template v-if="!A.builtin">
+        <label class="field"
+          >Runs without asking (one Claude Code permission rule per line)
+          <textarea class="area mono" rows="2" placeholder="Bash(make test-path:*)" :value="(A.allow ?? []).join('\n')" @input="set('allow', val($event).split('\n'))"></textarea>
+          <span class="hint flat">Tools and commands this agent may use without a permission prompt. Your rules still apply: only list what they allow.</span>
+        </label>
+        <label class="field">Instructions (the agent's skill: what it reads, does and writes)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
+        <div class="actions">
+          <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue} {base}' }}</span>
+          <span class="grow"></span>
+          <button class="btn ghost" :disabled="index <= 0" @click="move(-1)">Move up</button>
+          <button class="btn ghost" :disabled="index === claudeAgents.length - 1" @click="move(1)">Move down</button>
+          <button class="btn" :class="confirmDelete ? 'danger' : 'ghost'" @click="remove">{{ confirmDelete ? 'Remove ' + A.name + '?' : 'Remove' }}</button>
+        </div>
+      </template>
     </div>
   </div>
 </template>

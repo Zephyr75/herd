@@ -509,6 +509,11 @@ class Herd {
     return t.draft ? 'draft' : 'ready'
   }
 
+  /** copilotClean: the latest step is a Copilot review that found nothing. */
+  copilotClean(t: Task): boolean {
+    const last = t.steps[t.steps.length - 1]
+    return !!last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped'
+  }
 
   async markReady(t: Task) {
     if (!(await this.attempt('Could not mark the PR ready', () => api.MarkPRReady(t.id).then(() => true)))) return

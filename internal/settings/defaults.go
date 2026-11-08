@@ -52,9 +52,9 @@ End with status: done, or status: failed if the task cannot be done as described
 		{
 			ID: "impl", Name: "Implement", Command: "/herd:implement {task} -- {guidance}", Model: "opus", Trigger: "manual",
 			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, Sisters: true, Revert: true, OnFail: []string{"impl", "discuss", "plan"},
-			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md, ERRORS-n.md and DISCUSS-n.md in the run directory when they exist (older ones were handled by earlier steps).
+			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and DISCUSS-n.md in the run directory when they exist (older ones were handled by earlier steps).
 Implement the plan's New flow and Files in this worktree. When the plan lists Options, take the one the guidance picks, else the recommended one.
-When the task already has a pull request, also fix the comments in the newest COPILOT-n.md and the failures in the newest ERRORS-n.md (gh pr checks for the current state).
+When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n.md.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
@@ -69,7 +69,7 @@ End with status: done, or status: failed if you could not implement it (say what
 		{
 			ID: "discuss", Name: "Discuss", Command: "/herd:discuss {task} -- {guidance}", Model: "opus", Trigger: "manual",
 			Writes: "DISCUSS-{n}.md", ShowDiff: true, Sisters: true, Revert: true, Next: []string{"review", "impl"}, OnFail: []string{"discuss", "impl"},
-			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and ERRORS-n.md in the run directory when they exist (older ones were handled by earlier steps).
+			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist (older ones were handled by earlier steps).
 This step is a conversation: implement the plan together with the user, in this worktree.
 Start with a short summary of what the plan asks and what you would do first, then ask the user how they want to go.
 Make the changes they agree to, one at a time, and explain each briefly. Ask before doing anything the plan does not cover.
@@ -104,34 +104,12 @@ End with status: done when the tests pass, or status: failed when one shows a bu
 			Writes: "PR.md", Commit: true, Push: true, OpenPR: true, IgnoreRules: true, Next: []string{"impl", "discuss"},
 			Instructions: PushInstructions,
 		},
-		DefaultCopilot(),
+		{
+			ID: CopilotID, Name: "Copilot", Trigger: "after:push", Writes: "COPILOT-{n}.md", Builtin: true,
+			Next: []string{"impl", "discuss"}, OnFail: []string{"impl", "discuss"},
+		},
 	}
 }
-
-// DefaultCopilot reads what GitHub says about the PR: Copilot's review and
-// the CI checks. It fails when there is something to fix.
-func DefaultCopilot() Agent {
-	return Agent{
-		ID: "copilot", Name: "Copilot", Command: "/herd:copilot {task}", Model: "sonnet", Trigger: "after:push",
-		Writes: "COPILOT-{n}.md", Next: []string{}, OnFail: []string{"impl", "discuss"},
-		Instructions: CopilotInstructions,
-	}
-}
-
-// CopilotInstructions: the default Copilot agent asks Copilot for a review,
-// waits for it and for CI, then writes both down.
-const CopilotInstructions = `Check what GitHub says about the task's pull request (its number is in the herd step block) and whether it needs fixes.
-1. Ask Copilot to review the latest commit: gh pr edit <pr> --add-reviewer @copilot.
-2. Wait for its review, without spending turns on it: a background shell loop that every 30 seconds lists the PR's reviews
-   (gh api repos/{owner}/{repo}/pulls/<pr>/reviews; gh fills {owner}/{repo} itself) until one by Copilot is on the PR's head
-   commit (gh pr view <pr> --json headRefOid). Give up after 20 minutes and say so.
-3. Wait for the CI checks to end: gh pr checks <pr> --watch.
-4. Write COPILOT-{n}.md: Copilot's summary, then each comment of that review: the file and line, the comment, the replies in its
-   thread, and any suggested change as a diff block (gh api repos/{owner}/{repo}/pulls/<pr>/comments). Say "No comments" when there are none.
-5. When a check failed (pytest, regtests, lint…), also write ERRORS-{n}.md: for each failing check, its name and link, then the
-   lines of its log that explain the failure (gh run view <run id> --log-failed), trimmed to what matters.
-Change no code. End with status: done when Copilot asked for no change and every check passed,
-or status: failed otherwise (say what to fix).`
 
 // PushInstructions: the default PR agent asks for the PR's type, scope and
 // title in a form, then writes the commit message and the PR in PR.md.

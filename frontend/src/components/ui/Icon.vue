@@ -49,6 +49,18 @@ withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), { 
       <path d="M1.75 8C1.75 8 4 3.75 8 3.75C12 3.75 14.25 8 14.25 8C14.25 8 12 12.25 8 12.25C4 12.25 1.75 8 1.75 8Z" />
       <path d="M8 9.75C8.9665 9.75 9.75 8.9665 9.75 8C9.75 7.0335 8.9665 6.25 8 6.25C7.0335 6.25 6.25 7.0335 6.25 8C6.25 8.9665 7.0335 9.75 8 9.75Z" />
     </template>
+    <!-- diff: added and removed lines -->
+    <template v-else-if="name === 'diff'">
+      <path d="M8 2.75V7.25M5.75 5H10.25M5.75 11H10.25" />
+      <path d="M3.5 13.5H12.5" opacity="0.5" />
+    </template>
+    <!-- git pull request -->
+    <template v-else-if="name === 'pr'">
+      <circle cx="4.5" cy="4" r="1.5" />
+      <circle cx="4.5" cy="12" r="1.5" />
+      <circle cx="11.5" cy="12" r="1.5" />
+      <path d="M4.5 5.5V10.5M11.5 10.5V6.5C11.5 5.4 10.6 4.5 9.5 4.5H7.5M9 3L7.5 4.5L9 6" />
+    </template>
     <!-- rotate_cw -->
     <path v-else-if="name === 'rerun'" d="M12.9 6.6A5 5 0 1 0 13 8M13 3.5V6.6H9.9" />
     <!-- pencil -->

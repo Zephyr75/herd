@@ -25,6 +25,7 @@ export interface Agent {
   revert: boolean // its latest step can be reverted while nothing is committed after it
   rerun: boolean // its step can be run again while it is the latest
   choose: boolean // when its artifact lists Options, Next step asks which one to take
+  builtin: boolean // run by herd itself, not Claude: Copilot
   ignoreRules: boolean // the common rules are not given to this agent
   showDiff: boolean // its steps have a Diff button (open their changes in Zed)
   sisters: boolean // its artifact can ask for sister tasks in other repositories
@@ -133,6 +134,7 @@ export interface Step {
   paused: boolean // stopped by the user until Resume
   rerun: boolean // Rerun applies: the latest step, of an agent that can be rerun
   gitError: string // why herd's commit, push or PR after it failed
+  external: boolean // run by herd, not Claude: the Copilot review step
 }
 
 export interface Option {
@@ -157,7 +159,6 @@ export interface Next {
   elsewhere: string[] // before a step that commits: repositories outside the worktree with uncommitted agent edits
   sisters: SisterOffer[] // repositories the plan also needs, with no sister task yet
   ghost: { name: string; after: string } | null
-  finished: boolean // the last step succeeded and offers nothing next
 }
 
 export interface Task {

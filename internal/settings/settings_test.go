@@ -42,20 +42,27 @@ func TestAgentListsAreNeverNull(t *testing.T) {
 	}
 }
 
-// An agents.toml from before the three git boxes and before Copilot was a
-// Claude agent: the former push box meant commit, push and open the PR, and
-// the former built-in Copilot (no command) gets its default instructions.
+// An agents.toml from before the three git boxes and the listed Copilot: the
+// former push box meant commit, push and open the PR, and Copilot followed
+// that agent offering what it did.
 func TestNormalizeOlderAgents(t *testing.T) {
-	got := normalize([]Agent{
+	old := []Agent{
 		{ID: "plan", Name: "Plan", Trigger: "manual"},
-		{ID: "push", Name: "Push", Trigger: "manual", Push: true},
-		{ID: "copilot", Name: "Copilot", Trigger: "after:push", OnFail: []string{"plan"}},
+		{ID: "push", Name: "Push", Trigger: "manual", Push: true, Next: []string{"plan"}},
 		{ID: "test", Name: "Test", Trigger: "manual", OpenPR: true},
-	})
+	}
+	got := normalize(old)
+	var ids []string
+	for _, a := range got {
+		ids = append(ids, a.ID)
+	}
+	if strings.Join(ids, " ") != "plan push copilot test" {
+		t.Fatalf("order %v", ids)
+	}
 	if p := got[1]; !p.Commit || !p.Push || !p.OpenPR {
 		t.Fatalf("former push box: %+v", p)
 	}
-	if c := got[2]; c.Command != "/herd:copilot {task}" || c.Instructions != CopilotInstructions || c.Trigger != "after:push" || strings.Join(c.OnFail, ",") != "plan" {
+	if c := got[2]; !c.Builtin || c.Trigger != "after:push" || strings.Join(c.Next, ",") != "plan" || c.Name != "Copilot" {
 		t.Fatalf("copilot: %+v", c)
 	}
 	if x := got[3]; !x.Commit || !x.Push { // Open the PR needs Push, which needs Commit
@@ -94,5 +101,22 @@ func TestKeymapMovesToConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "context", "proj.md")); !os.IsNotExist(err) {
 		t.Fatal("empty project context written")
+	}
+}
+
+func TestCopilotCannotBeStartedByHand(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ags := DefaultAgents()
+	ags[0].Next = append(ags[0].Next, CopilotID)
+	if s.SaveAgents(ags) == nil {
+		t.Fatal("Copilot offered as a next step")
+	}
+	ags = DefaultAgents()
+	ags[1].Trigger = "after:" + CopilotID
+	if s.SaveAgents(ags) == nil {
+		t.Fatal("an agent starting after Copilot")
 	}
 }

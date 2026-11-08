@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { herd, resumeCommand } from '../lib/state'
 import Icon from './ui/Icon.vue'
 import Terminal from './Terminal.vue'
+import PRTracker from './PRTracker.vue'
 import Toasts from './Toasts.vue'
 
 const tabs = computed(() =>
@@ -43,7 +44,8 @@ const chip = computed(() => {
       <span class="grow"></span>
     </div>
 
-    <template v-if="step && t">
+    <PRTracker v-if="step && t && step.external" :task="t" :step="step" />
+    <template v-else-if="step && t">
       <div class="toolbar">
         <span v-if="chip" :class="['chip', 'badge', chip.cls]"><span class="dot"></span>{{ chip.text }}</span>
         <span class="muted small">{{ agent?.name ?? step.agent }} agent · {{ model(step.model) }}</span>

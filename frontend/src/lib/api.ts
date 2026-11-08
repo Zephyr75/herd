@@ -35,6 +35,8 @@ export interface Api {
   FileDiff(step: string, path: string): Promise<FileDiff>
   RevertStep(step: string): Promise<void>
   RefreshPR(task: string): Promise<void>
+  RerunChecks(task: string, link: string): Promise<void>
+  RequestCopilotReview(task: string): Promise<void>
   RefreshIssue(task: string): Promise<void>
   Diagrams(task: string): Promise<Diagram[]>
   SetFocused(focused: boolean): Promise<void>

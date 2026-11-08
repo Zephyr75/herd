@@ -39,6 +39,7 @@ func DefaultAgents() []Agent {
 			Instructions: `Read TASK.md, and ISSUE.md when the task has a GitHub issue (herd copied it there, comments included).
 Explore the repo and decide an approach. Do not edit code.
 Write PLAN-{n}.md with these sections, in this order:
+TLDR: two or three sentences, right after the front matter, saying what is wrong and how it will be fixed. Write this section with the humanizer skill so it reads naturally; do not use humanizer anywhere else.
 1. Goal: what is wrong or missing today and what will be true once it is done, in plain words that someone new to this code understands.
 2. Current flow: PLAN-{n}-current.html, an archify diagram of how the code works today, drawn from the code with source evidence, the part that goes wrong marked. Embed it: ![Current flow](PLAN-{n}-current.html).
 3. New flow: PLAN-{n}-new.html, the same flow with the fix applied and what changes marked, laid out like the current one so the two compare at a glance. Embed it: ![New flow](PLAN-{n}-new.html).
@@ -58,6 +59,7 @@ Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
 Write IMPLEMENT-{n}.md with these sections:
+TLDR: two or three sentences, right after the front matter, saying what changed and why. Write this section with the humanizer skill so it reads naturally; do not use humanizer anywhere else.
 1. What changed: an intuitive explanation of the change and how each part of the code had to be updated for it, following the flow.
 2. Files: a table of the files actually changed, one row each, with what changed in it.
 3. Notes for the reviewer, only when there are any: deviations from the plan, what to look at closely, checks that failed or could not run.
@@ -90,6 +92,8 @@ Never edit code, and do not commit: Commit and push commits once the tests pass.
 			Instructions: `Read the newest PLAN-n.md (its Tests section lists the behaviours to verify; PLAN.md in older tasks), the IMPLEMENT and DISCUSS files and the REVIEW files.
 Write tests for the reviewed, uncommitted changes (git status, git diff HEAD), following the repo's test conventions:
 the cases in the plan's Tests, the edge cases, and anything the reviews flagged.
+Before writing, look at the tests this branch already added or changed (git diff origin/{base} -- on the test files): an earlier Test wrote them,
+and the code may have changed since. Update or remove the ones that no longer match the code. Never change tests that already exist on {base}.
 Run them. Change only tests, never the code under test: if a test shows a bug, keep it failing and explain it.
 Write TEST-{n}.md with Tests added, How to run and Results.
 Do not commit: Commit and push commits once the tests pass.

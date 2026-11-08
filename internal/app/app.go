@@ -83,13 +83,14 @@ type App struct {
 	checks   map[string][]github.Check // CI checks of each open PR, by task id
 	labels   map[string][]string       // labels of each open PR, by task id
 	drafts   map[string]bool           // whether each open PR is a draft, by task id
+	conflict map[string]bool           // whether each open PR conflicts with its base, by task id
 
 	busy sync.Map // ids of the steps whose post-success actions (git, automatic next steps) are running
 }
 
 // New creates the service; call Start before use.
 func New(home string) *App {
-	return &App{Home: home, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}}
+	return &App{Home: home, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}, conflict: map[string]bool{}}
 }
 
 // DefaultHome returns ~/.herd, or $HERD_HOME when set.

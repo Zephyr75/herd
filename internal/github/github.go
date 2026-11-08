@@ -259,25 +259,29 @@ type PR struct {
 	At     time.Time // when it was merged or closed
 	Labels []string
 	Draft  bool
+	// Conflicting: it cannot merge into its base; GitHub then runs no
+	// pull_request checks.
+	Conflicting bool
 }
 
 // PRState returns a PR's state, labels and draft flag.
 func (g GH) PRState(ctx context.Context, repo string, n int) (PR, error) {
-	out, err := g.run(ctx, "", "pr", "view", strconv.Itoa(n), "--repo", repo, "--json", "state,mergedAt,closedAt,labels,isDraft")
+	out, err := g.run(ctx, "", "pr", "view", strconv.Itoa(n), "--repo", repo, "--json", "state,mergedAt,closedAt,labels,isDraft,mergeable")
 	if err != nil {
 		return PR{}, err
 	}
 	var v struct {
-		State    string
-		MergedAt *time.Time
-		ClosedAt *time.Time
-		Labels   []struct{ Name string }
-		IsDraft  bool
+		State     string
+		MergedAt  *time.Time
+		ClosedAt  *time.Time
+		Labels    []struct{ Name string }
+		IsDraft   bool
+		Mergeable string
 	}
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		return PR{}, err
 	}
-	pr := PR{State: strings.ToLower(v.State), At: time.Now(), Labels: []string{}, Draft: v.IsDraft}
+	pr := PR{State: strings.ToLower(v.State), At: time.Now(), Labels: []string{}, Draft: v.IsDraft, Conflicting: v.Mergeable == "CONFLICTING"}
 	for _, l := range v.Labels {
 		pr.Labels = append(pr.Labels, l.Name)
 	}

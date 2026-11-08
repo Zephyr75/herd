@@ -529,6 +529,22 @@ func (a *App) setPR(taskID string, labels []string, draft bool) {
 	}
 }
 
+func (a *App) setConflict(taskID string, c bool) {
+	a.checksMu.Lock()
+	old := a.conflict[taskID]
+	a.conflict[taskID] = c
+	a.checksMu.Unlock()
+	if old != c {
+		a.emitTask(taskID)
+	}
+}
+
+func (a *App) conflictOf(taskID string) bool {
+	a.checksMu.Lock()
+	defer a.checksMu.Unlock()
+	return a.conflict[taskID]
+}
+
 func (a *App) draftOf(taskID string) bool {
 	a.checksMu.Lock()
 	defer a.checksMu.Unlock()
@@ -660,6 +676,7 @@ func (a *App) pollPR(t store.Task) {
 	pr, err := a.gh.PRState(a.ctx, p.Repo, t.PRNumber)
 	if err == nil {
 		a.setPR(t.ID, pr.Labels, pr.Draft)
+		a.setConflict(t.ID, pr.Conflicting)
 	}
 	if err != nil || pr.State == "open" || pr.State == "" {
 		a.collectChecks(t)

@@ -254,7 +254,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, issueRepo: '', sisters: [], baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false,
+    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false, conflicting: false,
   }
 }
 

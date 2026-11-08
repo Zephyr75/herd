@@ -6,7 +6,7 @@
 import { computed, ref } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
-import { unsuccessful, type CICheck, type Step, type Task } from '../lib/types'
+import { unsuccessful, type CICheck, type Option, type Step, type Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 
 const props = defineProps<{ task: Task; step?: Step }>()
@@ -45,6 +45,34 @@ async function rerun(link: string, what: string) {
   rerunning.value = ''
 }
 const anyActions = computed(() => props.task.checks.some((c) => actions(c.link)))
+
+// Fixes go to the agent Copilot offers first when there is something to fix
+// (Implement by default), as a new step with guidance.
+const fixer = computed(() => {
+  const ags = herd.settings?.agents ?? []
+  const id = ags.find((a) => a.builtin)?.onFail[0] ?? 'impl'
+  return ags.find((a) => a.id === id)
+})
+const busy = computed(() => props.task.steps.some((s) => !s.external && (s.state === 'running' || s.state === 'idle' || s.state === 'approval')))
+const failing = computed(() => props.task.checks.filter((c) => c.bucket === 'fail' || c.bucket === 'cancel'))
+const canFix = computed(() => live.value && !!fixer.value && !busy.value)
+function fix(guidance: string) {
+  const ag = fixer.value
+  if (ag) herd.run({ agent: ag.id, label: ag.name, n: 0 } as Option, props.task.id, guidance)
+}
+const rebase = () =>
+  fix(
+    `Rebase this branch on origin/${props.task.baseBranch}: PR #${props.task.pr} conflicts with it, so GitHub runs no CI checks. ` +
+      `git fetch origin ${props.task.baseBranch}, then git rebase origin/${props.task.baseBranch}; resolve each conflict keeping what both sides meant, ` +
+      `and continue with git rebase --continue (the only commits allowed in this step). Run the tests of the files you resolved. ` +
+      `Do not push: Commit and push does it. List the conflicts and how you resolved them.`,
+  )
+const fixChecks = () =>
+  fix(
+    `Fix the failing CI checks of PR #${props.task.pr}: ${failing.value.map((c) => c.workflow ? `${c.workflow} / ${c.name}` : c.name).join(', ')}. ` +
+      `Read their logs (gh run view <run id> --log-failed; the run id is in each check's link: ${failing.value.map((c) => c.link).filter(Boolean).join(' ')}), ` +
+      `fix the cause in the code, or the test when the test is what is wrong, and run those tests locally when you can.`,
+  )
 const refreshing = ref(false)
 async function refresh() {
   refreshing.value = true
@@ -93,9 +121,16 @@ async function refresh() {
       <div class="h">
         <h3>CI checks</h3>
         <span class="grow"></span>
+        <button v-if="canFix && failing.length && !task.conflicting" class="act" :title="`Start a ${fixer!.name} step that reads the failing checks' logs and fixes them`" @click="fixChecks"><Icon name="pencil" :size="13" />Fix with {{ fixer!.name }}</button>
         <button v-if="live && anyActions" class="act" :disabled="!!rerunning" title="Run every check again (each workflow run once)" @click="rerun('', 'the checks')"><Icon name="rerun" :size="13" />{{ rerunning === 'all' ? 'Rerunning…' : 'Rerun all' }}</button>
       </div>
-      <p v-if="!workflows.length" class="muted small">No checks reported yet (refreshed every minute).</p>
+      <div v-if="live && task.conflicting" class="line conflict">
+        <Icon name="warn" :size="14" />
+        <span>Merge conflicts with {{ task.baseBranch }}: GitHub runs no checks until they are resolved.</span>
+        <span class="grow"></span>
+        <button v-if="canFix" class="act" :title="`Start a ${fixer!.name} step that rebases the branch on origin/${task.baseBranch} and resolves the conflicts`" @click="rebase"><Icon name="branch" :size="13" />Rebase with {{ fixer!.name }}</button>
+      </div>
+      <p v-if="!workflows.length && !task.conflicting" class="muted small">No checks reported yet (refreshed every minute).</p>
       <div v-for="w in workflows" :key="w.name" class="wf">
         <div class="line rowwrap">
           <button class="line row" :title="w.cs[0].link ? 'Open on GitHub' : ''" @click="open(w.cs[0].link)">
@@ -224,6 +259,13 @@ async function refresh() {
   }
   .ready {
     margin-top: 8px;
+  }
+  .conflict {
+    margin-bottom: 8px;
+    color: var(--waiting);
+  }
+  .h .act + .act {
+    margin-left: 6px;
   }
   .rowwrap {
     gap: 4px;

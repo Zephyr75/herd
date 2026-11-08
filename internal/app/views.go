@@ -83,6 +83,7 @@ type TaskView struct {
 	Labels      []string       `json:"labels"`      // labels of the open PR
 	Sisters     []SisterRef    `json:"sisters"`     // tasks for the other repositories of the same work
 	Draft       bool           `json:"draft"`       // the open PR is a draft (herd opens them so)
+	Conflicting bool           `json:"conflicting"` // the open PR conflicts with its base: GitHub runs no checks
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -196,6 +197,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		v.Labels = []string{}
 	}
 	v.Draft = a.draftOf(t.ID)
+	v.Conflicting = a.conflictOf(t.ID)
 	v.Checks = a.checksOf(t.ID)
 	if v.Checks == nil {
 		v.Checks = []github.Check{}

@@ -192,6 +192,7 @@ export interface Task {
   checks: CICheck[] // CI checks of the open PR
   labels: string[] // labels of the open PR
   draft: boolean // the open PR is a draft (herd opens them so)
+  conflicting: boolean // the open PR conflicts with its base: GitHub runs no checks
 }
 
 

@@ -488,11 +488,12 @@ class Herd {
     this.overlay = 'none'
   }
 
-  async run(opt: Option, taskId = this.sel) {
-    const guidance = this.guidance
+  /** run starts opt's step with the guidance typed in Next step, or the given one. */
+  async run(opt: Option, taskId = this.sel, given?: string) {
+    const guidance = given ?? this.guidance
     const step = await this.attempt('Could not start ' + opt.label, () => api.StartStep(taskId, opt.agent, guidance, opt.n))
     if (!step) return
-    this.guidance = ''
+    if (given === undefined) this.guidance = ''
     this.openStep(taskId, step.id)
   }
 

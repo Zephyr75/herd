@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { herd } from '../lib/state'
 import Icon from './ui/Icon.vue'
 import ChangesView from './Changes.vue'
+import PRTracker from './PRTracker.vue'
 import ArtifactView from './ArtifactView.vue'
 import type { Artifact, Changes } from '../lib/types'
 
@@ -65,7 +66,10 @@ watch(
 
 const file = computed(() => art.value?.file || step.value?.artifact || '')
 // The Changes tab only shows when the step changed files; Preview stands in otherwise.
-const tab = computed(() => (step.value && changes.value?.files.length && herd.rightTab === 'changes' ? 'changes' : 'preview'))
+const task = computed(() => herd.selTask)
+const tab = computed(() =>
+  herd.rightTab === 'pr' && task.value?.pr ? 'pr' : step.value && changes.value?.files.length && herd.rightTab === 'changes' ? 'changes' : 'preview',
+)
 </script>
 
 <template>
@@ -80,12 +84,14 @@ const tab = computed(() => (step.value && changes.value?.files.length && herd.ri
       <button v-if="step && changes?.files.length" class="tab" :class="{ on: tab === 'changes' }" @click="herd.rightTab = 'changes'">
         Changes<span class="count">{{ changes.files.length }}</span>
       </button>
+      <button v-if="task?.pr" class="tab" :class="{ on: tab === 'pr' }" @click="herd.rightTab = 'pr'">PR #{{ task.pr }}</button>
       <span class="grow"></span>
     </div>
     <div class="content">
-      <ChangesView v-if="tab === 'changes'" :changes="changes" />
+      <PRTracker v-if="tab === 'pr' && task" :task="task" />
+      <ChangesView v-else-if="tab === 'changes'" :changes="changes" />
       <p v-else-if="!step" class="empty">Open a step to preview the artifact it wrote.</p>
-      <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as {{ step.external ? "Copilot's review arrives" : 'Claude writes it' }}.</p>
+      <p v-else-if="!art || !art.exists" class="empty">{{ file || 'The artifact' }} has not been written yet. It appears here as soon as Claude writes it.</p>
       <ArtifactView v-else :art="art" :task="step!.taskId" />
     </div>
   </div>

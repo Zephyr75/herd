@@ -19,7 +19,7 @@ const openIssue = () => t.value && herd.attempt('Could not open the issue', () =
 
 function meta(s: Step): { text: string; cls: string } {
   if (s.paused && s.state !== 'done' && s.state !== 'failed') return { text: 'paused', cls: '' }
-  if (s.state === 'running') return { text: s.external ? 'waiting for Copilot' : 'running', cls: 'c-running' }
+  if (s.state === 'running') return { text: 'running', cls: 'c-running' }
   if (s.state === 'approval') return { text: 'needs approval', cls: 'c-waiting' }
   if (s.state === 'idle') return { text: 'waiting for you', cls: 'c-waiting' }
   if (s.state === 'failed') return { text: 'ended early', cls: 'c-approval' }
@@ -106,7 +106,7 @@ async function archive() {
               <span class="name">{{ s.name }}</span>
               <span v-if="meta(s).text" :class="['meta', meta(s).cls]">{{ meta(s).text }}</span>
             </span>
-            <span class="sub">{{ s.external ? 'run by herd · PR #' + t.pr : s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
+            <span class="sub">{{ s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
           <span class="acts">
             <button v-if="s.revert" class="act" :class="{ danger: herd.confirmRevert === s.id }" :title="`Put the worktree back to how it was when ${s.name} started, and remove it and the steps after it`" @click="herd.revertStep(s)">{{ herd.confirmRevert === s.id ? 'Discard its changes?' : 'Revert' }}</button>

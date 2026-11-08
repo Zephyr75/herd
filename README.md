@@ -19,7 +19,8 @@ Plan → Implement ─→ Review → Test → Commit and push → Copilot
 - **Implement** codes on its own and kicks off **Review** by itself. **Discuss** is the hands-on version: you and Claude implement it together in its terminal, then you pick **Review**, or hand over to **Implement**.
 - Review happy? Go to **Test**. Not happy? Edit by hand and **Rerun** the review.
 - **Test** fails? Back to **Implement** or **Discuss**. Nothing is committed before **Commit and push**.
-- **Commit and push** asks you for the PR's type, scope and title in a small form, writes `PR.md`, then herd commits, pushes and opens a **draft** PR with it. **Copilot** then reviews it and herd tracks CI. **Mark ready** when you are.
+- **Commit and push** asks you for the PR's type, scope and title in a small form, writes `PR.md`, then herd commits, pushes and opens a **draft** PR with it.
+- **Copilot** then asks GitHub Copilot for a review, waits for it and for CI, and writes `COPILOT-n.md` (and `ERRORS-n.md` when a check fails). Something to fix? Back to **Implement** or **Discuss**. All clear? The task turns green: **Mark ready** when you are.
 
 Every step is a real `claude` session in its own terminal: watch it, answer it, or take it over in Zed.
 
@@ -41,7 +42,7 @@ make test    # Go tests, with a fake claude
 
 ## 🧭 Good to know
 
-- **Agents** live in `~/.herd/agents.toml` (Settings → Agents) and are all yours to change: what they read and write is in their instructions; boxes set what herd does around them (commit → push → open the PR, Revert, Rerun, sister tasks…). The first one starts every task. Only **Copilot** is built in: herd runs it, since it works with GitHub. Rules in Settings → Context go into every session.
+- **Agents** live in `~/.herd/agents.toml` (Settings → Agents) and are all yours to change: what they read and write is in their instructions; boxes set what herd does around them (commit → push → open the PR, Revert, Rerun, sister tasks…). The first one starts every task. Rules in Settings → Context go into every session.
 - **The issue** is copied, comments included, to `ISSUE.md` when the task is created and before each run of the first agent (or with **Issue** in the task header).
 - **Run files** (TASK.md, ISSUE.md, PLAN-n.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
 - **Diagrams:** agents draw them with the [archify](https://github.com/tt-a1i/archify) skill (install it in `~/.claude/skills`): Plan draws the current flow and the new one, to compare at a glance. They appear inside the artifact; **Open full size** lists every diagram of the task. Without archify, agents fall back to mermaid.
@@ -56,7 +57,7 @@ make test    # Go tests, with a fake claude
 main.go, app.go      Wails entry
 internal/app         tasks, steps, hooks, commit, push
 internal/runner      one PTY per step  ·  holder keeps it alive across restarts
-internal/github      PRs, CI, Copilot reviews
+internal/github      PRs, CI checks, issues
 internal/…           store (SQLite), settings, gitops, hooks, artifacts, zed
 frontend/            Vue 3 + xterm.js + mermaid; archify pages in a sandboxed iframe
 plugin/              the Claude Code plugin herd ships

@@ -59,7 +59,7 @@ class Herd {
   view: 'board' | 'settings' = 'board'
   settingsTab: SettingsTab = 'context'
   overlay: Overlay = 'none'
-  rightTab: 'preview' | 'changes' = 'preview'
+  rightTab: 'preview' | 'changes' | 'pr' = 'preview'
   /** Steps whose session another process still runs (the resume guard). */
   elsewhere: Record<string, Proc[]> = {}
   scope: ScopeMode = 'project'
@@ -190,7 +190,7 @@ class Herd {
     if (scope === 'project' || scope === 'worktree' || scope === 'branch') this.scope = scope
     const overlay = q.get('overlay')
     if (overlay === 'palette' || overlay === 'scope' || overlay === 'new' || overlay === 'activity') this.overlay = overlay
-    if (q.get('right') === 'changes') this.rightTab = 'changes'
+    if (q.get('right') === 'changes' || q.get('right') === 'pr') this.rightTab = q.get('right') as 'changes' | 'pr'
     this.previewQuery = q.get('q') ?? ''
     this.previewNew = q.get('new') ?? ''
   }
@@ -509,11 +509,6 @@ class Herd {
     return t.draft ? 'draft' : 'ready'
   }
 
-  /** copilotClean: the latest step is a Copilot review that found nothing. */
-  copilotClean(t: Task): boolean {
-    const last = t.steps[t.steps.length - 1]
-    return !!last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped'
-  }
 
   async markReady(t: Task) {
     if (!(await this.attempt('Could not mark the PR ready', () => api.MarkPRReady(t.id).then(() => true)))) return

@@ -24,17 +24,17 @@ const projects: Project[] = [
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
 const agents: Agent[] = [
-  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: true, builtin: false, ignoreRules: false, showDiff: false, sisters: true, allow: [], next: ['impl', 'discuss'], onFail: ['plan'],
+  { id: 'plan', name: 'Plan', command: '/herd:plan {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'PLAN.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: true, ignoreRules: false, showDiff: false, sisters: true, allow: [], next: ['impl', 'discuss'], onFail: ['plan'],
     instructions: 'Read the task source: the GitHub issue, the description, or both.\nExplore the repo and decide an approach.\nWrite PLAN.md with Goal, Approach (a mermaid flowchart), Files and Out of scope.\nDo not edit code. End with front matter status: done.' },
-  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, openPR: false, revert: true, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: true, allow: [], next: [], onFail: ['impl', 'discuss', 'plan'],
+  { id: 'impl', name: 'Implement', command: '/herd:implement {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'IMPLEMENT-{n}.md', commit: false, push: false, openPR: false, revert: true, rerun: false, choose: false, ignoreRules: false, showDiff: true, sisters: true, allow: [], next: [], onFail: ['impl', 'discuss', 'plan'],
     instructions: 'Read PLAN.md, and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md when they exist.\nImplement the plan in this worktree and run the relevant tests.\nDo not commit: herd commits your changes when the Review step ends.\nWrite IMPLEMENT-{n}.md with Changes, Tests and Notes for the reviewer. End with status: done.' },
-  { id: 'discuss', name: 'Discuss', command: '/herd:discuss {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'DISCUSS-{n}.md', commit: false, push: false, openPR: false, revert: true, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: true, allow: [], next: ['review', 'impl'], onFail: ['discuss', 'impl'],
+  { id: 'discuss', name: 'Discuss', command: '/herd:discuss {task} -- {guidance}', model: 'opus', trigger: 'manual', writes: 'DISCUSS-{n}.md', commit: false, push: false, openPR: false, revert: true, rerun: false, choose: false, ignoreRules: false, showDiff: true, sisters: true, allow: [], next: ['review', 'impl'], onFail: ['discuss', 'impl'],
     instructions: 'This step is a conversation: implement the plan together with the user.\nOnly when the user says the work is done, write DISCUSS-{n}.md: What changed, Files, Notes for the reviewer.\nEnd with status: done.' },
-  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: true, choose: false, builtin: false, ignoreRules: false, showDiff: false, sisters: false, allow: [], next: ['test', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
+  { id: 'review', name: 'Review', command: '/herd:review {task}', model: 'opus', trigger: 'after:impl', writes: 'REVIEW-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: true, choose: false, ignoreRules: false, showDiff: false, sisters: false, allow: [], next: ['test', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
     instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nWrite REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: Commit and push commits once the tests pass.' },
-  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: false, allow: [], next: ['push', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
+  { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, ignoreRules: false, showDiff: true, sisters: false, allow: [], next: ['push', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
-  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: true, push: true, openPR: true, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: true, showDiff: false, sisters: false, allow: [], next: ['impl', 'discuss'], onFail: [],
+  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: true, push: true, openPR: true, revert: false, rerun: false, choose: false, ignoreRules: true, showDiff: false, sisters: false, allow: [], next: ['impl', 'discuss'], onFail: [],
     instructions: 'First rebase on origin/{base} when it has new commits (git rebase --autostash); on a conflict, abort and end with status: failed.\nWrite PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
@@ -169,7 +169,7 @@ const T: MockTask[] = [
 
 const proj = (id: string) => projects.find((p) => p.id === id) ?? projects[0]
 // herd's own step after a push: it waits for Copilot's review.
-const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '', model: '', trigger: 'manual', writes: 'COPILOT-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: true, ignoreRules: false, showDiff: false, sisters: false, allow: [], next: [], onFail: [], instructions: '' }
+const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '/herd:copilot {task}', model: 'sonnet', trigger: 'after:push', writes: 'COPILOT-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, ignoreRules: false, showDiff: false, sisters: false, allow: [], next: [], onFail: [], instructions: '' }
 const agent = (id: string) => (id === 'copilot' ? copilotA : agents.find((a) => a.id === id) ?? agents[0])
 const displayName = (a: Agent, n: number) => (a.writes.includes('{n}') ? `${a.name} ${n}` : a.name)
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -185,7 +185,6 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha, revert: false,
     paused, gitError: '',
     rerun: i === t.steps.length - 1 && a.rerun && !open,
-    external: s.agent === 'copilot',
   }
 }
 
@@ -205,9 +204,9 @@ function derive(t: MockTask): Task {
     if (live) status = live.state === 'running' && !live.paused ? of('running', 'Running', live) : of(live.state === 'approval' ? 'approval' : 'waiting', 'Waiting', live)
     else if (last.state === 'idle') status = of('waiting', 'Waiting', last)
     else if (last.state === 'failed' || unsuccessful(last)) status = of('failed', 'Failure', last)
-    else status = last.external ? of('done', 'Success', last) : of('waiting', 'Waiting for next step', last)
+    else status = last.agent === 'copilot' ? of('done', 'Success', last) : of('waiting', 'Waiting for next step', last)
   }
-  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], sisters: [], ghost: null as Next['ghost'] }
+  const next: Next = { options: [], text: '', approval: '', markDone: '', warning: '', elsewhere: [], sisters: [], ghost: null as Next['ghost'], finished: false }
   const count = (id: string) => Math.max(0, ...steps.filter((s) => s.agent === id).map((s) => s.n))
   const opt = (a: Agent, n: number, prefix = '') => ({ agent: a.id, n, label: prefix + displayName(a, n) })
   if (t.archived) {
@@ -225,8 +224,9 @@ function derive(t: MockTask): Task {
     const pushFixA = [...agents].reverse().find((a) => !afterOf(a.trigger) && !a.push)
     const pushFix = pushFixA ? opt(pushFixA, count(pushFixA.id) + 1) : undefined
     if (appr) { next.approval = appr.id; next.text = 'Claude Code wants to run a command. Answer in the terminal, or allow it once here.' }
-    else if (run?.external) { next.text = `Waiting for Copilot's review and the CI checks of PR #${t.pr} (checked every minute). Start a fix any time, or Mark done to stop waiting.`; next.markDone = run.id; if (pushFix) next.options.push(pushFix) }
-    else if (last.external) {
+    else if (run?.agent === 'copilot') { next.text = `Waiting for Copilot's review and the CI checks of PR #${t.pr} (checked every minute). Start a fix any time, or Mark done to stop waiting.`; next.markDone = run.id; if (pushFix) next.options.push(pushFix) }
+    else if (last.agent === 'copilot') {
+      next.finished = !unsuccessful(last)
       next.text = unsuccessful(last) ? `PR #${t.pr} needs fixes: ${last.artifact} lists Copilot's comments and the failing CI checks.` : `Copilot found nothing to fix and CI passed on PR #${t.pr}. The task moves to Archive when the PR is merged or closed.`
       if (pushFix) { next.text += ` Start ${pushFix.label} for fixes (Copilot comments, failing CI), then push again.`; next.options.push(pushFix) }
     }

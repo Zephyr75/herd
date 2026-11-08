@@ -296,7 +296,7 @@ func (a *App) toast(title, body string, isErr bool) {
 	a.emit(EvToast, map[string]any{"title": title, "body": body, "error": isErr})
 }
 
-// loop runs the reaper and the PR poller (state and Copilot reviews).
+// loop runs the reaper and the PR poller (state and CI checks).
 func (a *App) loop() {
 	reap := time.NewTicker(20 * time.Second)
 	prs := time.NewTicker(time.Minute)

@@ -490,7 +490,6 @@ func (a *App) collectChecks(t store.Task) {
 	if !had || !slices.Equal(old, cs) {
 		a.emitTask(t.ID)
 	}
-	a.settleCopilotStep(t) // a review waiting for CI ends when CI does
 }
 
 // readyLabel marks a PR ready for a human review.
@@ -570,7 +569,7 @@ func (a *App) OpenURL(link string) error {
 }
 
 // pollPRs archives tasks whose PR was merged or closed, and collects the CI
-// checks and Copilot reviews of the open ones.
+// checks of the open ones.
 func (a *App) pollPRs() {
 	if !a.pollMu.TryLock() {
 		return
@@ -585,8 +584,8 @@ func (a *App) pollPRs() {
 	}
 }
 
-// RefreshPR checks the task's PR now: its state, CI checks and Copilot's
-// review, without waiting for the next minute.
+// RefreshPR checks the task's PR now: its state and CI checks, without
+// waiting for the next minute.
 func (a *App) RefreshPR(taskID string) error {
 	t, err := a.db.Task(taskID)
 	if err != nil {
@@ -610,7 +609,6 @@ func (a *App) pollPR(t store.Task) {
 	}
 	if err != nil || pr.State == "open" || pr.State == "" {
 		a.collectChecks(t)
-		a.collectCopilot(t)
 		return
 	}
 	a.stopTaskSessions(t.ID)

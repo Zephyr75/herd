@@ -1,14 +1,14 @@
 <script setup lang="ts">
-// The Copilot step's tab: where the PR is in CI, and whether Copilot has
-// reviewed it. herd refreshes both every minute; the review itself is the
-// step's artifact (COPILOT-n.md) in the Preview tab.
+// The task's PR tab: where its PR is in CI, refreshed every minute, and
+// whether it is ready for review. Copilot's review and the failing checks'
+// logs are the Copilot agent's artifacts (COPILOT-n.md, ERRORS-n.md).
 import { computed, ref } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
-import { unsuccessful, type CICheck, type Step, type Task } from '../lib/types'
+import { type CICheck, type Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 
-const props = defineProps<{ task: Task; step: Step }>()
+const props = defineProps<{ task: Task }>()
 
 const rank: Record<string, number> = { fail: 0, cancel: 1, pending: 2, pass: 3, skipping: 4 }
 // One row per workflow (Tests, Regtests, Lint…), worst check first.
@@ -26,9 +26,7 @@ const workflows = computed(() => {
 const cls = (b: string) => (b === 'fail' || b === 'cancel' ? 'd-failed' : b === 'pending' ? 'd-running' : 'd-done')
 const word = (b: string) => ({ fail: 'failed', cancel: 'cancelled', pending: 'running', pass: 'passed', skipping: 'skipped' })[b] ?? b
 
-const waiting = computed(() => props.step.state === 'running')
 const open = (link: string) => link && herd.attempt('Could not open the link', () => api.OpenURL(link))
-const stop = () => herd.attempt('Could not stop waiting', () => api.MarkDone(props.step.id))
 const refreshing = ref(false)
 async function refresh() {
   refreshing.value = true
@@ -43,22 +41,19 @@ async function refresh() {
       <span class="title">PR #{{ task.pr }}</span>
       <span class="muted small">{{ task.branch }} → {{ task.baseBranch }}</span>
       <span class="grow"></span>
-      <button v-if="task.prState === 'open' && !task.archived" class="act" :disabled="refreshing" title="Check Copilot's review and the CI checks now instead of waiting for the next minute" @click="refresh"><Icon name="rerun" :size="13" />{{ refreshing ? 'Refreshing…' : 'Refresh' }}</button>
+      <button v-if="task.prState === 'open' && !task.archived" class="act" :disabled="refreshing" title="Check the PR and its CI checks now instead of waiting for the next minute" @click="refresh"><Icon name="rerun" :size="13" />{{ refreshing ? 'Refreshing…' : 'Refresh' }}</button>
       <button v-if="task.prUrl" class="act" :title="`Open PR #${task.pr} on GitHub`" @click="open(task.prUrl)"><Icon name="external" :size="13" />Open PR</button>
     </div>
 
     <section>
-      <h3>Copilot review</h3>
+      <h3>Review</h3>
       <div class="line">
-        <span :class="['sdot', waiting ? 'd-running' : unsuccessful(step) ? 'd-failed' : step.verdict === 'skipped' ? 'd-off' : 'd-done']"></span>
-        <span v-if="waiting">Waiting for Copilot's review and the CI checks (checked every minute); {{ step.artifact }} gets both.</span>
-        <span v-else-if="unsuccessful(step)">Copilot comments or failing CI checks: see {{ step.artifact }} in the Preview tab.</span>
-        <span v-else-if="step.verdict === 'skipped'">herd stopped waiting; no review arrived.</span>
-        <span v-else>Copilot found nothing and CI passed.</span>
+        <span :class="['sdot', herd.prReady(task) === 'ready' ? 'd-done' : 'd-off']"></span>
+        <span v-if="herd.prReady(task) === 'ready'">Ready for review.</span>
+        <span v-else-if="task.next.finished">A draft: the pipeline is finished, so it can go to review.</span>
+        <span v-else>A draft, until the pipeline is finished.</span>
         <span class="grow"></span>
-        <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
-        <button v-else-if="herd.prReady(task) === 'draft'" class="act" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(task)"><Icon name="check" :size="13" />Mark ready</button>
-        <span v-else-if="herd.prReady(task) === 'ready'" class="muted small">ready for review</span>
+        <button v-if="herd.prReady(task) === 'draft'" class="act" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(task)"><Icon name="check" :size="13" />Mark ready</button>
       </div>
     </section>
 

@@ -30,7 +30,6 @@ type StepView struct {
 	Revert   bool   `json:"revert"`   // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
 	Paused   bool   `json:"paused"`   // stopped by the user until Resume
 	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
-	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
 	GitError string `json:"gitError"` // why herd's commit, push or PR after it failed
 	Busy     bool   `json:"-"`        // herd is running what follows its success: git actions, the automatic next step
 }
@@ -62,6 +61,8 @@ type Next struct {
 	// Sisters: repositories the plan also needs, with no sister task yet.
 	Sisters []SisterOffer `json:"sisters"`
 	Ghost   *Ghost        `json:"ghost"`
+	// Finished: the last step succeeded and offers nothing next.
+	Finished bool `json:"finished"`
 }
 
 // TaskView is a task with its steps and derived state.
@@ -157,7 +158,6 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		v.Steps = append(v.Steps, StepView{
 			Step: s, Name: ag.DisplayName(s.N), Live: live, Auto: ag.AfterAgent() != "",
 			Artifact: ag.ArtifactName(s.N), Commits: ag.Commit, Paused: a.paused(s.ID),
-			External: s.Agent == copilotAgent,
 		})
 		sv := &v.Steps[len(v.Steps)-1]
 		sv.GitError, _ = a.db.Get(gitErrKey(s.ID))
@@ -200,8 +200,8 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	if v.Checks == nil {
 		v.Checks = []github.Check{}
 	}
-	v.Status = statusOf(t, v.Steps, a.prReady(t.ID))
 	v.Next = nextOf(t, v.Steps, agents)
+	v.Status = statusOf(t, v.Steps, a.prReady(t.ID), v.Next.Finished)
 	v.Next.Warning = a.optionsWarning(t, v.Steps, v.Next)
 	v.Next.Sisters = []SisterOffer{}
 	if len(agents) > 0 {
@@ -252,7 +252,7 @@ func (a *App) markRerun(t store.Task, steps []StepView, agents []settings.Agent)
 			return
 		}
 	}
-	if last := &steps[len(steps)-1]; agentFor(agents, last.Agent).Rerun && !last.External {
+	if last := &steps[len(steps)-1]; agentFor(agents, last.Agent).Rerun {
 		last.Rerun = true
 	}
 }
@@ -293,10 +293,10 @@ func sourceText(t store.Task, p settings.Project) string {
 }
 
 // statusOf is the task's badge: its current (or last) step with Running,
-// Waiting, Failure or, only for a Copilot step that passed (the task is
-// done), Success; and the open PR, with Ready once it is ready for review.
-// Any other success waits for the next step.
-func statusOf(t store.Task, steps []StepView, ready bool) Status {
+// Waiting, Failure, or Success once the pipeline is finished (the last step
+// succeeded and offers nothing next); and the open PR, with Ready once it is
+// ready for review. Any other success waits for the next step.
+func statusOf(t store.Task, steps []StepView, ready, finished bool) Status {
 	if t.Archived {
 		day := t.ArchivedAt.Format("Jan 2")
 		if t.PRNumber > 0 && t.PRState != "" && t.PRState != "open" {
@@ -340,7 +340,7 @@ func statusOf(t store.Task, steps []StepView, ready bool) Status {
 	case last.State == store.Failed || last.Unsuccessful():
 		return st("failed", "Failure", last)
 	}
-	if last.External {
+	if finished {
 		return st("done", "Success", last)
 	}
 	return st("waiting", "Waiting for next step", last)
@@ -426,7 +426,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		}
 	}
 	// What Next step offers comes from the agents' lists: after a success,
-	// after a failure (Copilot's own lists too).
+	// after a failure.
 	offer := func(ids []string) []Option {
 		var out []Option
 		for _, id := range ids {
@@ -438,14 +438,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		}
 		return out
 	}
-	cop := agentFor(agents, copilotAgent)
 	for _, s := range steps {
-		if s.State == store.Running && s.External {
-			nx.Text = fmt.Sprintf("Waiting for Copilot's review and the CI checks of PR #%d (checked every minute). Start a fix any time, or Mark done to stop waiting.", t.PRNumber)
-			nx.MarkDone = s.ID
-			nx.Options = append(nx.Options, offer(failureIDs(cop))...)
-			return nx
-		}
 		if s.State == store.Running {
 			nx.Text = s.Name + " is running. "
 			if autoNext != nil && s.ID == last.ID {
@@ -468,20 +461,6 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		return nx
 	}
 	// The last step finished.
-	if last.External {
-		ids := successIDs(cop)
-		switch {
-		case last.Unsuccessful():
-			nx.Text = fmt.Sprintf("PR #%d needs fixes: %s lists Copilot's comments and the failing CI checks.", t.PRNumber, last.Artifact)
-			ids = failureIDs(cop)
-		case last.Verdict == skipped:
-			nx.Text = fmt.Sprintf("herd stopped waiting for Copilot on PR #%d.", t.PRNumber)
-		default:
-			nx.Text = fmt.Sprintf("Copilot found nothing to fix and CI passed on PR #%d. The task moves to Archive when the PR is merged or closed.", t.PRNumber)
-		}
-		nx.Options = append(nx.Options, offer(ids)...)
-		return nx
-	}
 	if last.Unsuccessful() {
 		nx.Text = last.Name + " failed: " + last.Artifact + " says why."
 		nx.Options = append(nx.Options, offer(failureIDs(ag))...)
@@ -528,7 +507,11 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 	}
 	nx.Options = append(nx.Options, offer(successIDs(ag))...)
 	if len(nx.Options) == 0 {
+		nx.Finished = true
 		nx.Text = "The pipeline is finished for this task."
+		if t.PRNumber > 0 && t.PRState == "open" {
+			nx.Text += fmt.Sprintf(" It moves to Archive when PR #%d is merged or closed.", t.PRNumber)
+		}
 	}
 	return nx
 }

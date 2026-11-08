@@ -61,7 +61,7 @@ func (a *App) Diagrams(taskID string) ([]Diagram, error) {
 		for _, s := range steps {
 			ag := agentFor(agents, s.Agent)
 			stem := strings.TrimSuffix(ag.ArtifactName(s.N), filepath.Ext(ag.ArtifactName(s.N)))
-			if s.Agent != copilotAgent && stem != "" && (strings.HasPrefix(d.File, stem+".") || strings.HasPrefix(d.File, stem+"-")) {
+			if stem != "" && (strings.HasPrefix(d.File, stem+".") || strings.HasPrefix(d.File, stem+"-")) {
 				d.Step, order[d.File] = ag.DisplayName(s.N), s.Seq
 			}
 		}

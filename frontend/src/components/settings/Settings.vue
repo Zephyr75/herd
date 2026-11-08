@@ -11,7 +11,7 @@ import About from './About.vue'
 
 const nav: [SettingsTab, string][] = [['about', 'About'], ['context', 'Context'], ['agents', 'Agents'], ['projects', 'Projects'], ['appearance', 'Appearance'], ['shortcuts', 'Shortcuts']]
 const file = computed(
-  () => ({ agents: 'agents.toml', context: 'context/', projects: 'config.toml', appearance: 'config.toml', shortcuts: 'keymap.json', about: '' })[herd.settingsTab],
+  () => ({ agents: 'agents.toml', context: 'context/', projects: 'config.toml', appearance: 'config.toml', shortcuts: 'config.toml', about: '' })[herd.settingsTab],
 )
 </script>
 

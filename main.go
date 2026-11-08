@@ -4,7 +4,6 @@ package main
 
 import (
 	"embed"
-	"io/fs"
 	"log"
 	"os"
 	"runtime"
@@ -24,20 +23,13 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed all:plugin
-var pluginFiles embed.FS
-
 func main() {
 	// `herd hold <socket> -- <cmd>` keeps one Claude Code session alive
 	// across herd restarts (see internal/holder).
 	if len(os.Args) > 1 && os.Args[1] == "hold" {
 		os.Exit(holder.Main(os.Args[2:]))
 	}
-	plugin, err := fs.Sub(pluginFiles, "plugin")
-	if err != nil {
-		log.Fatal(err)
-	}
-	svc := app.New(app.DefaultHome(), plugin)
+	svc := app.New(app.DefaultHome())
 	if exe, err := os.Executable(); err == nil {
 		svc.HoldCmd = []string{exe, "hold"}
 	}

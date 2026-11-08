@@ -13,14 +13,14 @@ const rows = computed(() =>
     })
     .filter((r) => r.keys.length),
 )
-// Actions without a binding, which keymap.json can bind.
+// Actions without a binding, which config.toml's [keymap] can bind.
 const unbound = computed(() => actions.filter((a) => !km.value[a.id]?.length))
 </script>
 
 <template>
   <div class="intro">
     <h1>Shortcuts</h1>
-    <p>Ctrl replaces ⌘ on Linux and Windows. Bindings live in {{ herd.settings?.dir ?? '~/.herd' }}/keymap.json, where “Mod” means ⌘ or Ctrl.</p>
+    <p>Ctrl replaces ⌘ on Linux and Windows. Change them in the <code>[keymap]</code> section of {{ herd.settings?.dir ?? '~/.herd' }}/config.toml, where “Mod” means ⌘ or Ctrl.</p>
   </div>
 
   <div class="table card">
@@ -33,7 +33,7 @@ const unbound = computed(() => actions.filter((a) => !km.value[a.id]?.length))
     </div>
   </div>
   <div v-if="unbound.length" class="more">
-    <p class="muted small">Not bound (add them to keymap.json, e.g. <code>"palette": ["Mod+P"]</code>):</p>
+    <p class="muted small">Not bound (add them under <code>[keymap]</code>, e.g. <code>palette = ["Mod+P"]</code>):</p>
     <div class="uns muted small"><span v-for="a in unbound" :key="a.id" class="un"><code>{{ a.id }}</code> {{ a.action }}</span></div>
   </div>
 </template>

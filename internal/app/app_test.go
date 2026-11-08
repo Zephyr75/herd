@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,8 +82,9 @@ func newTestApp(t *testing.T) (*App, string) {
 	fake, _ := filepath.Abs("testdata/fake-claude.sh")
 	a := startApp(t, home)
 	t.Cleanup(func() {
-		a.run.StopAll() // tests leave no holder behind
+		a.run.StopAll()
 		Stop(a)
+		killHolders(t, home) // tests leave no holder behind
 	})
 	if err := a.settings.UpdateConfig(func(c *settings.Config) { c.ClaudeCommand = fake }); err != nil {
 		t.Fatal(err)
@@ -93,9 +95,36 @@ func newTestApp(t *testing.T) (*App, string) {
 	return a, repo
 }
 
+// killHolders ends the holders still listening in home/sessions, e.g. a
+// step an automatic trigger started while the test stopped herd. Stop keeps
+// running steps alive on purpose, for the next herd.
+func killHolders(t *testing.T, home string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		socks, _ := filepath.Glob(filepath.Join(home, "sessions", "*.sock"))
+		if len(socks) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("holders still running: %v", socks)
+			return
+		}
+		for _, sock := range socks {
+			if conn, err := net.Dial("unix", sock); err == nil {
+				_ = holder.WriteFrame(conn, holder.Kill, nil)
+				conn.Close()
+			} else {
+				_ = os.Remove(sock)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func startApp(t *testing.T, home string) *App {
 	t.Helper()
-	a := New(home, nil)
+	a := New(home)
 	a.HoldCmd = []string{os.Args[0], "hold"}
 	if err := Start(a, context.Background(), &fakePlatform{}); err != nil {
 		t.Fatal(err)
@@ -359,7 +388,7 @@ func TestSessionSurvivesRestart(t *testing.T) {
 	// Quit herd: the step keeps running in its holder.
 	Stop(a)
 	b := startApp(t, a.Home)
-	t.Cleanup(func() { b.run.StopAll(); Stop(b) })
+	t.Cleanup(func() { b.run.StopAll(); Stop(b); killHolders(t, b.Home) })
 	sess, live := b.run.Get(id)
 	if !live {
 		t.Fatal("not reattached after restart")

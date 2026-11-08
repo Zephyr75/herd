@@ -149,8 +149,8 @@ Do not commit or push: herd commits every change with PR.md's title line and bod
 End with status: done.`
 
 // DefaultKeymap binds only what is needed every day: searching tasks, a new
-// task, hiding the side panels, and Escape for popups. keymap.json can bind
-// any other action the Shortcuts page lists (scope, tab1…tab9, …). "Mod" is
+// task, hiding the side panels, and Escape for popups. config.toml's [keymap]
+// can bind any other action the Shortcuts page lists (scope, tab1…tab9, …). "Mod" is
 // Cmd on macOS and Ctrl elsewhere; in a terminal, Ctrl+<letter> stays the
 // terminal's.
 func DefaultKeymap() Keymap {

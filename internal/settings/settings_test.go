@@ -2,6 +2,8 @@ package settings
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -61,5 +63,36 @@ func TestNormalizeOlderAgents(t *testing.T) {
 	}
 	if f, _ := First(got); f.ID != "plan" {
 		t.Fatalf("first %s", f.ID)
+	}
+}
+
+func TestKeymapMovesToConfig(t *testing.T) {
+	dir := t.TempDir()
+	km := `{"close": ["Escape"], "palette": ["Mod+P"]}`
+	if err := os.WriteFile(filepath.Join(dir, "keymap.json"), []byte(km), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keymap.json")); !os.IsNotExist(err) {
+		t.Fatal("keymap.json kept")
+	}
+	if got := s.Snapshot().Keymap["palette"]; len(got) != 1 || got[0] != "Mod+P" {
+		t.Fatalf("palette = %v", got)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if !strings.Contains(string(b), "[keymap]") || strings.Contains(string(b), "Escape") {
+		t.Fatalf("config.toml keeps only the changed bindings:\n%s", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "views")); !os.IsNotExist(err) {
+		t.Fatal("views/ created")
+	}
+	if err := s.SaveContext(Context{ID: "proj"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "context", "proj.md")); !os.IsNotExist(err) {
+		t.Fatal("empty project context written")
 	}
 }

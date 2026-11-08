@@ -236,6 +236,19 @@ func (r *Runner) startHeld(stepID string, cmd *exec.Cmd) (*Session, error) {
 	}
 }
 
+// Sweep deletes the sockets no holder listens on any more: their holder was
+// killed (e.g. at a reboot) before it could remove them.
+func (r *Runner) Sweep() {
+	socks, _ := filepath.Glob(filepath.Join(r.SockDir, "*.sock"))
+	for _, sock := range socks {
+		if conn, err := net.DialTimeout("unix", sock, time.Second); err == nil {
+			conn.Close()
+		} else if errors.Is(err, syscall.ECONNREFUSED) {
+			_ = os.Remove(sock)
+		}
+	}
+}
+
 // Attach reconnects to a step's holder left running by an earlier herd.
 func (r *Runner) Attach(stepID string) (*Session, error) {
 	if len(r.Hold) == 0 {

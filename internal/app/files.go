@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -141,39 +140,19 @@ func commandName(command string) string {
 	return m[1]
 }
 
-// writePlugin installs the herd Claude Code plugin in ~/.herd/plugin: the
-// shipped files plus one command per agent, built from its instructions.
+// writePlugin rebuilds the herd Claude Code plugin in ~/.herd/plugin: its
+// manifest and one command per agent, built from the agent's instructions.
 func (a *App) writePlugin() error {
 	dir := a.pluginDir()
-	if err := os.RemoveAll(filepath.Join(dir, "commands")); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	if a.PluginSrc != nil {
-		err := fs.WalkDir(a.PluginSrc, ".", func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			dst := filepath.Join(dir, p)
-			if d.IsDir() {
-				return os.MkdirAll(dst, 0o755)
-			}
-			b, err := fs.ReadFile(a.PluginSrc, p)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(dst, b, 0o644)
-		})
-		if err != nil {
-			return err
-		}
-	} else {
-		if err := os.MkdirAll(filepath.Join(dir, ".claude-plugin"), 0o755); err != nil {
-			return err
-		}
-		manifest := `{"name": "herd", "version": "1.0.0", "description": "Agents run by herd"}` + "\n"
-		if err := os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"), []byte(manifest), 0o644); err != nil {
-			return err
-		}
+	if err := os.MkdirAll(filepath.Join(dir, ".claude-plugin"), 0o755); err != nil {
+		return err
+	}
+	manifest := `{"name": "herd", "version": "1.0.0", "description": "Agents run by herd: one command per agent in Settings > Agents"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"), []byte(manifest), 0o644); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0o755); err != nil {
 		return err

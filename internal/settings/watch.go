@@ -36,7 +36,7 @@ func (s *Store) Watch(ctx context.Context, onChange func()) error {
 					return
 				}
 				name := filepath.Base(ev.Name)
-				if strings.HasSuffix(name, ".tmp") || !(strings.HasSuffix(name, ".toml") || strings.HasSuffix(name, ".md") || name == "keymap.json") {
+				if strings.HasSuffix(name, ".tmp") || !(strings.HasSuffix(name, ".toml") || strings.HasSuffix(name, ".md")) {
 					continue
 				}
 				if timer != nil {

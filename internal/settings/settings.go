@@ -1,5 +1,5 @@
 // Package settings loads and saves herd's files under ~/.herd: config.toml,
-// agents.toml, context/*.md and keymap.json.
+// agents.toml and context/*.md.
 package settings
 
 import (
@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -51,6 +52,7 @@ type Config struct {
 	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`            // open terminal tabs; the oldest closes first
 	Rules           string                 `toml:"rules" json:"rules"`                 // always followed by every agent
 	BranchPrefix    string                 `toml:"branch_prefix" json:"branchPrefix"`  // every new task's branch starts with it
+	Keymap          Keymap                 `toml:"keymap,omitempty" json:"-"`          // shortcuts that differ from DefaultKeymap
 	Projects        []Project              `toml:"project" json:"projects"`
 	Context         map[string]ContextMeta `toml:"context" json:"contextMeta"`
 }
@@ -119,7 +121,7 @@ type Store struct {
 // Open loads (and creates with defaults where missing) the settings in dir.
 func Open(dir string) (*Store, error) {
 	s := &Store{Dir: dir}
-	for _, d := range []string{dir, filepath.Join(dir, "context"), filepath.Join(dir, "runs"), filepath.Join(dir, "views")} {
+	for _, d := range []string{dir, filepath.Join(dir, "context"), filepath.Join(dir, "runs")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
@@ -168,20 +170,12 @@ func (s *Store) Reload() error {
 	}
 	af.Agent = normalize(af.Agent)
 
+	if err := migrateKeymap(s.path("keymap.json"), &cfg, s.path("config.toml")); err != nil {
+		return err
+	}
 	km := DefaultKeymap()
-	if b, err := os.ReadFile(s.path("keymap.json")); err == nil {
-		var user Keymap
-		if err := json.Unmarshal(b, &user); err != nil {
-			return fmt.Errorf("keymap.json: %w", err)
-		}
-		for k, v := range user {
-			km[k] = v
-		}
-	} else if errors.Is(err, os.ErrNotExist) {
-		b, _ := json.MarshalIndent(km, "", "  ")
-		if err := os.WriteFile(s.path("keymap.json"), b, 0o644); err != nil {
-			return err
-		}
+	for k, v := range cfg.Keymap {
+		km[k] = v
 	}
 
 	ctx := map[string]Context{}
@@ -208,6 +202,37 @@ func (s *Store) Reload() error {
 	s.cfg, s.ags, s.ctx, s.km = cfg, af.Agent, ctx, km
 	s.mu.Unlock()
 	return nil
+}
+
+// migrateKeymap moves the old keymap.json into config.toml's [keymap]
+// (only the bindings that differ from the defaults) and deletes it.
+func migrateKeymap(old string, cfg *Config, cfgPath string) error {
+	b, err := os.ReadFile(old)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var user Keymap
+	if err := json.Unmarshal(b, &user); err != nil {
+		return fmt.Errorf("keymap.json: %w", err)
+	}
+	def := DefaultKeymap()
+	for k, v := range user {
+		if slices.Equal(def[k], v) {
+			continue
+		}
+		if cfg.Keymap == nil {
+			cfg.Keymap = Keymap{}
+		}
+		cfg.Keymap[k] = v
+	}
+	if len(cfg.Keymap) > 0 {
+		if err := writeTOML(cfgPath, *cfg); err != nil {
+			return err
+		}
+	}
+	return os.Remove(old)
 }
 
 func fillConfig(c *Config) {
@@ -427,7 +452,12 @@ func (s *Store) SaveContext(c Context) error {
 	if c.ID == "" {
 		return errors.New("context id required")
 	}
-	if err := os.WriteFile(filepath.Join(s.Dir, "context", c.ID+".md"), []byte(c.Text), 0o644); err != nil {
+	file := filepath.Join(s.Dir, "context", c.ID+".md")
+	if strings.TrimSpace(c.Text) == "" && c.ID != "general" { // an empty project context needs no file
+		if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	} else if err := os.WriteFile(file, []byte(c.Text), 0o644); err != nil {
 		return err
 	}
 	s.mu.Lock()

@@ -1,4 +1,4 @@
-// Keyboard shortcuts from ~/.herd/keymap.json. "Mod" is ⌘ on macOS and
+// Keyboard shortcuts: the defaults plus config.toml's [keymap]. "Mod" is ⌘ on macOS and
 // Ctrl elsewhere.
 
 import type { Keymap } from './types'

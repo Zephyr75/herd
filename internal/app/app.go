@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -57,7 +56,6 @@ const (
 // App is the bound service.
 type App struct {
 	Home      string // ~/.herd
-	PluginSrc fs.FS  // the plugin/ folder shipped with the app
 	// HoldCmd runs a session holder (herd's own path and "hold"), so
 	// sessions outlive herd. Empty: sessions end when herd quits.
 	HoldCmd []string
@@ -90,8 +88,8 @@ type App struct {
 }
 
 // New creates the service; call Start before use.
-func New(home string, plugin fs.FS) *App {
-	return &App{Home: home, PluginSrc: plugin, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}}
+func New(home string) *App {
+	return &App{Home: home, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}}
 }
 
 // DefaultHome returns ~/.herd, or $HERD_HOME when set.
@@ -119,6 +117,7 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 	}
 	a.run = runner.New(a.onExit)
 	a.run.Hold, a.run.SockDir = a.HoldCmd, filepath.Join(a.Home, "sessions")
+	a.run.Sweep()
 	a.focused.Store(true)
 
 	tok := make([]byte, 24)

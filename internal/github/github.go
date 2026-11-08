@@ -22,6 +22,11 @@ type GH struct {
 }
 
 func (g GH) run(ctx context.Context, dir string, args ...string) (string, error) {
+	return g.runIn(ctx, dir, "", args...)
+}
+
+// runIn is run with stdin (e.g. a PR body for --body-file -).
+func (g GH) runIn(ctx context.Context, dir, stdin string, args ...string) (string, error) {
 	bin := g.Bin
 	if bin == "" {
 		bin = "gh"
@@ -33,6 +38,9 @@ func (g GH) run(ctx context.Context, dir string, args ...string) (string, error)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -214,17 +222,18 @@ var prNum = regexp.MustCompile(`/pull/(\d+)`)
 
 // CreatePR opens a draft pull request and returns its number and URL.
 // It stays a draft until MarkReady: repo bots then leave it alone.
-func (g GH) CreatePR(ctx context.Context, worktree, repo, base, head, title, bodyFile string) (int, string, error) {
-	out, err := g.run(ctx, worktree, "pr", "create", "--draft", "--repo", repo, "--base", base, "--head", head, "--title", title, "--body-file", bodyFile)
+func (g GH) CreatePR(ctx context.Context, worktree, repo, base, head, title, body string) (int, string, error) {
+	out, err := g.runIn(ctx, worktree, body+"\n", "pr", "create", "--draft", "--repo", repo, "--base", base, "--head", head, "--title", title, "--body-file", "-")
 	if err != nil {
-		// An existing PR for the branch is fine.
+		// The branch has a PR already: it gets the new title and body.
 		if v, e2 := g.run(ctx, worktree, "pr", "view", head, "--repo", repo, "--json", "number,url"); e2 == nil {
 			var pr struct {
 				Number int
 				URL    string
 			}
 			if json.Unmarshal([]byte(v), &pr) == nil && pr.Number > 0 {
-				return pr.Number, pr.URL, nil
+				_, err := g.runIn(ctx, worktree, body+"\n", "pr", "edit", strconv.Itoa(pr.Number), "--repo", repo, "--title", title, "--body-file", "-")
+				return pr.Number, pr.URL, err
 			}
 		}
 		return 0, "", err

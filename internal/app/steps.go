@@ -730,11 +730,7 @@ func (a *App) gitActions(t store.Task, s store.Step, ag settings.Agent, say func
 	if title == "" {
 		title = t.Title
 	}
-	bodyFile := filepath.Join(a.runDir(p, t), "PR-body.md")
-	if err := os.WriteFile(bodyFile, []byte(body), 0o644); err != nil {
-		return err
-	}
-	n, url, err := github.GH{Log: say}.CreatePR(a.ctx, wt, p.Repo, p.BaseBranch, branchName(t), title, bodyFile)
+	n, url, err := github.GH{Log: say}.CreatePR(a.ctx, wt, p.Repo, p.BaseBranch, branchName(t), title, body)
 	if err != nil {
 		say("gh pr create failed: " + err.Error())
 		return fmt.Errorf("herd could not open the PR: %w", err)

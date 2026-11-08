@@ -16,13 +16,14 @@ import (
 
 func snapKey(stepID string) string { return "snap:" + stepID }
 
-func (a *App) snapIndex(t store.Task) string {
-	return filepath.Join(a.runDir(a.projectOf(t), t), ".snapshot-index")
-}
-
 // snapshot records the worktree as step id starts.
 func (a *App) snapshot(t store.Task, stepID string) {
-	if tree, err := a.git.Snapshot(a.ctx, worktreePath(a.projectOf(t), t), a.snapIndex(t)); err == nil {
+	wt := worktreePath(a.projectOf(t), t)
+	index, err := a.git.SnapshotIndex(a.ctx, wt)
+	if err != nil {
+		return
+	}
+	if tree, err := a.git.Snapshot(a.ctx, wt, index); err == nil {
 		_ = a.db.Set(snapKey(stepID), tree)
 	}
 }
@@ -79,7 +80,11 @@ func (a *App) RevertStep(stepID string) error {
 	}
 	snap, _ := a.db.Get(snapKey(stepID))
 	p := a.projectOf(t)
-	if err := a.git.Restore(a.ctx, worktreePath(p, t), snap, a.snapIndex(t)); err != nil {
+	index, err := a.git.SnapshotIndex(a.ctx, worktreePath(p, t))
+	if err != nil {
+		return err
+	}
+	if err := a.git.Restore(a.ctx, worktreePath(p, t), snap, index); err != nil {
 		return fmt.Errorf("could not restore the worktree: %w", err)
 	}
 	agents := a.settings.Agents()

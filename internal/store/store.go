@@ -78,7 +78,6 @@ type Step struct {
 	EndedAt   time.Time `json:"endedAt"`
 }
 
-// DB wraps the SQLite database.
 // TaskFile is the name of a task's file in its run directory.
 const TaskFile = ".herd-task.json"
 

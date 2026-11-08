@@ -313,11 +313,6 @@ func (a *App) removeWorktree(id string) ([]string, error) {
 	var lines []string
 	g := gitops.Git{Log: func(l string) { lines = append(lines, l) }}
 	err = g.RemoveWorktree(a.ctx, p.Path, worktreePath(p, t), branchName(t))
-	views, _ := filepath.Glob(filepath.Join(a.Home, "views", p.Name, t.Slug+"-*"))
-	for _, v := range views {
-		_, _ = g.Run(a.ctx, p.Path, "worktree", "remove", "--force", v)
-		_ = os.RemoveAll(v)
-	}
 	if err != nil {
 		return lines, err
 	}

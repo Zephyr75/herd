@@ -267,6 +267,19 @@ func (g Git) privateIndex(ctx context.Context, worktree, index string, args ...s
 	return strings.TrimSpace(string(out)), nil
 }
 
+// SnapshotIndex is where a worktree's snapshot index lives: in its own git
+// directory, so it goes with the worktree and never shows in it.
+func (g Git) SnapshotIndex(ctx context.Context, worktree string) (string, error) {
+	p, err := g.Run(ctx, worktree, "rev-parse", "--git-path", "herd-snapshot-index")
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(worktree, p)
+	}
+	return p, nil
+}
+
 // Snapshot stores the worktree's content, untracked files included (not
 // ignored ones), as a tree and returns its hash.
 func (g Git) Snapshot(ctx context.Context, worktree, index string) (string, error) {

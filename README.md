@@ -44,7 +44,7 @@ make test    # Go tests, with a fake claude
 
 - **Agents** live in `~/.herd/agents.toml` (Settings → Agents) and are all yours to change: what they read and write is in their instructions; boxes set what herd does around them (commit → push → open the PR, Revert, Rerun, sister tasks…). The first one starts every task. Rules in Settings → Context go into every session.
 - **The issue** is copied, comments included, to `ISSUE.md` when the task is created and before each run of the first agent (or with **Issue** in the task header).
-- **Run files** (TASK.md, ISSUE.md, PLAN-n.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel.
+- **Run files** (TASK.md, ISSUE.md, PLAN-n.md, REVIEW-n.md…) live in `~/.herd/runs/<project>/<task>/`, one click from the Steps panel, with herd's own record of the task (`.herd-task.json`: its steps and state). The rest of `~/.herd` is settings (`config.toml`, `agents.toml`, `keymap.json`, `context/`), what herd generates for Claude Code (`plugin/`, `hooks.json`, `endpoint`), live sessions (`sessions/`) and UI state (`state.json`).
 - **Diagrams:** agents draw them with the [archify](https://github.com/tt-a1i/archify) skill (install it in `~/.claude/skills`): Plan draws the current flow and the new one, to compare at a glance. They appear inside the artifact; **Open full size** lists every diagram of the task. Without archify, agents fall back to mermaid.
 - **Several repos?** Plan or Implement (any agent with *Can create sister tasks* in Settings → Agents) ends its artifact with a `## Sister tasks` section (after a `---` line), one `### <repo>` each; Next step then offers, in one click, a **sister task** in each: same issue, its own worktree, plan and PR, linked from the task header.
 - **Edits outside the worktree** by mistake are spotted: Next step warns before any step that commits.
@@ -58,7 +58,7 @@ main.go, app.go      Wails entry
 internal/app         tasks, steps, hooks, commit, push
 internal/runner      one PTY per step  ·  holder keeps it alive across restarts
 internal/github      PRs, CI checks, issues
-internal/…           store (SQLite), settings, gitops, hooks, artifacts, zed
+internal/…           store (a JSON file per task), settings, gitops, hooks, artifacts, zed
 frontend/            Vue 3 + xterm.js + mermaid; archify pages in a sandboxed iframe
 plugin/              the Claude Code plugin herd ships
 ```

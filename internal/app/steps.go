@@ -219,26 +219,6 @@ func (a *App) StartStep(taskID, agentID, guidance string, n int) (StepView, erro
 	return a.stepView(l.task, l.step.ID), nil
 }
 
-// convertManualSteps turns the steps made by the former "manually" button
-// (no prompt; the user drove their session) into ordinary ones, once.
-func (a *App) convertManualSteps() {
-	tasks, _ := a.db.Tasks()
-	for _, t := range tasks {
-		steps, _ := a.db.Steps(t.ID)
-		for _, s := range steps {
-			if v, _ := a.db.Get("manual:" + s.ID); v == "" {
-				continue
-			}
-			if s.State != store.Done && s.State != store.Failed {
-				s.State, s.EndedAt, s.Completed = store.Done, time.Now(), true
-				_ = a.db.SaveStep(s)
-				a.setPaused(s.ID, false)
-			}
-			_ = a.db.Set("manual:"+s.ID, "")
-		}
-	}
-}
-
 func (a *App) stepView(t store.Task, stepID string) StepView {
 	v, _ := a.view(t)
 	for _, sv := range v.Steps {

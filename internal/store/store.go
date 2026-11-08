@@ -1,14 +1,20 @@
-// Package store keeps tasks, steps and UI state in SQLite (~/.herd/herd.db).
+// Package store keeps tasks, steps and their state in files: one JSON file
+// per task, in the task's run directory (.herd-task.json: the task, its
+// steps, its values and the files its steps edited outside the worktree),
+// and the values tied to no task in ~/.herd/state.json. herd is the only
+// writer: a lock and atomic writes are enough.
 package store
 
 import (
-	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 // Task is one unit of work in one project.
@@ -73,279 +79,376 @@ type Step struct {
 }
 
 // DB wraps the SQLite database.
-type DB struct{ db *sql.DB }
+// TaskFile is the name of a task's file in its run directory.
+const TaskFile = ".herd-task.json"
 
-const schema = `
-CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY, project TEXT NOT NULL, slug TEXT NOT NULL, issue TEXT NOT NULL DEFAULT '',
-  title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', port_base INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0, archived_at INTEGER NOT NULL DEFAULT 0,
-  pr_number INTEGER NOT NULL DEFAULT 0, pr_url TEXT NOT NULL DEFAULT '', pr_state TEXT NOT NULL DEFAULT '',
-  worktree_removed INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS steps (
-  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, key TEXT NOT NULL,
-  agent TEXT NOT NULL, n INTEGER NOT NULL, seq INTEGER NOT NULL, state TEXT NOT NULL,
-  guidance TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '', sha TEXT NOT NULL DEFAULT '',
-  verdict TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', completed INTEGER NOT NULL DEFAULT 0,
-  started_at INTEGER NOT NULL DEFAULT 0, ended_at INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS steps_task ON steps(task_id, seq);
-CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS external_files (
-  step_id TEXT NOT NULL REFERENCES steps(id) ON DELETE CASCADE, path TEXT NOT NULL, root TEXT NOT NULL,
-  PRIMARY KEY (step_id, path)
-);
-`
+// DB holds every task in memory and writes each change to its file.
+type DB struct {
+	mu      sync.Mutex
+	home    string
+	pathFor func(Task) string // where a new task's file goes
+	tasks   map[string]*record
+	global  map[string]string
+}
 
-// Open opens (and migrates) the database at path.
-func Open(path string) (*DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Columns added after the first release.
-	for _, col := range []string{"branch", "issue_repo"} {
-		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN ` + col + ` TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-			db.Close()
+// record is a task's file.
+type record struct {
+	path     string
+	Task     taskJSON          `json:"task"`
+	Steps    []Step            `json:"steps"`
+	Values   map[string]string `json:"values,omitempty"`
+	External []ExternalFile    `json:"external,omitempty"`
+}
+
+// taskJSON is Task as stored: every field, Branch included.
+type taskJSON struct {
+	ID              string    `json:"id"`
+	Project         string    `json:"project"`
+	Slug            string    `json:"slug"`
+	Issue           string    `json:"issue,omitempty"`
+	IssueRepo       string    `json:"issueRepo,omitempty"`
+	Title           string    `json:"title"`
+	Description     string    `json:"description,omitempty"`
+	Branch          string    `json:"branch,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	Archived        bool      `json:"archived,omitempty"`
+	ArchivedAt      time.Time `json:"archivedAt,omitzero"`
+	PRNumber        int       `json:"pr,omitempty"`
+	PRURL           string    `json:"prUrl,omitempty"`
+	PRState         string    `json:"prState,omitempty"`
+	WorktreeRemoved bool      `json:"worktreeRemoved,omitempty"`
+}
+
+func (j taskJSON) task() Task {
+	return Task{ID: j.ID, Project: j.Project, Slug: j.Slug, Issue: j.Issue, IssueRepo: j.IssueRepo, Title: j.Title,
+		Description: j.Description, Branch: j.Branch, CreatedAt: j.CreatedAt, Archived: j.Archived, ArchivedAt: j.ArchivedAt,
+		PRNumber: j.PRNumber, PRURL: j.PRURL, PRState: j.PRState, WorktreeRemoved: j.WorktreeRemoved}
+}
+
+func toJSON(t Task) taskJSON {
+	return taskJSON{ID: t.ID, Project: t.Project, Slug: t.Slug, Issue: t.Issue, IssueRepo: t.IssueRepo, Title: t.Title,
+		Description: t.Description, Branch: t.Branch, CreatedAt: t.CreatedAt, Archived: t.Archived, ArchivedAt: t.ArchivedAt,
+		PRNumber: t.PRNumber, PRURL: t.PRURL, PRState: t.PRState, WorktreeRemoved: t.WorktreeRemoved}
+}
+
+// Open loads the task files under home/runs and home/state.json. pathFor
+// says where a new task's file goes (its run directory).
+func Open(home string, pathFor func(Task) string) (*DB, error) {
+	d := &DB{home: home, pathFor: pathFor, tasks: map[string]*record{}, global: map[string]string{}}
+	files, _ := filepath.Glob(filepath.Join(home, "runs", "*", "*", TaskFile))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
 			return nil, err
 		}
+		r := &record{path: f}
+		if err := json.Unmarshal(b, r); err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		d.tasks[r.Task.ID] = r
 	}
-	return &DB{db: db}, nil
+	if b, err := os.ReadFile(d.statePath()); err == nil {
+		if err := json.Unmarshal(b, &d.global); err != nil {
+			return nil, fmt.Errorf("state.json: %w", err)
+		}
+	}
+	return d, nil
 }
 
-// Close closes the database.
-func (d *DB) Close() error { return d.db.Close() }
+// Close is a no-op: every change is already written.
+func (d *DB) Close() error { return nil }
 
-// ErrNotFound is returned when a row does not exist.
+// ErrNotFound is returned when a task or a step does not exist.
 var ErrNotFound = errors.New("not found")
 
-func ts(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
+func (d *DB) statePath() string { return filepath.Join(d.home, "state.json") }
+
+// writeJSON writes v to path atomically: a crash leaves the old file or the new one.
+func writeJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
 	}
-	return t.UnixMilli()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(append(b, '\n')); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
-func fromTS(v int64) time.Time {
-	if v == 0 {
-		return time.Time{}
+func (d *DB) save(r *record) error { return writeJSON(r.path, r) }
+
+// taskOfStep is the task id of a step id: "pony-core:12" for
+// "pony-core:12/impl-1". valueOwner uses it on a key without its name.
+func taskOfStep(id string) string {
+	if i := strings.Index(id, "/"); i >= 0 {
+		return id[:i]
 	}
-	return time.UnixMilli(v)
+	return id
 }
 
-func b2i(b bool) int {
-	if b {
-		return 1
+func (d *DB) valueOwner(key string) *record {
+	i := strings.Index(key, ":")
+	if i < 0 {
+		return nil
 	}
-	return 0
+	return d.tasks[taskOfStep(key[i+1:])]
 }
 
 // SaveTask inserts or replaces a task.
 func (d *DB) SaveTask(t Task) error {
-	_, err := d.db.Exec(`INSERT INTO tasks (id, project, slug, issue, title, description, created_at, archived, archived_at, pr_number, pr_url, pr_state, worktree_removed, branch, issue_repo)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET project=excluded.project, slug=excluded.slug, issue=excluded.issue, title=excluded.title,
-		description=excluded.description, archived=excluded.archived, archived_at=excluded.archived_at,
-		pr_number=excluded.pr_number, pr_url=excluded.pr_url, pr_state=excluded.pr_state, worktree_removed=excluded.worktree_removed, branch=excluded.branch, issue_repo=excluded.issue_repo`,
-		t.ID, t.Project, t.Slug, t.Issue, t.Title, t.Description, ts(t.CreatedAt), b2i(t.Archived), ts(t.ArchivedAt),
-		t.PRNumber, t.PRURL, t.PRState, b2i(t.WorktreeRemoved), t.Branch, t.IssueRepo)
-	return err
-}
-
-const taskCols = `id, project, slug, issue, title, description, created_at, archived, archived_at, pr_number, pr_url, pr_state, worktree_removed, branch, issue_repo`
-
-func scanTask(r interface{ Scan(...any) error }) (Task, error) {
-	var t Task
-	var created, archivedAt int64
-	var archived, removed int
-	err := r.Scan(&t.ID, &t.Project, &t.Slug, &t.Issue, &t.Title, &t.Description, &created, &archived, &archivedAt,
-		&t.PRNumber, &t.PRURL, &t.PRState, &removed, &t.Branch, &t.IssueRepo)
-	t.CreatedAt, t.ArchivedAt = fromTS(created), fromTS(archivedAt)
-	t.Archived, t.WorktreeRemoved = archived == 1, removed == 1
-	return t, err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[t.ID]
+	if r == nil {
+		r = &record{path: d.pathFor(t)}
+		d.tasks[t.ID] = r
+	}
+	r.Task = toJSON(t)
+	return d.save(r)
 }
 
 // Task returns one task.
 func (d *DB) Task(id string) (Task, error) {
-	t, err := scanTask(d.db.QueryRow(`SELECT `+taskCols+` FROM tasks WHERE id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return t, ErrNotFound
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[id]
+	if r == nil {
+		return Task{}, ErrNotFound
 	}
-	return t, err
+	return r.Task.task(), nil
 }
 
 // Tasks returns every task, oldest first.
 func (d *DB) Tasks() ([]Task, error) {
-	rows, err := d.db.Query(`SELECT ` + taskCols + ` FROM tasks ORDER BY created_at, id`)
-	if err != nil {
-		return nil, err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]Task, 0, len(d.tasks))
+	for _, r := range d.tasks {
+		out = append(out, r.Task.task())
 	}
-	defer rows.Close()
-	var out []Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
 		}
-		out = append(out, t)
-	}
-	return out, rows.Err()
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
 }
 
-// DeleteTask removes a task, its steps and the UI state saved for them
-// (kv keys "<name>:<task id>" and "<name>:<task id>/<step>").
+// DeleteTask forgets a task: its file goes, with its steps and values.
 func (d *DB) DeleteTask(id string) error {
-	tx, err := d.db.Begin()
-	if err != nil {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[id]
+	if r == nil {
+		return nil
+	}
+	delete(d.tasks, id)
+	if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM kv WHERE substr(key, instr(key, ':') + 1) = ? OR substr(key, instr(key, ':') + 1, ?) = ?`,
-		id, len(id)+1, id+"/"); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM tasks WHERE id = ?`, id); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
 
-// SaveStep inserts or replaces a step.
+// SaveStep inserts a step, or updates its state (its key, agent, number and
+// place stay).
 func (d *DB) SaveStep(s Step) error {
-	_, err := d.db.Exec(`INSERT INTO steps (id, task_id, key, agent, n, seq, state, guidance, session_id, sha, verdict, model, completed, started_at, ended_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET state=excluded.state, guidance=excluded.guidance, session_id=excluded.session_id, sha=excluded.sha,
-		verdict=excluded.verdict, model=excluded.model, completed=excluded.completed, started_at=excluded.started_at, ended_at=excluded.ended_at`,
-		s.ID, s.TaskID, s.Key, s.Agent, s.N, s.Seq, s.State, s.Guidance, s.SessionID, s.SHA, s.Verdict, s.Model, b2i(s.Completed),
-		ts(s.StartedAt), ts(s.EndedAt))
-	return err
-}
-
-const stepCols = `id, task_id, key, agent, n, seq, state, guidance, session_id, sha, verdict, model, completed, started_at, ended_at`
-
-func scanStep(r interface{ Scan(...any) error }) (Step, error) {
-	var s Step
-	var completed int
-	var started, ended int64
-	err := r.Scan(&s.ID, &s.TaskID, &s.Key, &s.Agent, &s.N, &s.Seq, &s.State, &s.Guidance, &s.SessionID, &s.SHA, &s.Verdict, &s.Model,
-		&completed, &started, &ended)
-	s.Completed = completed == 1
-	s.StartedAt, s.EndedAt = fromTS(started), fromTS(ended)
-	return s, err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[s.TaskID]
+	if r == nil {
+		return fmt.Errorf("step %s: task %w", s.ID, ErrNotFound)
+	}
+	for i := range r.Steps {
+		if r.Steps[i].ID == s.ID {
+			x := &r.Steps[i]
+			x.State, x.Guidance, x.SessionID, x.SHA, x.Verdict, x.Model = s.State, s.Guidance, s.SessionID, s.SHA, s.Verdict, s.Model
+			x.Completed, x.StartedAt, x.EndedAt = s.Completed, s.StartedAt, s.EndedAt
+			return d.save(r)
+		}
+	}
+	r.Steps = append(r.Steps, s)
+	sort.SliceStable(r.Steps, func(i, j int) bool { return r.Steps[i].Seq < r.Steps[j].Seq })
+	return d.save(r)
 }
 
 // Step returns one step.
 func (d *DB) Step(id string) (Step, error) {
-	s, err := scanStep(d.db.QueryRow(`SELECT `+stepCols+` FROM steps WHERE id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return s, ErrNotFound
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if r := d.tasks[taskOfStep(id)]; r != nil {
+		for _, s := range r.Steps {
+			if s.ID == id {
+				return s, nil
+			}
+		}
 	}
-	return s, err
+	return Step{}, ErrNotFound
 }
 
 // Steps returns a task's steps in order.
 func (d *DB) Steps(taskID string) ([]Step, error) {
-	return d.querySteps(`SELECT `+stepCols+` FROM steps WHERE task_id = ? ORDER BY seq`, taskID)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[taskID]
+	if r == nil {
+		return nil, nil
+	}
+	return append([]Step(nil), r.Steps...), nil
 }
 
 // StepsInStates returns every step in one of the given states.
 func (d *DB) StepsInStates(states ...string) ([]Step, error) {
-	if len(states) == 0 {
-		return nil, nil
-	}
-	q := `SELECT ` + stepCols + ` FROM steps WHERE state IN (?` + strings.Repeat(",?", len(states)-1) + `) ORDER BY task_id, seq`
-	args := make([]any, len(states))
-	for i, s := range states {
-		args[i] = s
-	}
-	return d.querySteps(q, args...)
-}
-
-func (d *DB) querySteps(q string, args ...any) ([]Step, error) {
-	rows, err := d.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	var out []Step
-	for rows.Next() {
-		s, err := scanStep(rows)
-		if err != nil {
-			return nil, err
+	for _, r := range d.tasks {
+		for _, s := range r.Steps {
+			for _, st := range states {
+				if s.State == st {
+					out = append(out, s)
+				}
+			}
 		}
-		out = append(out, s)
 	}
-	return out, rows.Err()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TaskID != out[j].TaskID {
+			return out[i].TaskID < out[j].TaskID
+		}
+		return out[i].Seq < out[j].Seq
+	})
+	return out, nil
 }
 
 // NextSeq returns the next step sequence number for a task.
 func (d *DB) NextSeq(taskID string) (int, error) {
-	var n sql.NullInt64
-	if err := d.db.QueryRow(`SELECT MAX(seq) FROM steps WHERE task_id = ?`, taskID).Scan(&n); err != nil {
-		return 0, err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := 0
+	if r := d.tasks[taskID]; r != nil {
+		for _, s := range r.Steps {
+			n = max(n, s.Seq)
+		}
 	}
-	return int(n.Int64) + 1, nil
+	return n + 1, nil
 }
 
-// Get reads a UI state value; "" when unset.
+// DeleteStepsFrom removes a task's steps from seq on, with the outside
+// edits they recorded.
+func (d *DB) DeleteStepsFrom(taskID string, seq int) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[taskID]
+	if r == nil {
+		return nil
+	}
+	gone := map[string]bool{}
+	steps := r.Steps[:0]
+	for _, s := range r.Steps {
+		if s.Seq >= seq {
+			gone[s.ID] = true
+		} else {
+			steps = append(steps, s)
+		}
+	}
+	r.Steps = steps
+	ext := r.External[:0]
+	for _, f := range r.External {
+		if !gone[f.StepID] {
+			ext = append(ext, f)
+		}
+	}
+	r.External = ext
+	return d.save(r)
+}
+
+// Get reads a value: "<name>:<task id>" and "<name>:<step id>" keys live in
+// their task's file, the others in state.json; "" when unset.
 func (d *DB) Get(key string) (string, error) {
-	var v string
-	err := d.db.QueryRow(`SELECT value FROM kv WHERE key = ?`, key).Scan(&v)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if r := d.valueOwner(key); r != nil {
+		return r.Values[key], nil
 	}
-	return v, err
+	return d.global[key], nil
 }
 
-// Set writes a UI state value.
+// Set writes a value ("" removes it).
 func (d *DB) Set(key, value string) error {
-	_, err := d.db.Exec(`INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
-	return err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	m, save := d.global, func() error { return writeJSON(d.statePath(), d.global) }
+	if r := d.valueOwner(key); r != nil {
+		if r.Values == nil {
+			r.Values = map[string]string{}
+		}
+		m, save = r.Values, func() error { return d.save(r) }
+	}
+	if m[key] == value {
+		return nil
+	}
+	if value == "" {
+		delete(m, key)
+	} else {
+		m[key] = value
+	}
+	return save()
 }
 
 // ExternalFile is a file a step edited outside its task's worktree, in the
 // git repository at Root.
 type ExternalFile struct {
-	StepID string
-	Path   string
-	Root   string
+	StepID string `json:"step"`
+	Path   string `json:"path"`
+	Root   string `json:"root"`
 }
 
 // AddExternal records a file a step edited outside its worktree.
 func (d *DB) AddExternal(f ExternalFile) error {
-	_, err := d.db.Exec(`INSERT OR IGNORE INTO external_files (step_id, path, root) VALUES (?, ?, ?)`, f.StepID, f.Path, f.Root)
-	return err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[taskOfStep(f.StepID)]
+	if r == nil {
+		return ErrNotFound
+	}
+	for _, x := range r.External {
+		if x.StepID == f.StepID && x.Path == f.Path {
+			return nil
+		}
+	}
+	r.External = append(r.External, f)
+	return d.save(r)
 }
 
 // Externals lists the files a task's steps edited outside its worktree.
 func (d *DB) Externals(taskID string) ([]ExternalFile, error) {
-	rows, err := d.db.Query(`SELECT e.step_id, e.path, e.root FROM external_files e JOIN steps s ON s.id = e.step_id
-		WHERE s.task_id = ? ORDER BY e.root, e.path`, taskID)
-	if err != nil {
-		return nil, err
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.tasks[taskID]
+	if r == nil {
+		return nil, nil
 	}
-	defer rows.Close()
-	var out []ExternalFile
-	for rows.Next() {
-		var f ExternalFile
-		if err := rows.Scan(&f.StepID, &f.Path, &f.Root); err != nil {
-			return nil, err
+	out := append([]ExternalFile(nil), r.External...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Root != out[j].Root {
+			return out[i].Root < out[j].Root
 		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
-}
-
-// DeleteStepsFrom removes a task's steps from seq on (their kv state too).
-func (d *DB) DeleteStepsFrom(taskID string, seq int) error {
-	_, err := d.db.Exec(`DELETE FROM steps WHERE task_id = ? AND seq >= ?`, taskID, seq)
-	return err
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
 }
 
 // StepID builds a step id from its task and key.

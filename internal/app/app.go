@@ -112,10 +112,11 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 	if a.settings, err = settings.Open(a.Home); err != nil {
 		return err
 	}
-	if a.db, err = store.Open(filepath.Join(a.Home, "herd.db")); err != nil {
+	// A task's file lives in its run directory, with its artifacts.
+	taskFile := func(t store.Task) string { return filepath.Join(a.runDir(a.projectOf(t), t), store.TaskFile) }
+	if a.db, err = store.Open(a.Home, taskFile); err != nil {
 		return err
 	}
-	a.convertManualSteps()
 	a.run = runner.New(a.onExit)
 	a.run.Hold, a.run.SockDir = a.HoldCmd, filepath.Join(a.Home, "sessions")
 	a.focused.Store(true)

@@ -80,17 +80,19 @@ type App struct {
 	pollMu sync.Mutex // one pollPRs at a time
 
 	checksMu sync.Mutex
-	checks   map[string][]github.Check // CI checks of each open PR, by task id
-	labels   map[string][]string       // labels of each open PR, by task id
-	drafts   map[string]bool           // whether each open PR is a draft, by task id
-	conflict map[string]bool           // whether each open PR conflicts with its base, by task id
+	checks   map[string][]github.Check    // CI checks of each open PR, by task id
+	labels   map[string][]string          // labels of each open PR, by task id
+	drafts   map[string]bool              // whether each open PR is a draft, by task id
+	conflict map[string]bool              // whether each open PR conflicts with its base, by task id
+	feedback map[string][]github.Feedback // what reviewers still ask for on each open PR, by task id
+	behind   map[string]int               // commits of origin/<base> each task's branch lacks, by task id
 
 	busy sync.Map // ids of the steps whose post-success actions (git, automatic next steps) are running
 }
 
 // New creates the service; call Start before use.
 func New(home string) *App {
-	return &App{Home: home, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}, conflict: map[string]bool{}}
+	return &App{Home: home, checks: map[string][]github.Check{}, labels: map[string][]string{}, drafts: map[string]bool{}, conflict: map[string]bool{}, feedback: map[string][]github.Feedback{}, behind: map[string]int{}}
 }
 
 // DefaultHome returns ~/.herd, or $HERD_HOME when set.
@@ -301,9 +303,12 @@ func (a *App) toast(title, body string, isErr bool) {
 func (a *App) loop() {
 	reap := time.NewTicker(20 * time.Second)
 	prs := time.NewTicker(time.Minute)
+	drift := time.NewTicker(5 * time.Minute)
 	defer reap.Stop()
 	defer prs.Stop()
+	defer drift.Stop()
 	go a.pollPRs()
+	go a.pollDrift()
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -312,6 +317,8 @@ func (a *App) loop() {
 			a.reap()
 		case <-prs.C:
 			go a.pollPRs()
+		case <-drift.C:
+			go a.pollDrift()
 		}
 	}
 }

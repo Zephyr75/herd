@@ -1,8 +1,10 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -10,7 +12,9 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"herd/internal/artifacts"
@@ -539,6 +543,81 @@ func (a *App) setConflict(taskID string, c bool) {
 	}
 }
 
+// collectFeedback keeps what reviewers still ask for on the task's PR.
+func (a *App) collectFeedback(t store.Task) {
+	fs, err := a.gh.Feedback(a.ctx, a.projectOf(t).Repo, t.PRNumber)
+	if err != nil {
+		log.Printf("feedback of PR #%d: %v", t.PRNumber, err)
+		return
+	}
+	a.checksMu.Lock()
+	old, _ := json.Marshal(a.feedback[t.ID])
+	a.feedback[t.ID] = fs
+	a.checksMu.Unlock()
+	if now, _ := json.Marshal(fs); string(now) != string(old) {
+		a.emitTask(t.ID)
+	}
+}
+
+func (a *App) feedbackOf(taskID string) []github.Feedback {
+	a.checksMu.Lock()
+	defer a.checksMu.Unlock()
+	if fs := a.feedback[taskID]; fs != nil {
+		return fs
+	}
+	return []github.Feedback{}
+}
+
+var driftMu sync.Mutex
+
+// pollDrift counts, for each active task, the commits of origin/<base> its
+// branch lacks: herd fetches each project's base branch first.
+func (a *App) pollDrift() {
+	if !driftMu.TryLock() {
+		return
+	}
+	defer driftMu.Unlock()
+	tasks, err := a.db.Tasks()
+	if err != nil {
+		return
+	}
+	fetched := map[string]bool{}
+	for _, t := range tasks {
+		if t.Archived || t.WorktreeRemoved || (t.PRState != "" && t.PRState != "open") {
+			continue
+		}
+		p := a.projectOf(t)
+		if p.Path == "" || p.BaseBranch == "" {
+			continue
+		}
+		if _, ok := fetched[p.ID]; !ok {
+			_, err := a.git.Run(a.ctx, p.Path, "fetch", "--quiet", "origin", p.BaseBranch)
+			fetched[p.ID] = err == nil
+		}
+		if !fetched[p.ID] {
+			continue
+		}
+		out, err := a.git.Run(a.ctx, worktreePath(p, t), "rev-list", "--count", "HEAD..origin/"+p.BaseBranch)
+		if err != nil {
+			continue
+		}
+		n, _ := strconv.Atoi(strings.TrimSpace(out))
+		a.checksMu.Lock()
+		old, had := a.behind[t.ID]
+		a.behind[t.ID] = n
+		a.checksMu.Unlock()
+		if !had || old != n {
+			a.emitTask(t.ID)
+		}
+	}
+}
+
+func (a *App) behindOf(taskID string) int {
+	a.checksMu.Lock()
+	defer a.checksMu.Unlock()
+	return a.behind[taskID]
+}
+
 func (a *App) conflictOf(taskID string) bool {
 	a.checksMu.Lock()
 	defer a.checksMu.Unlock()
@@ -604,8 +683,9 @@ func (a *App) RefreshPR(taskID string) error {
 		return err
 	}
 	a.pollMu.Lock() // after a poll already running
-	defer a.pollMu.Unlock()
 	a.pollPR(t)
+	a.pollMu.Unlock()
+	a.pollDrift()
 	a.emitTask(t.ID)
 	return nil
 }
@@ -681,6 +761,7 @@ func (a *App) pollPR(t store.Task) {
 	if err != nil || pr.State == "open" || pr.State == "" {
 		a.collectChecks(t)
 		a.collectCopilot(t)
+		a.collectFeedback(t)
 		return
 	}
 	a.stopTaskSessions(t.ID)

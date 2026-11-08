@@ -6,7 +6,7 @@
 import { computed, ref } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
-import { unsuccessful, type CICheck, type Option, type Step, type Task } from '../lib/types'
+import { unsuccessful, type CICheck, type Feedback, type Step, type Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 
 const props = defineProps<{ task: Task; step?: Step }>()
@@ -48,19 +48,26 @@ const anyActions = computed(() => props.task.checks.some((c) => actions(c.link))
 
 // Fixes go to the agent Copilot offers first when there is something to fix
 // (Implement by default), as a new step with guidance.
-const fixer = computed(() => {
-  const ags = herd.settings?.agents ?? []
-  const id = ags.find((a) => a.builtin)?.onFail[0] ?? 'impl'
-  return ags.find((a) => a.id === id)
-})
-const busy = computed(() => props.task.steps.some((s) => !s.external && (s.state === 'running' || s.state === 'idle' || s.state === 'approval')))
+const fixer = computed(() => herd.fixers()[0])
 const failing = computed(() => props.task.checks.filter((c) => c.bucket === 'fail' || c.bucket === 'cancel'))
-const canFix = computed(() => live.value && !!fixer.value && !busy.value)
-function fix(guidance: string) {
-  const ag = fixer.value
-  if (ag) herd.run({ agent: ag.id, label: ag.name, n: 0 } as Option, props.task.id, guidance)
+const canFix = computed(() => live.value && herd.canFix(props.task))
+const fix = (guidance: string) => herd.fixWith(props.task, guidance)
+
+// Review comments: every one is sent unless unticked.
+const skip = ref(new Set<string>())
+const toggle = (id: string) => (skip.value.has(id) ? skip.value.delete(id) : skip.value.add(id), (skip.value = new Set(skip.value)))
+const picked = computed(() => props.task.feedback.filter((f) => !skip.value.has(f.id)))
+const where = (f: Feedback) => (f.path ? `${f.path}:${f.line}` : 'on the PR')
+function fixFeedback() {
+  const comments = picked.value
+    .map((f) => {
+      const replies = f.replies.map((r) => `> ${r.author}: ${r.body.replace(/\n/g, '\n> ')}`).join('\n')
+      return `### ${where(f)}${f.outdated ? ' (outdated: the code changed since)' : ''}, by ${f.author}\n${f.body}${replies ? '\n\n' + replies : ''}`
+    })
+    .join('\n\n')
+  fix(herd.prompt('fixFeedback', { pr: String(props.task.pr), comments }))
 }
-const rebase = () => fix(herd.prompt('rebase', { pr: String(props.task.pr), base: props.task.baseBranch }))
+const rebase = () => fix(herd.prompt('rebase', { pr: String(props.task.pr), base: props.task.baseBranch, behind: String(props.task.behind || 'some') }))
 const fixReview = () => fix(herd.prompt('fixReview', { pr: String(props.task.pr), review: cop.value?.artifact ?? 'COPILOT-n.md' }))
 const fixChecks = () =>
   fix(
@@ -82,8 +89,10 @@ async function refresh() {
   <div class="tracker">
     <div class="head">
       <span class="title">PR #{{ task.pr }}</span>
+      <span v-if="herd.prReady(task)" :class="['state', herd.prReady(task)]" :title="herd.prReady(task) === 'ready' ? 'Ready for review' : 'A draft: reviewers and repo bots leave it alone until it is marked ready'">{{ herd.prReady(task) === 'ready' ? 'Ready' : 'Draft' }}</span>
       <span class="muted small">{{ task.branch }} → {{ task.baseBranch }}</span>
       <span class="grow"></span>
+      <button v-if="herd.prReady(task) === 'draft'" class="act" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(task)"><Icon name="check" :size="13" />Mark ready</button>
       <button v-if="task.prState === 'open' && !task.archived" class="act" :disabled="refreshing" title="Check Copilot's review and the CI checks now instead of waiting for the next minute" @click="refresh"><Icon name="rerun" :size="13" />{{ refreshing ? 'Refreshing…' : 'Refresh' }}</button>
       <button v-if="task.prUrl" class="act" :title="`Open PR #${task.pr} on GitHub`" @click="open(task.prUrl)"><Icon name="external" :size="13" />Open PR</button>
     </div>
@@ -107,11 +116,27 @@ async function refresh() {
         <button v-else-if="cop && unsuccessful(cop) && canFix" class="act" :title="`Start a ${fixer!.name} step that fixes what Copilot's review asks for`" @click="fixReview"><Icon name="pencil" :size="13" />Fix with {{ fixer!.name }}</button>
         <button v-if="live" class="act" title="Ask Copilot to review the PR as it is now; a Copilot step waits for the review" @click="askCopilot"><Icon name="rerun" :size="13" />{{ waiting ? 'Ask again' : 'Request review' }}</button>
       </div>
-      <div v-if="herd.prReady(task)" class="line ready">
-        <span :class="['sdot', herd.prReady(task) === 'ready' ? 'd-done' : 'd-off']"></span>
-        <span>{{ herd.prReady(task) === 'ready' ? 'Ready for review.' : 'A draft.' }}</span>
+    </section>
+
+    <section v-if="task.feedback.length">
+      <div class="h">
+        <h3>Review comments</h3>
         <span class="grow"></span>
-        <button v-if="herd.prReady(task) === 'draft'" class="act" title="Turn the draft PR into one ready for review and add the ready label" @click="herd.markReady(task)"><Icon name="check" :size="13" />Mark ready</button>
+        <button v-if="canFix" class="act" :disabled="!picked.length" :title="`Start a ${fixer!.name} step that addresses the ticked comments`" @click="fixFeedback"><Icon name="pencil" :size="13" />Fix {{ picked.length }} with {{ fixer!.name }}</button>
+      </div>
+      <div v-for="f in task.feedback" :key="f.id" class="fb">
+        <input type="checkbox" :checked="!skip.has(f.id)" :aria-label="'Send the comment of ' + f.author" @change="toggle(f.id)" />
+        <div class="fbody">
+          <div class="fmeta">
+            <span class="who">{{ f.author }}</span>
+            <span class="mono muted">{{ where(f) }}</span>
+            <span v-if="f.outdated" class="muted">outdated</span>
+            <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
+            <span class="grow"></span>
+            <button class="icon" title="Open on GitHub" aria-label="Open on GitHub" @click="open(f.url)"><Icon name="external" :size="12" /></button>
+          </div>
+          <div class="ftext" :title="f.body">{{ f.body }}</div>
+        </div>
       </div>
     </section>
 
@@ -255,8 +280,16 @@ async function refresh() {
   .h h3 {
     margin: 0;
   }
-  .ready {
-    margin-top: 8px;
+  .state {
+    padding: 1px 7px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .state.ready {
+    border-color: var(--done);
+    color: var(--done);
   }
   .conflict {
     margin-bottom: 8px;
@@ -288,6 +321,49 @@ async function refresh() {
     border-radius: 4px;
     background: transparent;
     color: var(--muted);
+  }
+  .fb {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+  }
+  .fb:first-of-type {
+    border-top: 0;
+  }
+  .fb input {
+    margin-top: 3px;
+  }
+  .fbody {
+    flex: 1;
+    min-width: 0;
+  }
+  .fmeta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .who {
+    font-weight: 500;
+  }
+  .fmeta .mono {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ftext {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .icon:hover {
     background: var(--hover);

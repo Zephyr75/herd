@@ -67,23 +67,26 @@ type Next struct {
 // TaskView is a task with its steps and derived state.
 type TaskView struct {
 	store.Task
-	ProjectName string         `json:"projectName"`
-	Repo        string         `json:"repo"`
-	BaseBranch  string         `json:"baseBranch"`
-	Worktree    string         `json:"worktree"`
-	WorktreeRel string         `json:"worktreeRel"`
-	Branch      string         `json:"branch"`
-	RunDir      string         `json:"runDir"`
-	Source      string         `json:"source"`
-	Status      Status         `json:"status"`
-	Steps       []StepView     `json:"steps"`
-	Next        Next           `json:"next"`
-	ProjectGone bool           `json:"projectGone"` // its project was removed from Settings > Projects
-	Checks      []github.Check `json:"checks"`      // CI checks of the open PR, refreshed every minute
-	Labels      []string       `json:"labels"`      // labels of the open PR
-	Sisters     []SisterRef    `json:"sisters"`     // tasks for the other repositories of the same work
-	Draft       bool           `json:"draft"`       // the open PR is a draft (herd opens them so)
-	Conflicting bool           `json:"conflicting"` // the open PR conflicts with its base: GitHub runs no checks
+	ProjectName string            `json:"projectName"`
+	Repo        string            `json:"repo"`
+	BaseBranch  string            `json:"baseBranch"`
+	Worktree    string            `json:"worktree"`
+	WorktreeRel string            `json:"worktreeRel"`
+	Branch      string            `json:"branch"`
+	RunDir      string            `json:"runDir"`
+	Source      string            `json:"source"`
+	Status      Status            `json:"status"`
+	Steps       []StepView        `json:"steps"`
+	Next        Next              `json:"next"`
+	ProjectGone bool              `json:"projectGone"` // its project was removed from Settings > Projects
+	Checks      []github.Check    `json:"checks"`      // CI checks of the open PR, refreshed every minute
+	Labels      []string          `json:"labels"`      // labels of the open PR
+	Sisters     []SisterRef       `json:"sisters"`     // tasks for the other repositories of the same work
+	Draft       bool              `json:"draft"`       // the open PR is a draft (herd opens them so)
+	Conflicting bool              `json:"conflicting"` // the open PR conflicts with its base: GitHub runs no checks
+	Feedback    []github.Feedback `json:"feedback"`    // what reviewers still ask for on the open PR
+	Behind      int               `json:"behind"`      // commits of origin/<base> the branch lacks
+	Notes       []Note            `json:"notes"`       // the user's comments on the diff, until sent to a step
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -198,6 +201,9 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	}
 	v.Draft = a.draftOf(t.ID)
 	v.Conflicting = a.conflictOf(t.ID)
+	v.Feedback = a.feedbackOf(t.ID)
+	v.Behind = a.behindOf(t.ID)
+	v.Notes = a.notesOf(t.ID)
 	v.Checks = a.checksOf(t.ID)
 	if v.Checks == nil {
 		v.Checks = []github.Check{}

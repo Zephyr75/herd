@@ -315,6 +315,114 @@ func (g GH) Rerun(ctx context.Context, repo, run, job string) error {
 	return err
 }
 
+// Feedback is what a reviewer asks for on a PR: an unresolved review thread,
+// or the comment of a review of the PR's latest commit. Anyone's, Copilot's
+// threads included.
+type Feedback struct {
+	ID       string  `json:"id"`
+	Author   string  `json:"author"`
+	Path     string  `json:"path"` // "" for a review's own comment
+	Line     int     `json:"line"`
+	Outdated bool    `json:"outdated"` // the code it points at changed since
+	Body     string  `json:"body"`
+	URL      string  `json:"url"`
+	Replies  []Reply `json:"replies"`
+}
+
+const feedbackQuery = `query($owner: String!, $name: String!, $n: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $n) {
+      headRefOid
+      reviewThreads(first: 100) {
+        nodes { id isResolved isOutdated path line originalLine
+          comments(first: 30) { nodes { author { login } body url } } }
+      }
+      reviews(last: 30) {
+        nodes { id author { login } body url commit { oid } }
+      }
+    }
+  }
+}`
+
+// Feedback lists what reviewers still ask for on a PR: its unresolved
+// threads, then the comments of reviews of its latest commit (Copilot's
+// overview aside: the Copilot step has it).
+func (g GH) Feedback(ctx context.Context, repo string, n int) ([]Feedback, error) {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok {
+		return nil, fmt.Errorf("bad repository %q", repo)
+	}
+	out, err := g.run(ctx, "", "api", "graphql", "-f", "query="+feedbackQuery, "-F", "owner="+owner, "-F", "name="+name, "-F", "n="+strconv.Itoa(n))
+	if err != nil {
+		return nil, err
+	}
+	return parseFeedback(out)
+}
+
+func parseFeedback(out string) ([]Feedback, error) {
+	type author struct{ Login string }
+	var v struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					HeadRefOid    string
+					ReviewThreads struct {
+						Nodes []struct {
+							ID                     string
+							IsResolved, IsOutdated bool
+							Path                   string
+							Line, OriginalLine     *int
+							Comments               struct {
+								Nodes []struct {
+									Author    author
+									Body, URL string
+								}
+							}
+						}
+					}
+					Reviews struct {
+						Nodes []struct {
+							ID        string
+							Author    author
+							Body, URL string
+							Commit    struct{ Oid string }
+						}
+					}
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		return nil, err
+	}
+	pr := v.Data.Repository.PullRequest
+	fs := []Feedback{}
+	for _, th := range pr.ReviewThreads.Nodes {
+		if th.IsResolved || len(th.Comments.Nodes) == 0 {
+			continue
+		}
+		first := th.Comments.Nodes[0]
+		f := Feedback{ID: th.ID, Author: first.Author.Login, Path: th.Path, Outdated: th.IsOutdated, Body: strings.TrimSpace(first.Body), URL: first.URL, Replies: []Reply{}}
+		if th.Line != nil {
+			f.Line = *th.Line
+		} else if th.OriginalLine != nil {
+			f.Line = *th.OriginalLine
+		}
+		for _, c := range th.Comments.Nodes[1:] {
+			f.Replies = append(f.Replies, Reply{Author: c.Author.Login, Body: strings.TrimSpace(c.Body)})
+		}
+		fs = append(fs, f)
+	}
+	for _, r := range pr.Reviews.Nodes {
+		body := strings.TrimSpace(r.Body)
+		if body == "" || r.Commit.Oid != pr.HeadRefOid || strings.Contains(strings.ToLower(r.Author.Login), "copilot") {
+			continue
+		}
+		fs = append(fs, Feedback{ID: r.ID, Author: r.Author.Login, Body: body, URL: r.URL, Replies: []Reply{}})
+	}
+	return fs, nil
+}
+
 // MarkReady turns a draft PR into one ready for review.
 func (g GH) MarkReady(ctx context.Context, repo string, n int) error {
 	_, err := g.run(ctx, "", "pr", "ready", strconv.Itoa(n), "--repo", repo)

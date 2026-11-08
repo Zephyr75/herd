@@ -2,7 +2,7 @@
 // at window.runtime. In a plain browser (npm run dev) a mock built from the
 // UI preview's fixtures stands in, so the UI can be worked on without Go.
 
-import type { Diagram, FileDiff, Issue, SystemMemory, Agent, Artifact, Bootstrap, Changes, Check, Context, Proc, Project, Settings, Step, Task, Appearance } from './types'
+import type { Diagram, FileDiff, Issue, SystemMemory, Agent, Artifact, Bootstrap, Changes, Check, Context, Proc, Project, Settings, Step, Task, Appearance, Note } from './types'
 
 export interface Api {
   Bootstrap(): Promise<Bootstrap>
@@ -51,6 +51,7 @@ export interface Api {
   SaveAgents(agents: Agent[]): Promise<void>
   SaveContext(c: Context): Promise<void>
   SetPrompt(id: string, text: string): Promise<void>
+  SetNotes(task: string, notes: Note[]): Promise<void>
   AgentCommand(a: Agent): Promise<string>
   SaveProject(p: Project): Promise<void>
   RemoveProject(id: string): Promise<void>

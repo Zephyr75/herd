@@ -61,6 +61,8 @@ async function openRunDir() {
   if (task) await herd.attempt('Could not open the run folder', () => api.OpenRunDir(task.id))
 }
 
+const rebase = () => t.value && herd.fixWith(t.value, herd.prompt('rebase', { pr: String(t.value.pr), base: t.value.baseBranch, behind: String(t.value.behind) }))
+
 async function archive() {
   const task = t.value
   if (task) await herd.attempt('Could not archive', () => api.ArchiveTask(task.id))
@@ -80,7 +82,13 @@ async function archive() {
           <button v-if="!t.archived && !t.worktreeRemoved" class="act" title="Open the task's worktree in Zed to edit it by hand" @click="herd.openWorktree()"><Icon name="pencil" :size="12" />Edit</button>
           <button v-if="!t.archived" class="icon-btn" aria-label="Archive task" title="Archive task" @click="archive"><Icon name="archive" :size="16" /></button>
         </div>
-        <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
+        <div class="src">
+          <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
+          <template v-if="t.behind && !t.archived">
+            <span class="behind small" :title="`origin/${t.baseBranch} has ${t.behind} commits this branch lacks (herd fetches it every 5 minutes)`">{{ t.behind }} behind {{ t.baseBranch }}</span>
+            <button v-if="herd.canFix(t)" class="act" :title="`Start a ${herd.fixers()[0]?.name} step that rebases the branch on origin/${t.baseBranch}`" @click="rebase"><Icon name="branch" :size="12" />Rebase</button>
+          </template>
+        </div>
         <div v-if="t.sisters.length" class="sisters">
           <span class="muted small">Sister</span>
           <button v-for="x in t.sisters" :key="x.id" class="chip" title="Go to the sister task: the same work in another repository" @click="herd.pickTask(x.id)">{{ x.project }} →</button>
@@ -130,6 +138,15 @@ async function archive() {
 </template>
 
 <style scoped>
+  .src {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .behind {
+    color: var(--waiting);
+  }
 
   aside {
     position: relative;

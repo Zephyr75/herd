@@ -1281,3 +1281,41 @@ func TestCommandUsesPrompts(t *testing.T) {
 		t.Fatal("plan.md not rewritten")
 	}
 }
+
+func TestDiffNotes(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, err := a.CreateTask("core", "", "notes", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns := []Note{{ID: "n1", Path: "a.go", Side: "new", From: 3, To: 4, Code: "+x", Text: "rename"}}
+	if err := a.SetNotes(tv.ID, ns); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.notesOf(tv.ID); len(got) != 1 || got[0].Text != "rename" {
+		t.Fatalf("notes = %+v", got)
+	}
+	if err := a.SetNotes(tv.ID, nil); err != nil || len(a.notesOf(tv.ID)) != 0 {
+		t.Fatal("notes not cleared")
+	}
+}
+
+func TestBehindBase(t *testing.T) {
+	a, repo := newTestApp(t)
+	origin := filepath.Join(filepath.Dir(repo), "origin.git")
+	run(t, "", "git", "clone", "-q", "--bare", repo, origin)
+	run(t, repo, "git", "remote", "add", "origin", origin)
+	run(t, repo, "git", "fetch", "-q", "origin")
+	tv, err := a.CreateTask("core", "", "drift", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo, "new.txt"), []byte("x\n"), 0o644)
+	run(t, repo, "git", "add", ".")
+	run(t, repo, "git", "commit", "-q", "-m", "on main")
+	run(t, repo, "git", "push", "-q", "origin", "main")
+	a.pollDrift()
+	if n := a.behindOf(tv.ID); n != 1 {
+		t.Fatalf("behind = %d, want 1", n)
+	}
+}

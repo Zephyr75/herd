@@ -6,7 +6,7 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task, fill } from './types'
+import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task, type Agent, type Note, fill } from './types'
 
 export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'views'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
@@ -516,6 +516,43 @@ class Herd {
     return !!last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped'
   }
 
+  /** fixers: the agents Copilot offers when there is something to fix (Implement, Discuss by default); the first does the fixes. */
+  fixers(): Agent[] {
+    const ags = this.settings?.agents ?? []
+    const ids = ags.find((a) => a.builtin)?.onFail ?? []
+    const out = ids.map((id) => ags.find((a) => a.id === id)).filter((a): a is Agent => !!a && !a.builtin)
+    if (!out.length) {
+      const impl = ags.find((a) => a.id === 'impl')
+      if (impl) out.push(impl)
+    }
+    return out
+  }
+
+  /** busy: a step of the task is working or waiting for the user (a waiting Copilot step aside). */
+  busy(t: Task): boolean {
+    return t.steps.some((s) => !s.external && (s.state === 'running' || s.state === 'idle' || s.state === 'approval'))
+  }
+
+  /** canFix: herd can start a fix step on the task now. */
+  canFix(t: Task): boolean {
+    return !t.archived && !t.worktreeRemoved && !!this.fixers().length && !this.busy(t)
+  }
+
+  /** fixWith starts agent (the first fixer by default) on the task with the given guidance. */
+  async fixWith(t: Task, guidance: string, agent = this.fixers()[0]): Promise<boolean> {
+    if (!agent) return false
+    const step = await this.attempt('Could not start ' + agent.name, () => api.StartStep(t.id, agent.id, guidance, 0))
+    if (!step) return false
+    this.openStep(t.id, step.id)
+    return true
+  }
+
+  /** setNotes saves the task's comments on the diff. */
+  async setNotes(t: Task, notes: Note[]) {
+    t.notes = notes
+    await this.attempt('Could not save the comments', () => api.SetNotes(t.id, JSON.parse(JSON.stringify(notes))))
+  }
+
   /** prompt is one of herd's prompts (Settings > Context > Prompts), filled with vars. */
   prompt(id: string, vars: Record<string, string>): string {
     return fill(this.settings?.prompts.find((p) => p.id === id)?.text ?? '', vars)
@@ -650,6 +687,8 @@ class Herd {
     if (!action) return
     // ⌘⏎ inside a popup belongs to the popup (Create and run Plan, open in Zed).
     if (this.overlay !== 'none' && action === 'runPrimary') return
+    // Escape in an editor that handles it (a diff comment) cancels the edit, not the popup.
+    if (action === 'close' && (e.target as HTMLElement | null)?.closest?.('[data-own-escape]')) return
     // Escape with nothing to close belongs to the focused element, e.g. Claude Code in the terminal.
     if (action === 'close' && this.overlay === 'none' && this.view === 'board') return
     e.preventDefault()

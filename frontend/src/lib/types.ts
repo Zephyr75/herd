@@ -208,6 +208,9 @@ export interface Task {
   labels: string[] // labels of the open PR
   draft: boolean // the open PR is a draft (herd opens them so)
   conflicting: boolean // the open PR conflicts with its base: GitHub runs no checks
+  feedback: Feedback[] // what reviewers still ask for on the open PR
+  behind: number // commits of origin/<base> the branch lacks
+  notes: Note[] // the user's comments on the diff, until sent to a step
 }
 
 
@@ -271,3 +274,26 @@ export const afterOf = (trigger: string) => (trigger.startsWith('after:') ? trig
 
 /** unsuccessful: the step finished, and its agent reported status: failed ("changes": older reviews). */
 export const unsuccessful = (s: { state: string; verdict: string }) => s.state === 'done' && (s.verdict === 'failed' || s.verdict === 'changes')
+
+/** An unresolved review thread, or a review's own comment, on the task's PR. */
+export interface Feedback {
+  id: string
+  author: string
+  path: string // '' for a review's own comment
+  line: number
+  outdated: boolean // the code it points at changed since
+  body: string
+  url: string
+  replies: { author: string; body: string }[]
+}
+
+/** The user's comment on lines of a diff, kept with the task until sent to a step. */
+export interface Note {
+  id: string
+  path: string
+  side: 'new' | 'old' // which line numbers from and to are
+  from: number
+  to: number
+  code: string // the lines it is about
+  text: string
+}

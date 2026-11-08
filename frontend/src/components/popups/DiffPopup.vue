@@ -4,9 +4,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorText } from '../../lib/api'
 import { herd } from '../../lib/state'
-import type { Changes, FileDiff } from '../../lib/types'
+import type { Changes, FileDiff, Note } from '../../lib/types'
 import Icon from '../ui/Icon.vue'
 import DiffView from '../Diff.vue'
+import NotesBar from '../NotesBar.vue'
 import ChangedFiles, { split, statusCls, statusTitle } from '../ChangedFiles.vue'
 import Splitter from '../ui/Splitter.vue'
 import Dropdown from '../ui/Dropdown.vue'
@@ -76,6 +77,21 @@ watch(
 )
 
 const pick = (path: string) => herd.diffOf && (herd.diffOf.path = path)
+
+// Comments on the diff, kept with the task until sent to a step.
+const fileNotes = computed(() => (task.value?.notes ?? []).filter((n) => n.path === sel.value))
+function addNote(n: Omit<Note, 'id' | 'path'>) {
+  const t = task.value
+  if (t) void herd.setNotes(t, [...t.notes, { ...n, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), path: sel.value }])
+}
+function updateNote(id: string, text: string) {
+  const t = task.value
+  if (t) void herd.setNotes(t, t.notes.map((n) => (n.id === id ? { ...n, text } : n)))
+}
+function removeNote(id: string) {
+  const t = task.value
+  if (t) void herd.setNotes(t, t.notes.filter((n) => n.id !== id))
+}
 const sb = useSidebar('diff', 300)
 const close = () => herd.closeDiffPopup()
 
@@ -93,6 +109,7 @@ onMounted(() => box.value?.focus())
 
 // Up and down move through the files.
 function key(e: KeyboardEvent) {
+  if ((e.target as HTMLElement).tagName === 'TEXTAREA') return
   const files = changes.value?.files ?? []
   const i = files.findIndex((f) => f.path === sel.value)
   if (e.key === 'ArrowDown' && i < files.length - 1) pick(files[i + 1].path)
@@ -122,6 +139,7 @@ function key(e: KeyboardEvent) {
         <Splitter side="left" :width="sb.width.value" :min="SIDEBAR.min" :max="SIDEBAR.max" :def="sb.def" label="Resize the side bar" @resize="(w) => (sb.width.value = w)" />
       </div>
       <div class="main">
+        <NotesBar v-if="task?.notes.length" class="notes" :task="task" />
         <div v-if="file" class="fhead">
           <span :class="['st', statusCls(file.status)]" :title="statusTitle(file.status)">{{ file.status === '?' ? 'U' : file.status }}</span>
           <span class="path mono" :title="file.path"><span class="dir">{{ split(file.path).dir }}</span>{{ split(file.path).name }}</span>
@@ -133,7 +151,7 @@ function key(e: KeyboardEvent) {
           <p v-else-if="diff.binary" class="empty">Binary file: no text diff.</p>
           <p v-else-if="!diff.diff" class="empty">No text changes (mode or whitespace only).</p>
           <template v-else>
-            <DiffView :diff="diff.diff" />
+            <DiffView :diff="diff.diff" :notes="fileNotes" commentable @add="addNote" @update="updateNote" @remove="removeNote" />
             <p v-if="diff.truncated" class="empty">The diff is too long to show in full; open the file in Zed for the rest.</p>
           </template>
         </div>
@@ -164,6 +182,9 @@ function key(e: KeyboardEvent) {
     background: var(--surface);
     color: var(--text);
     font-size: 12px;
+  }
+  .notes {
+    margin: 8px 12px 0;
   }
   .other:hover {
     background: var(--hover);

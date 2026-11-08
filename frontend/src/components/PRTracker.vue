@@ -67,6 +67,11 @@ const rebase = () =>
       `and continue with git rebase --continue (the only commits allowed in this step). Run the tests of the files you resolved. ` +
       `Do not push: Commit and push does it. List the conflicts and how you resolved them.`,
   )
+const fixReview = () =>
+  fix(
+    `Address Copilot's review of PR #${props.task.pr}, in ${cop.value?.artifact} in the run directory: for each comment, fix the code when it is right ` +
+      `(apply its suggested change when there is one), and say in your artifact which comments you left and why. Fix the failing CI checks it lists too.`,
+  )
 const fixChecks = () =>
   fix(
     `Fix the failing CI checks of PR #${props.task.pr}: ${failing.value.map((c) => c.workflow ? `${c.workflow} / ${c.name}` : c.name).join(', ')}. ` +
@@ -107,6 +112,7 @@ async function refresh() {
         </template>
         <span class="grow"></span>
         <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
+        <button v-else-if="cop && unsuccessful(cop) && canFix" class="act" :title="`Start a ${fixer!.name} step that fixes what Copilot's review asks for`" @click="fixReview"><Icon name="pencil" :size="13" />Fix with {{ fixer!.name }}</button>
         <button v-if="live" class="act" title="Ask Copilot to review the PR as it is now; a Copilot step waits for the review" @click="askCopilot"><Icon name="rerun" :size="13" />{{ waiting ? 'Ask again' : 'Request review' }}</button>
       </div>
       <div v-if="herd.prReady(task)" class="line ready">

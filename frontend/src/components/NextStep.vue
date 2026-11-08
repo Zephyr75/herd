@@ -55,7 +55,7 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
       <label for="guide" class="sr-only">Guidance for Claude</label>
       <p v-if="nx.warning" class="warn"><Icon name="warn" :size="14" />{{ nx.warning }}</p>
       <p v-if="nx.elsewhere.length" class="warn">
-        <Icon name="warn" :size="14" />Agents also edited files outside the worktree, in {{ nx.elsewhere.join(', ') }}. herd only commits {{ t.branch }}: check those edits yourself.
+        <Icon name="warn" :size="14" />Steps also edited files outside the worktree, in {{ nx.elsewhere.join(', ') }}. herd only commits {{ t.branch }}: check those edits yourself.
       </p>
       <textarea id="guide" v-model="herd.guidance" rows="3" :class="{ need: nx.warning && !herd.guidance.trim() }" :placeholder="nx.warning ? 'Which option? e.g. take option B, because…' : 'Guidance for Claude (optional)'"></textarea>
       <div class="opts">

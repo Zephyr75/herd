@@ -23,7 +23,7 @@ const rows = computed(() =>
 )
 watch([filter, project], () => (hi.value = Math.max(0, rows.value.findIndex((t) => t.id === herd.sel))), { immediate: true })
 const placeholder = computed(() =>
-  herd.scope === 'project' ? `Filter tasks in ${pname.value}…` : herd.scope === 'worktree' ? `Filter worktrees in ${pname.value}…` : `Filter agent branches in ${pname.value}…`,
+  herd.scope === 'project' ? `Filter tasks in ${pname.value}…` : herd.scope === 'worktree' ? `Filter worktrees in ${pname.value}…` : `Filter task branches in ${pname.value}…`,
 )
 const openCount = (id: string) => herd.tasks.filter((t) => t.project === id && !t.archived).length
 const primary = (t: (typeof rows.value)[number]) =>

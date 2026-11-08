@@ -188,7 +188,7 @@ function pick(id: string) {
         <Dropdown class="starts" :items="triggers" :value="A.trigger" @pick="set('trigger', $event)" />
       </div>
       <div class="field">
-        <span>When it succeeds, herd</span>
+        <span>When its step succeeds, herd</span>
         <div class="checks">
           <label title="Its artifact's title line and body are the commit message"><input type="checkbox" :checked="A.commit" @change="setGit('commit', checked($event))" /> commits</label>
           <span class="muted" aria-hidden="true">→</span>
@@ -212,7 +212,7 @@ function pick(id: string) {
         <label title="A Diff button on its steps opens their changes in Zed"><input type="checkbox" :checked="A.showDiff" @change="set('showDiff', checked($event))" /> Show a Diff button</label>
         <label title="When the work also needs other repositories, its artifact ends with a Sister tasks section and Next step offers to create each one in a click"><input type="checkbox" :checked="A.sisters" @change="set('sisters', checked($event))" /> Can create sister tasks</label>
       </div>
-      <div v-for="[k, label] in ([['next', 'After it succeeds, Next step offers'], ['onFail', 'After it fails, Next step offers']] as [ListKey, string][])" :key="k" class="field">
+      <div v-for="[k, label] in ([['next', 'After its step succeeds, Next step offers'], ['onFail', 'After its step fails, Next step offers']] as [ListKey, string][])" :key="k" class="field">
         <span>{{ label }}</span>
         <div class="offers">
           <span v-for="(id, i) in A[k] ?? []" :key="id" class="offer" :class="{ main: i === 0 }" :title="i === 0 ? 'The highlighted button' : ''">{{ nameOf(id) }}<button class="x" :aria-label="'Remove ' + nameOf(id)" @click="dropFrom(k, id)">×</button></span>

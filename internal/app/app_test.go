@@ -551,6 +551,11 @@ func TestRulesAndKnowledge(t *testing.T) {
 			t.Fatalf("%s (ignore rules %v) args: %q", ag.ID, ag.IgnoreRules, args)
 		}
 	}
+	allowed := agentFor(a.settings.Agents(), "test")
+	allowed.Allow = []string{"Bash(make test-path:*)", "Bash(make ruff)"}
+	if args := strings.Join(a.spec(launch{task: task, proj: p, agent: allowed, step: store.Step{N: 1, SessionID: "s"}}).Args, "\x00"); !strings.Contains(args, "--allowedTools\x00Bash(make test-path:*),Bash(make ruff)\x00") {
+		t.Fatalf("allowed tools: %q", args)
+	}
 	if err := a.writeContextFile(p, task); err != nil {
 		t.Fatal(err)
 	}

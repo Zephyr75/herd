@@ -29,6 +29,7 @@ export interface Agent {
   ignoreRules: boolean // the common rules are not given to this agent
   showDiff: boolean // its steps have a Diff button (open their changes in Zed)
   sisters: boolean // its artifact can ask for sister tasks in other repositories
+  allow: string[] // tool rules it runs without asking, e.g. Bash(make test-path:*)
   next: string[] // agents Next step offers after it succeeds, first highlighted
   onFail: string[] // agents Next step offers after it fails (empty: itself again)
   instructions: string

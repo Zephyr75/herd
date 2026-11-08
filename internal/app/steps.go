@@ -134,6 +134,10 @@ func (a *App) spec(l launch) runner.Spec {
 	if l.agent.Model != "" {
 		args = append(args, "--model", l.agent.Model)
 	}
+	// The agent's own rules run without asking (Settings > Agents).
+	if len(l.agent.Allow) > 0 {
+		args = append(args, "--allowedTools", strings.Join(l.agent.Allow, ","))
+	}
 	// Every session runs in auto mode; what agents may do is set by the rules.
 	args = append(args, "--permission-mode", "auto")
 	args = append(args, "--append-system-prompt", a.stepBlock(l, runDir, wt))

@@ -73,6 +73,7 @@ type Agent struct {
 	IgnoreRules  bool     `toml:"ignore_rules,omitempty" json:"ignoreRules"` // the common rules (Settings > Context) are not given to it
 	ShowDiff     bool     `toml:"show_diff,omitempty" json:"showDiff"`       // its steps have a Diff button (open their changes in Zed)
 	Sisters      bool     `toml:"sisters,omitempty" json:"sisters"`          // its artifact can ask for sister tasks in other repositories
+	Allow        []string `toml:"allow,omitempty" json:"allow"`              // tool rules it runs without asking, e.g. Bash(make test-path:*)
 	Next         []string `toml:"next,omitempty" json:"next"`                // agents Next step offers after it succeeds, first one highlighted (default: the next manual agent)
 	OnFail       []string `toml:"on_fail,omitempty" json:"onFail"`           // agents Next step offers after it fails (default: itself again)
 	Instructions string   `toml:"instructions" json:"instructions"`
@@ -416,6 +417,13 @@ func normalize(agents []Agent) []Agent {
 		if out[i].OnFail == nil {
 			out[i].OnFail = []string{}
 		}
+		allow := []string{}
+		for _, r := range out[i].Allow {
+			if r = strings.TrimSpace(r); r != "" {
+				allow = append(allow, r)
+			}
+		}
+		out[i].Allow = allow
 	}
 	return out
 }

@@ -88,7 +88,7 @@ function addAgent() {
   s.agents.push({
     id, name, command: `/herd:${id} {task} -- {guidance}`, model: 'sonnet', trigger: 'manual', writes: id.toUpperCase() + '-{n}.md',
     commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: false,
-    ignoreRules: false, showDiff: false, sisters: false, next: [], onFail: [],
+    ignoreRules: false, showDiff: false, sisters: false, allow: [], next: [], onFail: [],
     instructions: 'Describe what this agent reads, what it does and what it writes.',
   })
   selId.value = id
@@ -242,6 +242,11 @@ function pick(id: string) {
         </div>
       </div>
       <template v-if="!A.builtin">
+        <label class="field"
+          >Runs without asking (one Claude Code permission rule per line)
+          <textarea class="area mono" rows="2" placeholder="Bash(make test-path:*)" :value="(A.allow ?? []).join('\n')" @input="set('allow', val($event).split('\n'))"></textarea>
+          <span class="hint flat">Tools and commands this agent may use without a permission prompt. Your rules still apply: only list what they allow.</span>
+        </label>
         <label class="field">Instructions (the agent's skill: what it reads, does and writes)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
         <div class="actions">
           <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue} {base}' }}</span>
@@ -388,6 +393,9 @@ function pick(id: string) {
     font-size: 12px;
     line-height: 1.45;
     color: var(--muted);
+  }
+  .hint.flat {
+    margin-left: 0;
   }
   .field > .hint:last-child {
     margin-bottom: 0;

@@ -201,9 +201,9 @@ function pick(id: string) {
       <div class="field">
         <span>Its steps</span>
         <label class="box"><input type="checkbox" :checked="A.revert" @change="set('revert', checked($event))" /> Can be reverted</label>
-        <span class="hint">Revert shows on its latest step once that step and every step after it finished, while no step that commits ran after it and nothing was committed since it started. It puts the worktree back to how it was when the step started, and removes that step and the ones after it.</span>
+        <span class="hint">On its latest step, once all steps finished and none committed since: undoes it and the steps after it.</span>
         <label class="box"><input type="checkbox" :checked="A.rerun" @change="set('rerun', checked($event))" /> Can be rerun</label>
-        <span class="hint">Rerun shows on its step while it is the task's latest step and every step has finished. It runs the step again in its own conversation, on the worktree as it is now (e.g. after hand edits); if it commits, its commit is amended.</span>
+        <span class="hint">On the latest step, once all steps finished: runs it again on the worktree as it is now.</span>
         <label class="box"><input type="checkbox" :checked="A.choose" @change="set('choose', checked($event))" /> Asks you to choose</label>
         <span class="hint">When its artifact has an Options section, Next step asks you to name the option to take in the guidance.</span>
       </div>

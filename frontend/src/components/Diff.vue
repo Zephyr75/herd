@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // A unified diff: hunks with old and new line numbers. With commentable, a
-// click on a line number starts a comment on it (shift-click: on a range);
-// the comments show under their last line.
-import { computed, nextTick, ref } from 'vue'
+// + button shows on the hovered line: a click comments on that line, a drag
+// (or a shift-click on another line's +) on a range. The comments show
+// under their last line.
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import type { Note } from '../lib/types'
 
 const props = defineProps<{ diff: string; notes?: Note[]; commentable?: boolean }>()
@@ -53,13 +54,28 @@ const lineRow = (r: Row) => r.kind === 'add' || r.kind === 'del' || r.kind === '
 function focus() {
   void nextTick(() => box.value?.[0]?.focus())
 }
-function pick(i: number, e: MouseEvent) {
-  if (!props.commentable || !lineRow(rows.value[i])) return
+// The + button: press starts a selection, dragging over lines extends it,
+// releasing opens the editor under its last line.
+const dragging = ref(false)
+function press(i: number, e: MouseEvent) {
+  if (!props.commentable || !lineRow(rows.value[i]) || e.button !== 0) return
+  e.preventDefault() // no text selection while dragging
   if (e.shiftKey && anchor.value >= 0 && editing.value === 'new') end.value = i
   else (anchor.value = i), (end.value = i)
+  editing.value = ''
+  dragging.value = true
+  window.addEventListener('mouseup', release, { once: true })
+}
+function over(i: number) {
+  if (dragging.value && lineRow(rows.value[i])) end.value = i
+}
+function release() {
+  if (!dragging.value) return
+  dragging.value = false
   editing.value = 'new'
   focus()
 }
+onBeforeUnmount(() => window.removeEventListener('mouseup', release))
 function cancel() {
   anchor.value = end.value = -1
   editing.value = ''
@@ -90,7 +106,7 @@ function key(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.stopPropagation()
     cancel()
-  } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+  }
 }
 
 // Each note under the row of its last line; the ones whose lines left the diff at the end.
@@ -115,22 +131,25 @@ const span = (n: Note) => (n.from === n.to ? `line ${n.to}` : `lines ${n.from}�
     <table>
       <tbody>
         <template v-for="(r, i) in rows" :key="i">
-          <tr :class="[r.kind, { sel: selected(i) }]">
+          <tr :class="[r.kind, { sel: selected(i) }]" @mouseenter="over(i)">
             <template v-if="r.kind === 'hunk'">
-              <td class="ln" colspan="2">⋯</td>
+              <td class="ln" colspan="3">⋯</td>
               <td class="code">{{ r.text }}</td>
             </template>
             <template v-else>
-              <td class="ln" :title="commentable && lineRow(r) ? 'Comment on this line (shift-click: a range)' : ''" @click="pick(i, $event)">{{ r.old ?? '' }}</td>
-              <td class="ln" :title="commentable && lineRow(r) ? 'Comment on this line (shift-click: a range)' : ''" @click="pick(i, $event)">{{ r.new ?? '' }}</td>
+              <td class="ln">{{ r.old ?? '' }}</td>
+              <td class="ln">{{ r.new ?? '' }}</td>
+              <td class="gut">
+                <button v-if="commentable && lineRow(r)" class="add-note" aria-label="Comment on this line" title="Comment on this line (drag, or shift-click another line's +, for several)" @mousedown="press(i, $event)">+</button>
+              </td>
               <td class="code"><span class="sign">{{ r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ' ' }}</span>{{ r.text }}</td>
             </template>
           </tr>
           <tr v-for="n in placed.at.get(i) ?? []" :key="n.id" class="note-row">
-            <td colspan="3">
+            <td colspan="4">
               <div v-if="editing === n.id" class="editor">
                 <textarea ref="box" v-model="draft" rows="3" class="area" data-own-escape @keydown="key"></textarea>
-                <div class="bar"><span class="hint">Ctrl+Enter saves · empty removes it</span><button class="b" @click="cancel">Cancel</button><button class="b on" @click="save">Save</button></div>
+                <div class="bar"><span class="hint">Empty removes it</span><button class="b" @click="cancel">Cancel</button><button class="b on" @click="save">Save</button></div>
               </div>
               <div v-else class="note" title="Click to edit" @click="edit(n)">
                 <span class="where">{{ span(n) }}</span>
@@ -140,16 +159,16 @@ const span = (n: Note) => (n.from === n.to ? `line ${n.to}` : `lines ${n.from}�
             </td>
           </tr>
           <tr v-if="editing === 'new' && i === hi" class="note-row">
-            <td colspan="3">
+            <td colspan="4">
               <div class="editor">
                 <textarea ref="box" v-model="draft" rows="3" class="area" data-own-escape placeholder="What should change here?" @keydown="key"></textarea>
-                <div class="bar"><span class="hint">Ctrl+Enter saves · shift-click a line number for a range</span><button class="b" @click="cancel">Cancel</button><button class="b on" :disabled="!draft.trim()" @click="save">Comment</button></div>
+                <div class="bar"><span class="hint">Drag the + for several lines</span><button class="b" @click="cancel">Cancel</button><button class="b on" :disabled="!draft.trim()" @click="save">Comment</button></div>
               </div>
             </td>
           </tr>
         </template>
         <tr v-for="n in placed.lost" :key="n.id" class="note-row">
-          <td colspan="3">
+          <td colspan="4">
             <div class="note" title="Its lines are no longer in this diff" @click="edit(n)">
               <span class="where">{{ span(n) }}, no longer in the diff</span>
               <span class="text">{{ n.text }}</span>
@@ -219,11 +238,31 @@ td {
   color: var(--muted);
   font-style: italic;
 }
-.commentable .ln {
+.gut {
+  width: 18px;
+  min-width: 18px;
+}
+.add-note {
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
 }
-.commentable .ln:hover {
-  color: var(--text);
+tr:hover .add-note,
+.sel .add-note {
+  visibility: visible;
 }
 .sel td {
   box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--accent) 14%, transparent);

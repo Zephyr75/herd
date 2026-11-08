@@ -20,7 +20,7 @@ function pick(path: string) {
   <template v-else>
     <NotesBar v-if="herd.selTask?.notes.length" class="notes" :task="herd.selTask" />
     <ChangedFiles :changes="changes" @pick="pick" />
-    <p class="hint">Open a file and click a line number to comment on it.</p>
+    <p class="hint">Open a file and click the + that shows on a line to comment on it (drag it for several lines).</p>
   </template>
 </template>
 

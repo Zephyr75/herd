@@ -50,6 +50,8 @@ export interface Api {
   GetSettings(): Promise<Settings>
   SaveAgents(agents: Agent[]): Promise<void>
   SaveContext(c: Context): Promise<void>
+  SetPrompt(id: string, text: string): Promise<void>
+  AgentCommand(a: Agent): Promise<string>
   SaveProject(p: Project): Promise<void>
   RemoveProject(id: string): Promise<void>
   AddProject(): Promise<Project | null>

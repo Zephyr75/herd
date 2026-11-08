@@ -55,6 +55,7 @@ const settings: Settings = {
   },
   agents, context,
   keymap: { toggleLeft: ['Alt+E'], toggleRight: ['Alt+A'], close: ['Escape'] },
+  prompts: [],
   dir: '~/.herd',
 }
 
@@ -456,6 +457,8 @@ export const api: Api = {
   ChooseFiles: () => ok(['~/Pictures/ride-summary.png', '~/Downloads/crash.log']),
   GetSettings: () => ok(settings),
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },
+  SetPrompt: (id, text) => { const p = settings.prompts.find((x) => x.id === id); if (p) p.text = text || p.default; emit('settings:changed', settings); return ok(undefined) },
+  AgentCommand: (a) => ok(`You are the herd **${a.name}** agent.\n\n## Instructions\n\n${a.instructions}`),
   SaveContext: (c) => { settings.context[c.id] = c; emit('settings:changed', settings); return ok(undefined) },
   SaveProject: (p) => { const i = projects.findIndex((x) => x.id === p.id); if (i >= 0) projects[i] = p; else projects.push(p); emit('settings:changed', settings); return ok(undefined) },
   RemoveProject: (id) => { const i = projects.findIndex((x) => x.id === id); if (i >= 0) projects.splice(i, 1); emit('settings:changed', settings); return ok(undefined) },

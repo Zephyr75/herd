@@ -162,49 +162,29 @@ func (a *App) writePlugin() error {
 		if name == "" {
 			continue
 		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "---\ndescription: herd %s agent\nargument-hint: \"<task> [-- guidance]\"\n---\n\n", ag.Name)
-		fmt.Fprintf(&b, "You are the herd **%s** agent. Arguments: $ARGUMENTS\n\n", ag.Name)
-		b.WriteString("Text after `--` in the arguments is guidance from the user for this step; follow it.\n")
-		b.WriteString("The *herd step* block in your system prompt gives the task, the step number `{n}`, `{sha}`, `{issue}` and the exact artifact path.\n\n")
-		b.WriteString("## Protocol\n\n")
-		b.WriteString("1. Read `TASK.md` and then `CONTEXT.md` in the run directory (`$HERD_RUN_DIR`) before anything else.\n")
-		b.WriteString("2. Work in the current directory: it is the task's own git worktree.\n")
-		b.WriteString("3. Never commit or push: herd does it.\n")
-		b.WriteString("   Skills you can use whenever they help: context7 (current docs of libraries and frameworks) and archify (diagrams, see below).\n")
-		fmt.Fprintf(&b, "4. Write your artifact (`%s`) in the run directory. It starts with YAML front matter; when the step is finished it contains `status: done` (it succeeded) or `status: failed` (it did not, and the artifact says why).\n", ag.Writes)
-		b.WriteString("   Only add that line when the step is truly finished. If you need the user, ask in the terminal and stop.\n\n")
-		b.WriteString("## Instructions\n\n")
-		b.WriteString(strings.TrimSpace(ag.Instructions))
-		b.WriteString("\n")
-		stem := strings.TrimSuffix(ag.Writes, filepath.Ext(ag.Writes))
-		fmt.Fprintf(&b, diagramRules, stem, stem, stem)
-		if ag.Sisters {
-			fmt.Fprintf(&b, sisterRules, ag.Writes)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "commands", name+".md"), []byte(b.String()), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "commands", name+".md"), []byte(a.CommandText(ag)), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// sisterRules: for an agent allowed to ask for sister tasks (Settings > Agents).
-const sisterRules = `
-## Sister tasks
-
-When the work also needs changes in other repositories, do only this repository's part, then end %s with a "---" line and a "## Sister tasks" section:
-one "### <repository folder name>" per repository, then what that part must do, written as the description of its task. herd offers to create each one in a click.
-Leave out repositories that already have a sister task (listed in the herd step block).
-`
-
-// diagramRules: how any agent draws a diagram so herd shows it in the artifact.
-const diagramRules = `
-## Diagrams
-
-Every diagram is an archify page: run the archify skill (Skill tool), never draw it by hand. herd shows the page inside your artifact, and the reader can open it full size.
-- Save it in the run directory as ` + "`%s.html`" + ` (` + "`%s-<topic>.html`" + ` for more than one); keep archify's working files in ` + "`$HERD_RUN_DIR/.archify/`" + ` (and pass ` + "`--out-dir $HERD_RUN_DIR/.archify/<name>`" + ` to finalize so its reports go there too), never in the worktree.
-- Embed it in your artifact on its own line: ` + "`![<what it shows>](%s.html)`" + `.
-- Draw what the reader needs to understand, not every detail; mark what changes.
-- Write a ` + "```mermaid" + ` fence only when your instructions ask for mermaid, or when the archify skill is not in your skill list.
-`
+// CommandText is the command herd writes for an agent (/herd:<name>): its
+// instructions between the prompts of Settings > Context > Prompts.
+func (a *App) CommandText(ag settings.Agent) string {
+	stem := strings.TrimSuffix(ag.Writes, filepath.Ext(ag.Writes))
+	vars := map[string]string{"artifact": ag.Writes, "stem": stem}
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\ndescription: herd %s agent\nargument-hint: \"<task> [-- guidance]\"\n---\n\n", ag.Name)
+	fmt.Fprintf(&b, "You are the herd **%s** agent. Arguments: $ARGUMENTS\n\n", ag.Name)
+	b.WriteString(strings.TrimSpace(settings.Fill(a.settings.Prompt(settings.PromptProtocol), vars)) + "\n\n")
+	b.WriteString("## Instructions\n\n")
+	b.WriteString(strings.TrimSpace(ag.Instructions) + "\n")
+	if d := strings.TrimSpace(settings.Fill(a.settings.Prompt(settings.PromptDiagrams), vars)); d != "" {
+		b.WriteString("\n" + d + "\n")
+	}
+	if ag.Sisters {
+		b.WriteString("\n" + strings.TrimSpace(settings.Fill(a.settings.Prompt(settings.PromptSisters), vars)) + "\n")
+	}
+	return b.String()
+}

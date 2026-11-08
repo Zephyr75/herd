@@ -55,7 +55,7 @@ const (
 
 // App is the bound service.
 type App struct {
-	Home      string // ~/.herd
+	Home string // ~/.herd
 	// HoldCmd runs a session holder (herd's own path and "hold"), so
 	// sessions outlive herd. Empty: sessions end when herd quits.
 	HoldCmd []string
@@ -494,6 +494,21 @@ func (a *App) SetBranchPrefix(prefix string) error {
 // SetRules saves the rules every agent follows.
 func (a *App) SetRules(rules string) error {
 	return a.updateConfig(func(c *settings.Config) { c.Rules = rules })
+}
+
+// SetPrompt saves one of the prompts herd adds to agents (Settings >
+// Context > Prompts); an empty text restores the default.
+func (a *App) SetPrompt(id, text string) error {
+	if err := a.settings.SetPrompt(id, text); err != nil {
+		return err
+	}
+	return a.writePlugin()
+}
+
+// AgentCommand is the full command an agent gets, as Settings shows it: the
+// agent as being edited, between herd's prompts.
+func (a *App) AgentCommand(ag settings.Agent) string {
+	return a.CommandText(ag)
 }
 
 // ChooseFolder opens the native folder picker; "" when cancelled.

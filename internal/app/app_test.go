@@ -1261,3 +1261,23 @@ func TestCompleteAfterAFailure(t *testing.T) {
 		t.Fatal("the success after a failure did not complete the step")
 	}
 }
+
+func TestCommandUsesPrompts(t *testing.T) {
+	a, _ := newTestApp(t)
+	ag, _ := a.settings.Agent("plan")
+	ag.Sisters = false
+	if strings.Contains(a.AgentCommand(ag), "## Sister tasks") {
+		t.Fatal("sister rules without the box")
+	}
+	if err := a.SetPrompt(settings.PromptSisters, "## Sister tasks\n\nEnd {artifact} with them."); err != nil {
+		t.Fatal(err)
+	}
+	ag.Sisters = true
+	if !strings.Contains(a.AgentCommand(ag), "End "+ag.Writes+" with them.") {
+		t.Fatal("edited sister prompt not used")
+	}
+	b, _ := os.ReadFile(filepath.Join(a.pluginDir(), "commands", "plan.md"))
+	if !strings.Contains(string(b), "End "+ag.Writes+" with them.") {
+		t.Fatal("plan.md not rewritten")
+	}
+}

@@ -60,23 +60,15 @@ function fix(guidance: string) {
   const ag = fixer.value
   if (ag) herd.run({ agent: ag.id, label: ag.name, n: 0 } as Option, props.task.id, guidance)
 }
-const rebase = () =>
-  fix(
-    `Rebase this branch on origin/${props.task.baseBranch}: PR #${props.task.pr} conflicts with it, so GitHub runs no CI checks. ` +
-      `git fetch origin ${props.task.baseBranch}, then git rebase origin/${props.task.baseBranch}; resolve each conflict keeping what both sides meant, ` +
-      `and continue with git rebase --continue (the only commits allowed in this step). Run the tests of the files you resolved. ` +
-      `Do not push: Commit and push does it. List the conflicts and how you resolved them.`,
-  )
-const fixReview = () =>
-  fix(
-    `Address Copilot's review of PR #${props.task.pr}, in ${cop.value?.artifact} in the run directory: for each comment, fix the code when it is right ` +
-      `(apply its suggested change when there is one), and say in your artifact which comments you left and why. Fix the failing CI checks it lists too.`,
-  )
+const rebase = () => fix(herd.prompt('rebase', { pr: String(props.task.pr), base: props.task.baseBranch }))
+const fixReview = () => fix(herd.prompt('fixReview', { pr: String(props.task.pr), review: cop.value?.artifact ?? 'COPILOT-n.md' }))
 const fixChecks = () =>
   fix(
-    `Fix the failing CI checks of PR #${props.task.pr}: ${failing.value.map((c) => c.workflow ? `${c.workflow} / ${c.name}` : c.name).join(', ')}. ` +
-      `Read their logs (gh run view <run id> --log-failed; the run id is in each check's link: ${failing.value.map((c) => c.link).filter(Boolean).join(' ')}), ` +
-      `fix the cause in the code, or the test when the test is what is wrong, and run those tests locally when you can.`,
+    herd.prompt('fixChecks', {
+      pr: String(props.task.pr),
+      checks: failing.value.map((c) => (c.workflow ? `${c.workflow} / ${c.name}` : c.name)).join(', '),
+      links: failing.value.map((c) => c.link).filter(Boolean).join(' '),
+    }),
   )
 const refreshing = ref(false)
 async function refresh() {

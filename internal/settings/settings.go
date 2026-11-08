@@ -53,6 +53,7 @@ type Config struct {
 	Rules           string                 `toml:"rules" json:"rules"`                 // always followed by every agent
 	BranchPrefix    string                 `toml:"branch_prefix" json:"branchPrefix"`  // every new task's branch starts with it
 	Keymap          Keymap                 `toml:"keymap,omitempty" json:"-"`          // shortcuts that differ from DefaultKeymap
+	Prompts         map[string]string      `toml:"prompts,omitempty" json:"-"`         // prompts that differ from DefaultPrompts, by id
 	Projects        []Project              `toml:"project" json:"projects"`
 	Context         map[string]ContextMeta `toml:"context" json:"contextMeta"`
 }
@@ -102,6 +103,7 @@ type Snapshot struct {
 	Agents  []Agent            `json:"agents"`
 	Context map[string]Context `json:"context"`
 	Keymap  Keymap             `json:"keymap"`
+	Prompts []Prompt           `json:"prompts"`
 	Dir     string             `json:"dir"`
 }
 
@@ -302,7 +304,55 @@ func (s *Store) Snapshot() Snapshot {
 	}
 	cfg := s.cfg
 	cfg.Projects = append([]Project(nil), s.cfg.Projects...)
-	return Snapshot{Config: cfg, Agents: append([]Agent(nil), s.ags...), Context: ctx, Keymap: km, Dir: s.Dir}
+	ps := DefaultPrompts()
+	for i := range ps {
+		ps[i].Text = ps[i].Default
+		if t, ok := s.cfg.Prompts[ps[i].ID]; ok {
+			ps[i].Text = t
+		}
+	}
+	return Snapshot{Config: cfg, Agents: append([]Agent(nil), s.ags...), Context: ctx, Keymap: km, Prompts: ps, Dir: s.Dir}
+}
+
+// Prompt returns the text of a prompt in use (see DefaultPrompts).
+func (s *Store) Prompt(id string) string {
+	s.mu.RLock()
+	t, ok := s.cfg.Prompts[id]
+	s.mu.RUnlock()
+	if ok {
+		return t
+	}
+	for _, p := range DefaultPrompts() {
+		if p.ID == id {
+			return p.Default
+		}
+	}
+	return ""
+}
+
+// SetPrompt saves a prompt; an empty text or the default goes back to the default.
+func (s *Store) SetPrompt(id, text string) error {
+	var def *Prompt
+	for _, p := range DefaultPrompts() {
+		if p.ID == id {
+			def = &p
+		}
+	}
+	if def == nil {
+		return fmt.Errorf("no prompt %q", id)
+	}
+	return s.UpdateConfig(func(c *Config) {
+		m := map[string]string{}
+		for k, v := range c.Prompts {
+			m[k] = v
+		}
+		if strings.TrimSpace(text) == "" || strings.TrimSpace(text) == strings.TrimSpace(def.Default) {
+			delete(m, id)
+		} else {
+			m[id] = text
+		}
+		c.Prompts = m
+	})
 }
 
 // Config returns a copy of config.toml.

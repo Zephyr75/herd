@@ -120,3 +120,25 @@ func TestCopilotCannotBeStartedByHand(t *testing.T) {
 		t.Fatal("an agent starting after Copilot")
 	}
 }
+
+func TestPromptOverride(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPrompt(PromptSisters, "Split it: {artifact}"); err != nil {
+		t.Fatal(err)
+	}
+	if got := Fill(s.Prompt(PromptSisters), map[string]string{"artifact": "PLAN-{n}.md"}); got != "Split it: PLAN-{n}.md" {
+		t.Fatalf("prompt = %q", got)
+	}
+	if err := s.SetPrompt(PromptSisters, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Config().Prompts) != 0 || !strings.HasPrefix(s.Prompt(PromptSisters), "## Sister tasks") {
+		t.Fatal("empty text did not restore the default")
+	}
+	if s.SetPrompt("nope", "x") == nil {
+		t.Fatal("unknown prompt saved")
+	}
+}

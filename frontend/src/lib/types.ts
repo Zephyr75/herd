@@ -105,7 +105,22 @@ export interface Settings {
   agents: Agent[]
   context: Record<string, Context>
   keymap: Keymap
+  prompts: Prompt[] // what herd adds to agents and fix steps (Settings > Context > Prompts)
   dir: string
+}
+
+export interface Prompt {
+  id: string
+  name: string
+  where: string // where herd uses it
+  vars: string // what herd replaces in it
+  default: string
+  text: string // the text in use
+}
+
+/** fill replaces each {name} of vars in text. */
+export function fill(text: string, vars: Record<string, string>): string {
+  return Object.entries(vars).reduce((t, [k, v]) => t.split('{' + k + '}').join(v), text)
 }
 
 export interface Step {

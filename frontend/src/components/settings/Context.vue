@@ -7,6 +7,7 @@ import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
 import { herd } from '../../lib/state'
 import Icon from '../ui/Icon.vue'
+import Prompts from './Prompts.vue'
 import type { SystemMemory } from '../../lib/types'
 
 const selId = ref('general')
@@ -87,6 +88,10 @@ const clearKnowledge = () => update((c) => (c.knowledge = ''))
         <span class="name">Rules</span>
         <span class="sub">every agent, always</span>
       </button>
+      <button class="list-btn" :class="{ on: selId === 'prompts' }" @click="selId = 'prompts'">
+        <span class="name">Prompts</span>
+        <span class="sub">what herd adds to agents</span>
+      </button>
       <button v-for="k in keys" :key="k" class="list-btn" :class="{ on: selId === k }" @click="selId = k">
         <span class="name">{{ herd.project(k)?.name ?? 'General' }}</span>
         <span class="sub">{{ herd.project(k) ? 'project context' : 'every project' }}</span>
@@ -104,6 +109,7 @@ const clearKnowledge = () => update((c) => (c.knowledge = ''))
         <label for="rulestext" class="sr-only">Rules</label>
         <textarea id="rulestext" class="area mono" rows="12" :value="herd.settings?.config.rules ?? ''" placeholder="e.g. Never run git commit or git push&#10;Never touch migrations/" @input="setRules"></textarea>
       </div>
+      <Prompts v-else-if="selId === 'prompts'" />
       <div v-else class="editor card">
         <div class="title">
           <span class="name">{{ proj ? proj.name : 'General context' }}</span>

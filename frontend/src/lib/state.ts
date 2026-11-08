@@ -6,7 +6,7 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task } from './types'
+import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task, fill } from './types'
 
 export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'views'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
@@ -514,6 +514,11 @@ class Herd {
   copilotClean(t: Task): boolean {
     const last = t.steps[t.steps.length - 1]
     return !!last?.external && last.state === 'done' && !unsuccessful(last) && last.verdict !== 'skipped'
+  }
+
+  /** prompt is one of herd's prompts (Settings > Context > Prompts), filled with vars. */
+  prompt(id: string, vars: Record<string, string>): string {
+    return fill(this.settings?.prompts.find((p) => p.id === id)?.text ?? '', vars)
   }
 
   async markReady(t: Task) {

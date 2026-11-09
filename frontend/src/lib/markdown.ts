@@ -72,7 +72,7 @@ export async function renderMermaid(root: HTMLElement, dark: boolean) {
     startOnLoad: false,
     securityLevel: 'strict',
     theme: 'base',
-    fontFamily: 'IBM Plex Sans, system-ui, sans-serif',
+    fontFamily: 'Geist, system-ui, sans-serif',
     themeVariables: {
       darkMode: dark,
       background: token('--surface'),

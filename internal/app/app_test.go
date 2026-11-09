@@ -1469,3 +1469,42 @@ func TestSkipStep(t *testing.T) {
 		t.Fatalf("no failure next step: %+v", v.Next)
 	}
 }
+
+// The Copilot step shows the whole branch against its base, as its PR does.
+func TestCopilotStepShowsWholeBranch(t *testing.T) {
+	a, repo := newTestApp(t)
+	tv, err := a.CreateTask("core", "", "full diff", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ := a.db.Task(tv.ID)
+	p := a.projectOf(task)
+	wt := worktreePath(p, task)
+	os.WriteFile(filepath.Join(wt, "one.txt"), []byte("1\n"), 0o644)
+	run(t, wt, "git", "add", ".")
+	run(t, wt, "git", "commit", "-q", "-m", "one")
+	os.WriteFile(filepath.Join(wt, "two.txt"), []byte("2\n"), 0o644)
+	run(t, wt, "git", "add", ".")
+	run(t, wt, "git", "commit", "-q", "-m", "two")
+	os.WriteFile(filepath.Join(repo, "base.txt"), []byte("b\n"), 0o644) // on the base since: not the branch's
+	run(t, repo, "git", "add", ".")
+	run(t, repo, "git", "commit", "-q", "-m", "base")
+	s := store.Step{ID: store.StepID(tv.ID, "copilot-1"), TaskID: tv.ID, Key: "copilot-1", Agent: copilotAgent, N: 1, State: store.Running}
+	if err := a.db.SaveStep(s); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := a.StepChanges(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range ch.Files {
+		got = append(got, f.Status+" "+f.Path)
+	}
+	if ch.Source != "branch" || ch.Base != p.BaseBranch || strings.Join(got, ",") != "A one.txt,A two.txt" {
+		t.Fatalf("%+v", ch)
+	}
+	if d, err := a.FileDiff(s.ID, "two.txt"); err != nil || !strings.Contains(d.Diff, "+2") {
+		t.Fatalf("%v %+v", err, d)
+	}
+}

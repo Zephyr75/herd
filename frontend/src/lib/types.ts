@@ -60,8 +60,9 @@ export interface FileChange {
 }
 
 export interface Changes {
-  source: '' | 'commit' | 'worktree'
+  source: '' | 'commit' | 'worktree' | 'branch' // branch: the Copilot step, the whole branch as its PR shows it
   sha: string
+  base?: string // branch: what it is compared to, e.g. origin/dev
   via: string // the step that made the commit, when not this one
   files: FileChange[]
 }

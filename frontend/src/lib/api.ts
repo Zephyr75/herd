@@ -38,6 +38,7 @@ export interface Api {
   RevertStep(step: string): Promise<void>
   RefreshPR(task: string): Promise<void>
   RerunChecks(task: string, link: string): Promise<void>
+  ResolveThread(task: string, thread: string): Promise<void>
   RequestCopilotReview(task: string): Promise<void>
   RefreshIssue(task: string): Promise<void>
   Diagrams(task: string): Promise<Diagram[]>

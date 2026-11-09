@@ -6,8 +6,8 @@
 }
 
 :root {
-  --ui-font: 'IBM Plex Sans', system-ui, sans-serif;
-  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ui-font: 'Geist', system-ui, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, monospace;
   --ui-size: 13px;
 }
 

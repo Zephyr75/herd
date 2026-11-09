@@ -118,13 +118,16 @@ async function archive() {
             <span class="sub">{{ s.external ? 'run by herd · PR #' + t.pr : s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
           <span class="acts">
-            <button v-if="s.revert" class="act" :class="{ danger: herd.confirmRevert === s.id }" :title="`Put the worktree back to how it was when ${s.name} started, and remove it and the steps after it`" @click="herd.revertStep(s)">{{ herd.confirmRevert === s.id ? 'Discard its changes?' : 'Revert' }}</button>
+            <button v-if="s.revert" class="act" :class="{ danger: herd.confirmRevert === s.id }" :title="`Put the worktree back to how it was when ${s.name} started, and remove it and the steps after it`" @click="herd.revertStep(s)">
+              <Icon name="revert" :size="12" />{{ herd.confirmRevert === s.id ? 'Discard its changes?' : 'Revert' }}
+            </button>
             <template v-if="s.skip">
               <button v-if="!(s.state === 'done' && !unsuccessful(s))" class="act icon" :aria-label="`Skip ${s.name} as succeeded`" :title="`Skip ${s.name} as succeeded: end it now and move on (herd does not commit or push for it)`" @click="herd.skipStep(s, true)"><Icon name="check" :size="13" /></button>
               <button v-if="!unsuccessful(s)" class="act icon" :aria-label="`Skip ${s.name} as failed`" :title="`Skip ${s.name} as failed: end it now and get the options for a failure`" @click="herd.skipStep(s, false)"><Icon name="close" :size="13" /></button>
             </template>
             <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="rerun" :size="12" />Rerun</button>
-            <button v-if="s.diff && diffs(s)" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)"><Icon name="eye" :size="12" />Diff</button>
+            <button v-if="s.external" class="act" :title="`Every change of the branch against ${t.baseBranch}, as PR #${t.pr} shows it`" @click="herd.openDiffPopup(s.id, '')"><Icon name="diff" :size="13" />Full diff</button>
+            <button v-else-if="s.diff && diffs(s)" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)"><Icon name="diff" :size="13" />Diff</button>
           </span>
         </div>
         <div v-if="t.next.ghost" class="row ghost">

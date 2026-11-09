@@ -83,7 +83,7 @@ const tab = computed(() =>
         </button>
       </div>
       <button v-if="step && changes?.files.length" class="tab" :class="{ on: tab === 'changes' }" @click="herd.rightTab = 'changes'">
-        <Icon name="diff" />Changes<span class="count">{{ changes.files.length }}</span>
+        <Icon name="diff" />{{ step.external ? 'Full changes' : 'Changes' }}<span class="count">{{ changes.files.length }}</span>
       </button>
       <button v-if="task?.pr" class="tab" :class="{ on: tab === 'pr' }" @click="herd.rightTab = 'pr'"><Icon name="pr" />PR #{{ task.pr }}</button>
       <span class="grow"></span>

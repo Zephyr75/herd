@@ -56,7 +56,7 @@ function key(e: KeyboardEvent) {
       <span class="title">{{ art?.file || step?.artifact || 'Artifact' }}</span>
       <span class="muted small">{{ step?.name }}</span>
       <span class="grow"></span>
-      <button v-if="!herd.diffOf" class="other" title="Open this step's changes beside the artifact" @click="herd.showDiffToo(herd.artifactOf)"><Icon name="eye" :size="13" />Changes</button>
+      <button v-if="!herd.diffOf" class="other" title="Open this step's changes beside the artifact" @click="herd.showDiffToo(herd.artifactOf)"><Icon name="diff" :size="13" />Changes</button>
       <button class="x" aria-label="Close" title="Close (Esc closes both)" @click="close"><Icon name="close" :size="14" /></button>
     </div>
     <div class="body">

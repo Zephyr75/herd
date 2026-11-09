@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"herd/internal/settings"
 	"herd/internal/store"
 )
 
@@ -26,11 +27,13 @@ type FileChange struct {
 
 // Changes is what a step changed. Steps between two commits of the branch
 // share the later one (Implement, Review and Test share their Commit and
-// push); steps after the last commit share the uncommitted work.
+// push); steps after the last commit share the uncommitted work. The
+// Copilot step shows the whole branch against its base, as the PR does.
 type Changes struct {
-	Source string       `json:"source"` // commit | worktree | "" (nothing to show)
+	Source string       `json:"source"` // commit | worktree | branch | "" (nothing to show)
 	SHA    string       `json:"sha"`
-	Via    string       `json:"via"` // the step that made the commit, when not this one
+	Base   string       `json:"base"` // branch: the base it is compared to, e.g. origin/dev
+	Via    string       `json:"via"`  // the step that made the commit, when not this one
 	Files  []FileChange `json:"files"`
 }
 
@@ -46,6 +49,9 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 	}
 	p := a.projectOf(t)
 	out := Changes{Files: []FileChange{}}
+	if s.Agent == copilotAgent {
+		return a.branchChanges(p, t)
+	}
 	steps, _ := a.db.Steps(t.ID)
 	sha := ""
 	i := slices.IndexFunc(steps, func(x store.Step) bool { return x.ID == s.ID })
@@ -86,6 +92,35 @@ func (a *App) StepChanges(stepID string) (Changes, error) {
 	}
 	out.Files = files
 	return out, nil
+}
+
+// branchChanges lists what the task's branch changes against its base since
+// they parted (base...HEAD): what its PR shows.
+func (a *App) branchChanges(p settings.Project, t store.Task) (Changes, error) {
+	out := Changes{Files: []FileChange{}}
+	wt := worktreePath(p, t)
+	if _, err := os.Stat(wt); t.WorktreeRemoved || err != nil {
+		return out, nil
+	}
+	out.Source, out.Base = "branch", a.baseRef(wt, p.BaseBranch)
+	num, err := a.git.Run(a.ctx, wt, "-c", "core.quotePath=false", "diff", "--no-renames", "--numstat", out.Base+"...HEAD")
+	if err != nil {
+		return out, err
+	}
+	names, err := a.git.Run(a.ctx, wt, "-c", "core.quotePath=false", "diff", "--no-renames", "--name-status", out.Base+"...HEAD")
+	if err != nil {
+		return out, err
+	}
+	out.Files = parseChanges(num, names)
+	return out, nil
+}
+
+// baseRef is origin/<base> when the repository has it, else <base>.
+func (a *App) baseRef(dir, base string) string {
+	if _, err := a.git.Run(a.ctx, dir, "rev-parse", "--verify", "--quiet", "origin/"+base); err == nil {
+		return "origin/" + base
+	}
+	return base
 }
 
 // uncommitted lists the uncommitted changes in the repository at dir,
@@ -219,6 +254,8 @@ func (a *App) FileDiff(stepID, rel string) (FileDiff, error) {
 	t, _ := a.db.Task(s.TaskID)
 	p := a.projectOf(t)
 	switch {
+	case ch.Source == "branch":
+		out.Diff, err = a.git.Run(a.ctx, worktreePath(p, t), "-c", "core.quotePath=false", "diff", "--no-renames", "--no-color", ch.Base+"...HEAD", "--", rel)
 	case ch.Source == "commit":
 		out.Diff, err = a.git.Run(a.ctx, p.Path, "-c", "core.quotePath=false", "show", "--format=", "--no-renames", "--no-color", ch.SHA, "--", rel)
 	case fc.Status == "?":

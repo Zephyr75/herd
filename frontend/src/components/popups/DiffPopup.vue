@@ -4,7 +4,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorText } from '../../lib/api'
 import { herd } from '../../lib/state'
-import type { Changes, FileDiff, Note } from '../../lib/types'
+import type { Changes, FileDiff, Note, Step } from '../../lib/types'
 import Icon from '../ui/Icon.vue'
 import DiffView from '../Diff.vue'
 import NotesBar from '../NotesBar.vue'
@@ -17,9 +17,16 @@ const stepId = computed(() => herd.diffOf?.step ?? '')
 const task = computed(() => herd.tasks.find((t) => t.steps.some((s) => s.id === stepId.value)))
 const step = computed(() => task.value?.steps.find((s) => s.id === stepId.value))
 const pickStep = (id: string) => herd.diffOf && (herd.diffOf = { step: id, path: '' })
-// Only steps of agents with a Diff (Implement and Test by default) make changes.
-const changers = computed(() => (task.value?.steps ?? []).filter((s) => herd.settings?.agents.find((a) => a.id === s.agent)?.showDiff))
-const stepItems = computed(() => changers.value.map((s) => ({ value: s.id, label: s.name })))
+// Only steps of agents with a Diff (Implement and Test by default) make
+// changes. Full, last, is the whole branch: a Copilot step's changes, the
+// same for every one of them.
+const changers = computed(() => {
+  const steps = task.value?.steps ?? []
+  const full = step.value?.external ? step.value : steps.filter((s) => s.external).pop()
+  return [...steps.filter((s) => !s.external && herd.settings?.agents.find((a) => a.id === s.agent)?.showDiff), ...(full ? [full] : [])]
+})
+const label = (s: Step) => (s.external ? 'Full' : s.name)
+const stepItems = computed(() => changers.value.map((s) => ({ value: s.id, label: label(s) })))
 const chooseStep = (id: string) => id !== stepId.value && pickStep(id)
 const changes = ref<Changes | null>(null)
 const diff = ref<FileDiff | null>(null)
@@ -37,7 +44,7 @@ async function loadChanges() {
   if (herd.diffOf?.auto) {
     herd.diffOf.auto = false
     if (!c?.files.length) {
-      for (const s of [...changers.value].reverse()) {
+      for (const s of changers.value.filter((x) => !x.external).reverse()) { // a step's own changes, not the (full) branch
         if (s.id === stepId.value) continue
         const o = await api.StepChanges(s.id).catch(() => null)
         if (mine !== cseq) return
@@ -123,7 +130,7 @@ function key(e: KeyboardEvent) {
   <div ref="box" class="box popup" role="dialog" aria-label="Changes" tabindex="-1" @keydown="key">
     <div class="head">
       <button class="toggle" :aria-label="sb.hidden.value ? 'Show the side bar' : 'Hide the side bar'" :title="sb.hidden.value ? 'Show the side bar' : 'Hide the side bar'" @click="sb.hidden.value = !sb.hidden.value"><Icon :name="sb.hidden.value ? 'panel-left-off' : 'panel-left'" :size="16" /></button>
-      <Dropdown class="picker" :items="stepItems" :value="stepId" :placeholder="step?.name ?? 'Step'" strong title="Show the changes of another step" @pick="chooseStep" />
+      <Dropdown class="picker" :items="stepItems" :value="stepId" :placeholder="step ? label(step) : 'Step'" strong title="Show the changes of another step" @pick="chooseStep" />
       <span class="title">changes</span>
       <span class="grow"></span>
       <button v-if="!herd.artifactOf" class="other" title="Open this step's artifact beside the changes" @click="herd.showArtifactToo(stepId)"><Icon name="file" :size="13" />Preview</button>
@@ -143,7 +150,7 @@ function key(e: KeyboardEvent) {
         <div v-if="file" class="fhead">
           <span :class="['st', statusCls(file.status)]" :title="statusTitle(file.status)">{{ file.status === '?' ? 'U' : file.status }}</span>
           <span class="path mono" :title="file.path"><span class="dir">{{ split(file.path).dir }}</span>{{ split(file.path).name }}</span>
-          <button class="zed" :title="changes?.source === 'commit' ? `Open commit ${changes.sha} in Zed's diff view` : 'Open the worktree in Zed, where it shows the uncommitted changes'" @click="openInZed"><Icon name="eye" :size="12" />Diff</button>
+          <button class="zed" :title="changes?.source === 'commit' ? `Open commit ${changes.sha} in Zed's diff view` : 'Open the worktree in Zed, where it shows the uncommitted changes'" @click="openInZed"><Icon name="diff" :size="13" />Diff</button>
         </div>
         <div class="scroll">
           <p v-if="error" class="empty err">{{ error }}</p>

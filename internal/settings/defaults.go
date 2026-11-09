@@ -5,9 +5,9 @@ func DefaultConfig() Config {
 	return Config{
 		Appearance: Appearance{
 			Theme:        "dark",
-			UIFont:       "IBM Plex Sans",
+			UIFont:       "Geist",
 			UIFontSize:   13,
-			TermFont:     "IBM Plex Mono",
+			TermFont:     "Geist Mono",
 			TermFontSize: 12.5,
 		},
 		ZedCommand:      "zed",

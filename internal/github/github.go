@@ -315,6 +315,12 @@ func (g GH) Rerun(ctx context.Context, repo, run, job string) error {
 	return err
 }
 
+// Resolve marks a PR review thread resolved.
+func (g GH) Resolve(ctx context.Context, thread string) error {
+	_, err := g.run(ctx, "", "api", "graphql", "-f", "query=mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }", "-F", "id="+thread)
+	return err
+}
+
 // Feedback is what a reviewer asks for on a PR: a review thread, or the
 // comment of a review of the PR's latest commit. Anyone's, Copilot's threads
 // included. Resolved threads are only shown, not fixed.

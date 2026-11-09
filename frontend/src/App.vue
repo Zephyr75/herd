@@ -20,8 +20,8 @@ watchEffect(() => {
   const ap = herd.settings?.config.appearance
   if (!ap) return
   const root = document.documentElement.style
-  root.setProperty('--ui-font', `'${ap.uiFont}', 'IBM Plex Sans', system-ui, sans-serif`)
-  root.setProperty('--mono', `'${ap.termFont}', 'IBM Plex Mono', ui-monospace, monospace`)
+  root.setProperty('--ui-font', `'${ap.uiFont}', 'Geist', system-ui, sans-serif`)
+  root.setProperty('--mono', `'${ap.termFont}', 'Geist Mono', ui-monospace, monospace`)
   root.setProperty('--ui-size', `${ap.uiFontSize}px`)
 })
 </script>

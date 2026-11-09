@@ -758,6 +758,22 @@ func (a *App) RequestCopilotReview(taskID string) error {
 	return ferr
 }
 
+// ResolveThread marks a review thread of the task's PR resolved on GitHub.
+func (a *App) ResolveThread(taskID, thread string) error {
+	t, err := a.db.Task(taskID)
+	if err != nil {
+		return err
+	}
+	if t.PRNumber == 0 || t.PRState != "open" {
+		return errors.New("the task has no open pull request")
+	}
+	if err := a.gh.Resolve(a.ctx, thread); err != nil {
+		return err
+	}
+	a.collectFeedback(t)
+	return nil
+}
+
 func (a *App) pollPR(t store.Task) {
 	if t.Archived || t.PRNumber == 0 || t.PRState != "open" {
 		return

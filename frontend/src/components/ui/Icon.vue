@@ -1,105 +1,56 @@
 <script setup lang="ts">
-// Zed's icons (zed-industries/zed assets/icons, 16px grid, 1.2 stroke), so
-// herd looks like the editor next to it.
-withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), { size: 14, stroke: 1.2 })
+// herd's icons, from Lucide (lucide.dev), by the names herd uses.
+import { computed, type Component } from 'vue'
+import {
+  Archive, Check, ChevronDown, ChevronRight, Copy, Diff, ExternalLink, Eye, File, Folder, FolderGit2, GitBranch, GitPullRequest, Maximize2, Menu, Minus,
+  PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCw, Search, Settings, Square, SquareTerminal, TriangleAlert, Undo2, X,
+} from '@lucide/vue'
+
+const props = withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), { size: 14, stroke: 2 })
+
+const icons: Record<string, Component> = {
+  play: Play,
+  stop: Square,
+  chevron: ChevronDown,
+  'chevron-right': ChevronRight,
+  folder: Folder,
+  branch: GitBranch,
+  search: Search,
+  plus: Plus,
+  close: X,
+  external: ExternalLink,
+  file: File,
+  terminal: SquareTerminal,
+  archive: Archive,
+  eye: Eye,
+  diff: Diff,
+  revert: Undo2,
+  pr: GitPullRequest,
+  rerun: RotateCw,
+  pencil: Pencil,
+  check: Check,
+  warn: TriangleAlert,
+  copy: Copy,
+  worktree: FolderGit2,
+  maximize: Maximize2,
+  menu: Menu,
+  gear: Settings,
+  // window controls
+  'win-min': Minus,
+  'win-max': Square,
+  'win-restore': Copy,
+  'win-close': X,
+  // side panels: shown (click hides) or hidden (click shows)
+  'panel-left': PanelLeftClose,
+  'panel-left-off': PanelLeftOpen,
+  'panel-right': PanelRightClose,
+  'panel-right-off': PanelRightOpen,
+}
+const filled = ['play', 'stop'] // solid, like media buttons
+
+const icon = computed(() => icons[props.name])
 </script>
 
 <template>
-  <svg :width="size" :height="size" viewBox="0 0 16 16" fill="none" stroke="currentColor" :stroke-width="stroke" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <!-- play_filled -->
-    <path v-if="name === 'play'" d="M5 4L12 8L5 12V4Z" fill="currentColor" />
-    <!-- stop -->
-    <path v-else-if="name === 'stop'" d="M4.5 11.2667V4.73333C4.5 4.60446 4.60446 4.5 4.73333 4.5H11.2667C11.3956 4.5 11.5 4.60446 11.5 4.73333V11.2667C11.5 11.3956 11.3956 11.5 11.2667 11.5H4.73333C4.60446 11.5 4.5 11.3956 4.5 11.2667Z" fill="currentColor" />
-    <!-- chevron_down -->
-    <path v-else-if="name === 'chevron'" d="M4.15186 6.47321L7.99258 10.1696L11.8483 6.47321" />
-    <!-- chevron_right -->
-    <path v-else-if="name === 'chevron-right'" d="M6.44653 4.16071L10.1608 8.00143L6.44653 11.8571" />
-    <!-- folder -->
-    <path v-else-if="name === 'folder'" d="M4.41707 12.4786H6.20854H11.5829C12.5724 12.4786 13.3744 11.6766 13.3744 10.6872V7.55212V7.10426C13.3744 6.11486 12.5724 5.3128 11.5829 5.3128H9.63778C9.16265 5.3128 8.70699 5.12406 8.37102 4.78808L7.62898 4.04604C7.29301 3.71007 6.83735 3.52133 6.36222 3.52133H4.41707C3.42768 3.52133 2.62561 4.3234 2.62561 5.3128V10.6872C2.62561 11.6766 3.42768 12.4786 4.41707 12.4786Z" />
-    <!-- git_branch -->
-    <template v-else-if="name === 'branch'">
-      <path d="M4.5 13C5.32843 13 6 12.3284 6 11.5C6 10.6716 5.32843 10 4.5 10C3.67157 10 3 10.6716 3 11.5C3 12.3284 3.67157 13 4.5 13Z" />
-      <path d="M11.5 6C12.3284 6 13 5.3284 13 4.5C13 3.6716 12.3284 3 11.5 3C10.6716 3 10 3.6716 10 4.5C10 5.3284 10.6716 6 11.5 6Z" />
-      <path d="M4.5 10L4.5 3" />
-      <path d="M10 4.44133C8.54131 4.44133 7.14236 5.02697 6.11091 6.06943C5.07946 7.11188 4.5 8.52575 4.5 10" />
-    </template>
-    <!-- magnifying_glass -->
-    <path v-else-if="name === 'search'" d="M13 13L10.4138 10.4138M3 7.31034C3 4.92981 4.92981 3 7.31034 3C9.6909 3 11.6207 4.92981 11.6207 7.31034C11.6207 9.6909 9.6909 11.6207 7.31034 11.6207C4.92981 11.6207 3 9.6909 3 7.31034Z" />
-    <!-- plus -->
-    <path v-else-if="name === 'plus'" d="M3.33325 8H12.6666M8 3.33333V12.6667" />
-    <!-- close -->
-    <path v-else-if="name === 'close'" d="M4.70581 4.5L11.294 11.5M11.294 4.5L4.70581 11.5" />
-    <!-- arrow_up_right -->
-    <path v-else-if="name === 'external'" d="M4.5 11.5L11.5 4.5M4.5 4.5L11.5 4.5L11.5 11.5" />
-    <!-- file -->
-    <template v-else-if="name === 'file'">
-      <path d="M9 2V4.24394C9 4.5622 9.12643 4.86743 9.35147 5.09247C9.57652 5.31751 9.88174 5.44394 10.2 5.44394H12.5" />
-      <path d="M10.4283 2.79015C9.95564 2.28602 9.29544 2 8.60442 2H4.625C4.32663 2 4.04048 2.12643 3.8295 2.35147C3.61853 2.57652 3.5 2.88174 3.5 3.2V12.8C3.5 13.1183 3.61853 13.4235 3.8295 13.6485C4.04048 13.8736 4.32663 14 4.625 14H11.375C11.6734 14 11.9595 13.8736 12.1705 13.6485C12.3815 13.4235 12.5 13.1183 12.5 12.8V5.98862C12.5 5.35347 12.2582 4.74213 11.8238 4.27877L10.4283 2.79015Z" />
-    </template>
-    <!-- terminal -->
-    <path v-else-if="name === 'terminal'" fill="currentColor" stroke-width="1" d="M2.5 4C2.5 3.17157 3.17157 2.5 4 2.5H12C12.8284 2.5 13.5 3.17157 13.5 4V12C13.5 12.8284 12.8284 13.5 12 13.5H4C3.17157 13.5 2.5 12.8284 2.5 12V4ZM4.66789 10.7071L5.02145 10.3536L4.66789 10.7071C5.05842 11.0976 5.69158 11.0976 6.08211 10.7071L8.08211 8.70711C8.47263 8.31658 8.47263 7.68342 8.08211 7.29289L6.08211 5.29289C5.69158 4.90237 5.05842 4.90237 4.66789 5.29289C4.27737 5.68342 4.27737 6.31658 4.66789 6.70711L5.96079 8L4.66789 9.29289C4.27737 9.68342 4.27737 10.3166 4.66789 10.7071ZM8.625 9C8.07271 9 7.625 9.44771 7.625 10C7.625 10.5523 8.07271 11 8.625 11H10.9062C11.4585 11 11.9062 10.5523 11.9062 10C11.9062 9.44771 11.4585 9 10.9062 9H8.625Z" fill-rule="evenodd" />
-    <!-- archive -->
-    <template v-else-if="name === 'archive'">
-      <path d="M12.9564 3.04359H3.04357C2.73942 3.04359 2.49286 3.29016 2.49286 3.59431V5.24644C2.49286 5.55059 2.73942 5.79716 3.04357 5.79716H12.9564C13.2606 5.79716 13.5071 5.55059 13.5071 5.24644V3.59431C13.5071 3.29016 13.2606 3.04359 12.9564 3.04359Z" />
-      <path d="M3.5943 5.79718V11.855C3.5943 12.1471 3.71034 12.4273 3.9169 12.6339C4.12345 12.8404 4.40361 12.9564 4.69572 12.9564H11.3043C11.5964 12.9564 11.8766 12.8404 12.0831 12.6339C12.2897 12.4273 12.4057 12.1471 12.4057 11.855V5.79718" />
-      <path d="M6.89856 8H9.10141" />
-    </template>
-    <!-- eye -->
-    <template v-else-if="name === 'eye'">
-      <path d="M1.75 8C1.75 8 4 3.75 8 3.75C12 3.75 14.25 8 14.25 8C14.25 8 12 12.25 8 12.25C4 12.25 1.75 8 1.75 8Z" />
-      <path d="M8 9.75C8.9665 9.75 9.75 8.9665 9.75 8C9.75 7.0335 8.9665 6.25 8 6.25C7.0335 6.25 6.25 7.0335 6.25 8C6.25 8.9665 7.0335 9.75 8 9.75Z" />
-    </template>
-    <!-- diff: added and removed lines -->
-    <template v-else-if="name === 'diff'">
-      <path d="M8 2.75V7.25M5.75 5H10.25M5.75 11H10.25" />
-      <path d="M3.5 13.5H12.5" opacity="0.5" />
-    </template>
-    <!-- git pull request -->
-    <template v-else-if="name === 'pr'">
-      <circle cx="4.5" cy="4" r="1.5" />
-      <circle cx="4.5" cy="12" r="1.5" />
-      <circle cx="11.5" cy="12" r="1.5" />
-      <path d="M4.5 5.5V10.5M11.5 10.5V6.5C11.5 5.4 10.6 4.5 9.5 4.5H7.5M9 3L7.5 4.5L9 6" />
-    </template>
-    <!-- rotate_cw -->
-    <path v-else-if="name === 'rerun'" d="M12.9 6.6A5 5 0 1 0 13 8M13 3.5V6.6H9.9" />
-    <!-- pencil -->
-    <path v-else-if="name === 'pencil'" d="M10 4.5L11.5 6M3 13L3.6 10.4L10.9 3.1C11.4 2.6 12.2 2.6 12.7 3.1L12.9 3.3C13.4 3.8 13.4 4.6 12.9 5.1L5.6 12.4L3 13Z" />
-    <!-- check -->
-    <path v-else-if="name === 'check'" d="M4.625 8.98121L7.03402 10.7714L11.3437 4.75989" />
-    <!-- warning -->
-    <path v-else-if="name === 'warn'" d="M13.84 11.6 9.037 3.199a1.2 1.2 0 0 0-2.089 0l-4.802 8.403a1.2 1.2 0 0 0 1.05 1.8h9.604a1.201 1.201 0 0 0 1.038-1.8ZM8 6v2.667M8 11.333h.007" />
-    <!-- copy -->
-    <template v-else-if="name === 'copy'">
-      <path d="M12.486 6.2H7.24795C6.66895 6.2 6.19995 6.669 6.19995 7.248V12.486C6.19995 13.064 6.66895 13.533 7.24795 13.533H12.486C13.064 13.533 13.533 13.064 13.533 12.486V7.248C13.533 6.669 13.064 6.2 12.486 6.2Z" />
-      <path d="M3.91712 10.203C3.63951 10.2022 3.37351 10.0915 3.1773 9.89511C2.98109 9.69872 2.87064 9.43261 2.87012 9.155V3.917C2.87091 3.63956 2.98147 3.37371 3.17765 3.17753C3.37383 2.98135 3.63968 2.87079 3.91712 2.87H9.15512C9.43273 2.87053 9.69883 2.98097 9.89523 3.17718C10.0916 3.37339 10.2023 3.63939 10.2031 3.917" />
-    </template>
-    <!-- generic_minimize, generic_maximize, generic_restore, generic_close: window controls -->
-    <path v-else-if="name === 'win-min'" d="M4 8H12" stroke-linecap="butt" />
-    <path v-else-if="name === 'win-max'" d="M11.5 4.5H4.5V11.5H11.5V4.5Z" stroke-linejoin="miter" />
-    <path v-else-if="name === 'win-restore'" d="M9.5 6.5H3.5V12.5H9.5V6.5ZM10 8.5H12.5V3.5H7.5V6" stroke-linecap="butt" stroke-linejoin="miter" />
-    <path v-else-if="name === 'win-close'" d="M11.5 4.5L4.5 11.5M4.5 4.5L11.5 11.5" stroke-linecap="square" />
-    <!-- git_worktree -->
-    <path v-else-if="name === 'worktree'" d="M7.78314 8.0003L12.3252 3.45825M9.49899 9.71719L12.3237 12.5419M3.25763 8.00031H7.77134M12.7424 6.47908V3.04047H9.3038M9.30225 12.9595H12.7409V9.52094" />
-    <!-- threads_sidebar_left/right_open/closed: panel toggles -->
-    <template v-else-if="name === 'panel-left' || name === 'panel-left-off'">
-      <rect x="2" y="2" width="5" height="12" rx="2" fill="currentColor" stroke="none" :opacity="name === 'panel-left' ? 0.8 : 0.1" />
-      <path d="M7 2V14" />
-      <rect x="2" y="2" width="12" height="12" rx="1.5" />
-    </template>
-    <template v-else-if="name === 'panel-right' || name === 'panel-right-off'">
-      <rect x="9" y="2" width="5" height="12" rx="2" fill="currentColor" stroke="none" :opacity="name === 'panel-right' ? 0.8 : 0.1" />
-      <path d="M9 2V14" />
-      <rect x="2" y="2" width="12" height="12" rx="1.5" />
-    </template>
-    <!-- maximize -->
-    <path v-else-if="name === 'maximize'" d="M10 3H13V6M6 13H3V10M13 3L9.5 6.5M3 13L6.5 9.5" />
-    <!-- menu -->
-    <path v-else-if="name === 'menu'" d="M2.667 8h10.666M2.667 4h10.666M2.667 12h10.666" />
-    <!-- settings -->
-    <template v-else-if="name === 'gear'">
-      <path d="M8.13418 2H7.86581C7.54229 2 7.23202 2.12643 7.00326 2.35148C6.7745 2.57652 6.64597 2.88174 6.64597 3.2V3.308C6.64576 3.51843 6.58929 3.72512 6.48224 3.9073C6.37518 4.08949 6.22132 4.24078 6.03605 4.346L5.77379 4.496C5.58836 4.60132 5.378 4.65677 5.16387 4.65677C4.94974 4.65677 4.73939 4.60132 4.55395 4.496L4.46246 4.44799C4.18255 4.28915 3.85 4.24606 3.53783 4.32819C3.22565 4.4103 2.95935 4.61092 2.79738 4.886L2.6632 5.11399C2.50174 5.38936 2.45793 5.7165 2.5414 6.02359C2.62488 6.33069 2.82881 6.59266 3.10844 6.75199L3.19993 6.81199C3.38429 6.9167 3.53759 7.06704 3.64459 7.24809C3.75159 7.42914 3.80857 7.63457 3.80985 7.84399V8.14999C3.8107 8.36144 3.75475 8.56937 3.64764 8.7527C3.54054 8.93602 3.38609 9.08826 3.19993 9.19399L3.10844 9.24799C2.82881 9.40732 2.62488 9.66929 2.5414 9.97638C2.45793 10.2835 2.50174 10.6106 2.6632 10.886L2.79738 11.114C2.95935 11.3891 3.22565 11.5897 3.53783 11.6718C3.85 11.7539 4.18255 11.7109 4.46246 11.552L4.55395 11.5039C4.73939 11.3986 4.94974 11.3432 5.16387 11.3432C5.378 11.3432 5.58836 11.3986 5.77379 11.5039L6.03605 11.654C6.22132 11.7592 6.37518 11.9105 6.48224 12.0927C6.58929 12.2749 6.64576 12.4815 6.64597 12.6919V12.7999C6.64597 13.1183 6.7745 13.4235 7.00326 13.6486C7.23202 13.8735 7.54229 14 7.86581 14H8.13418C8.4577 14 8.76797 13.8735 8.99674 13.6486C9.22551 13.4235 9.35402 13.1183 9.35402 12.7999V12.6919C9.35424 12.4815 9.4107 12.2749 9.51776 12.0927C9.62481 11.9105 9.77869 11.7592 9.96397 11.654L10.2262 11.5039C10.4116 11.3986 10.622 11.3432 10.8361 11.3432C11.0503 11.3432 11.2606 11.3986 11.4461 11.5039L11.5376 11.552C11.8174 11.7109 12.15 11.7539 12.4621 11.6718C12.7744 11.5897 13.0406 11.3891 13.2026 11.114L13.3368 10.88C13.4982 10.6047 13.5421 10.2775 13.4586 9.97035C13.3751 9.66329 13.1712 9.40131 12.8916 9.24199L12.8001 9.19399C12.6139 9.08826 12.4595 8.93602 12.3524 8.7527C12.2452 8.56937 12.1893 8.36144 12.1901 8.14999V7.84999C12.1893 7.63854 12.2452 7.43062 12.3524 7.24729C12.4595 7.06396 12.6139 6.91172 12.8001 6.80599L12.8916 6.75199C13.1712 6.59266 13.3751 6.33069 13.4586 6.02359C13.5421 5.7165 13.4982 5.38936 13.3368 5.11399L13.2026 4.886C13.0406 4.61092 12.7744 4.4103 12.4621 4.32819C12.15 4.24606 11.8174 4.28915 11.5376 4.44799L11.4461 4.496C11.2606 4.60132 11.0503 4.65677 10.8361 4.65677C10.622 4.65677 10.4116 4.60132 10.2262 4.496L9.96397 4.346C9.77869 4.24078 9.62481 4.08949 9.51776 3.9073C9.4107 3.72512 9.35424 3.51843 9.35402 3.308V3.2C9.35402 2.88174 9.22551 2.57652 8.99674 2.35148C8.76797 2.12643 8.4577 2 8.13418 2Z" />
-      <path d="M8 10C9.10457 10 10 9.10457 10 8C10 6.89543 9.10457 6 8 6C6.89543 6 6 6.89543 6 8C6 9.10457 6.89543 10 8 10Z" fill="currentColor" stroke="none" />
-    </template>
-  </svg>
+  <component :is="icon" v-if="icon" :size="size" :stroke-width="stroke" :fill="filled.includes(name) ? 'currentColor' : 'none'" aria-hidden="true" />
 </template>

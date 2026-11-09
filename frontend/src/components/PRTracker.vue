@@ -67,6 +67,13 @@ const openFb = computed(() => props.task.feedback.filter((f) => !f.resolvedBy))
 const resolvedFb = computed(() => props.task.feedback.filter((f) => f.resolvedBy))
 const showResolved = ref(false)
 const picked = computed(() => openFb.value.filter(ticked))
+// Resolve marks a thread resolved on GitHub; it then moves to the resolved ones.
+const resolving = ref('')
+async function resolve(f: Feedback) {
+  resolving.value = f.id
+  await herd.attempt('Could not resolve the comment', () => api.ResolveThread(props.task.id, f.id))
+  resolving.value = ''
+}
 const where = (f: Feedback) => (f.path ? `${f.path}:${f.line}` : 'on the PR')
 function fixFeedback() {
   const comments = picked.value
@@ -144,6 +151,7 @@ async function refresh() {
             <span v-else-if="f.outdated" class="muted">outdated</span>
             <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
             <span class="grow"></span>
+            <button v-if="live && f.path && !f.resolvedBy" class="icon" :disabled="resolving === f.id" title="Mark resolved on GitHub" aria-label="Mark resolved on GitHub" @click="resolve(f)"><Icon name="check" :size="15" /></button>
             <button class="icon" title="Open on GitHub" aria-label="Open on GitHub" @click="open(f.url)"><Icon name="external" :size="12" /></button>
           </div>
           <div class="ftext" :title="f.body">{{ f.body }}</div>
@@ -175,11 +183,11 @@ async function refresh() {
             <span class="name">{{ w.name }}</span>
             <span class="muted small">{{ w.cs.length > 1 ? `${w.passed}/${w.cs.length} passed` : word(w.bucket) }}</span>
           </button>
-          <button v-if="live && actions(w.cs[0].link)" class="icon" :disabled="!!rerunning" :title="`Rerun ${w.name}`" :aria-label="`Rerun ${w.name}`" @click="rerun(runOf(w.cs[0].link), w.name)"><Icon name="rerun" :size="13" /></button>
+          <button v-if="live && actions(w.cs[0].link)" class="icon" :disabled="!!rerunning" :title="`Rerun ${w.name}`" :aria-label="`Rerun ${w.name}`" @click="rerun(runOf(w.cs[0].link), w.name)"><Icon name="rerun" :size="15" /></button>
         </div>
         <div v-for="c in w.open" :key="c.name" class="subrow">
           <button class="sub" @click="open(c.link)">{{ c.name }} · {{ word(c.bucket) }}</button>
-          <button v-if="live && actions(c.link) && w.cs.length > 1" class="icon" :disabled="!!rerunning" :title="`Rerun ${c.name} only`" :aria-label="`Rerun ${c.name}`" @click="rerun(c.link, c.name)"><Icon name="rerun" :size="12" /></button>
+          <button v-if="live && actions(c.link) && w.cs.length > 1" class="icon" :disabled="!!rerunning" :title="`Rerun ${c.name} only`" :aria-label="`Rerun ${c.name}`" @click="rerun(c.link, c.name)"><Icon name="rerun" :size="14" /></button>
         </div>
       </div>
     </section>

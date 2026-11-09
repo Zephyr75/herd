@@ -49,7 +49,7 @@ let mockSynced = false
 
 const settings: Settings = {
   config: {
-    appearance: { theme: 'dark', uiFont: 'IBM Plex Sans', uiFontSize: 13, termFont: 'IBM Plex Mono', termFontSize: 12.5 },
+    appearance: { theme: 'dark', uiFont: 'Geist', uiFontSize: 13, termFont: 'Geist Mono', termFontSize: 12.5 },
     zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, notifications: true, maxTabs: 5, branchPrefix: 'ar-', issuesRepo: '',
     rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.', projects,
   },
@@ -405,6 +405,7 @@ export const api: Api = {
   RevertStep: () => Promise.reject('Revert needs the desktop app'),
   RefreshPR: () => ok(undefined),
   RerunChecks: () => ok(undefined),
+  ResolveThread: () => ok(undefined),
   RequestCopilotReview: () => ok(undefined),
   RefreshIssue: () => ok(undefined),
   Diagrams: () => ok([]),

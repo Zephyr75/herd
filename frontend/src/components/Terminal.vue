@@ -55,7 +55,7 @@ function connect(id: string, resume = false) {
   ended.value = false
   exitCode.value = null
   const t = new Terminal({
-    fontFamily: `'${ap?.termFont ?? 'IBM Plex Mono'}', 'IBM Plex Mono', monospace`,
+    fontFamily: `'${ap?.termFont ?? 'Geist Mono'}', 'Geist Mono', monospace`,
     fontSize: ap?.termFontSize ?? 12.5,
     lineHeight: 1.25,
     cursorBlink: true,

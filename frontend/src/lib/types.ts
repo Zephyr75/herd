@@ -150,6 +150,7 @@ export interface Step {
   revert: boolean // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
   paused: boolean // stopped by the user until Resume
   rerun: boolean // Rerun applies: the latest step, of an agent that can be rerun
+  skip: boolean // the check and cross buttons apply: the latest step, or one not finished
   gitError: string // why herd's commit, push or PR after it failed
   external: boolean // run by herd, not Claude: the Copilot review step
 }
@@ -284,6 +285,7 @@ export interface Feedback {
   path: string // '' for a review's own comment
   line: number
   outdated: boolean // the code it points at changed since
+  resolvedBy: string // who resolved the thread; '' while open (resolved ones are only shown)
   body: string
   url: string
   replies: { author: string; body: string }[]

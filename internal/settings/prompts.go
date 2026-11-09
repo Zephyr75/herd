@@ -21,7 +21,6 @@ const (
 	PromptSisters   = "sisters"
 	PromptRebase    = "rebase"
 	PromptFixChecks = "fixChecks"
-	PromptFixReview = "fixReview"
 	PromptFeedback  = "fixFeedback"
 	PromptNotes     = "diffNotes"
 )
@@ -54,7 +53,6 @@ one "### <repository folder name>" per repository, then what that part must do, 
 Leave out repositories that already have a sister task (listed in the herd step block).`},
 		{ID: PromptRebase, Name: "Rebase", Where: "The guidance of Rebase with Implement: in the PR tab when the PR conflicts with its base, and in the task header when the branch is behind it", Vars: "{base}: the base branch, {behind}: how many of its commits the branch lacks", Default: `Rebase this branch on origin/{base}, which has {behind} commits it lacks. git fetch origin {base}, then git rebase origin/{base}; resolve each conflict keeping what both sides meant, and continue with git rebase --continue (the only commits allowed in this step). Run the tests of the files you resolved. Do not push: Commit and push does it. List the conflicts and how you resolved them, or say there were none.`},
 		{ID: PromptFixChecks, Name: "Fix CI checks", Where: "The guidance of Fix with Implement, in the PR tab's CI checks", Vars: "{pr}: the PR number, {checks}: the failing checks, {links}: their links", Default: `Fix the failing CI checks of PR #{pr}: {checks}. Read their logs (gh run view <run id> --log-failed; the run id is in each check's link: {links}), fix the cause in the code, or the test when the test is what is wrong, and run those tests locally when you can.`},
-		{ID: PromptFixReview, Name: "Fix Copilot's review", Where: "The guidance of Fix with Implement, in the PR tab's Copilot review", Vars: "{pr}: the PR number, {review}: the review's file, e.g. COPILOT-2.md", Default: `Address Copilot's review of PR #{pr}, in {review} in the run directory: for each comment, fix the code when it is right (apply its suggested change when there is one), and say in your artifact which comments you left and why. Fix the failing CI checks it lists too.`},
 		{ID: PromptFeedback, Name: "Fix review comments", Where: "The guidance of Fix with Implement, in the PR tab's Review comments", Vars: "{pr}: the PR number, {comments}: the chosen comments, with their file, line and replies", Default: `Address these review comments on PR #{pr}. For each one, fix the code when it is right; when it is not, or when it asks a question, say so in your artifact with the answer to post. List in your artifact which comment each change answers.
 
 {comments}`},

@@ -49,13 +49,13 @@ type Config struct {
 	ZedCommand      string                 `toml:"zed_command" json:"zedCommand"`
 	ClaudeCommand   string                 `toml:"claude_command" json:"claudeCommand"`
 	MaxLiveSessions int                    `toml:"max_live_sessions" json:"maxLiveSessions"`
-	Notifications   bool                   `toml:"notifications" json:"notifications"` // desktop notifications while herd is in the background
-	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`            // open terminal tabs; the oldest closes first
-	Rules           string                 `toml:"rules" json:"rules"`                 // always followed by every agent
-	BranchPrefix    string                 `toml:"branch_prefix" json:"branchPrefix"`  // every new task's branch starts with it
+	Notifications   bool                   `toml:"notifications" json:"notifications"`      // desktop notifications while herd is in the background
+	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`                 // open terminal tabs; the oldest closes first
+	Rules           string                 `toml:"rules" json:"rules"`                      // always followed by every agent
+	BranchPrefix    string                 `toml:"branch_prefix" json:"branchPrefix"`       // every new task's branch starts with it
 	IssuesRepo      string                 `toml:"issues_repo,omitempty" json:"issuesRepo"` // the common issues repository (owner/name) of projects set to use it
-	Keymap          Keymap                 `toml:"keymap,omitempty" json:"-"`          // shortcuts that differ from DefaultKeymap
-	Prompts         map[string]string      `toml:"prompts,omitempty" json:"-"`         // prompts that differ from DefaultPrompts, by id
+	Keymap          Keymap                 `toml:"keymap,omitempty" json:"-"`               // shortcuts that differ from DefaultKeymap
+	Prompts         map[string]string      `toml:"prompts,omitempty" json:"-"`              // prompts that differ from DefaultPrompts, by id
 	Projects        []Project              `toml:"project" json:"projects"`
 	Context         map[string]ContextMeta `toml:"context" json:"contextMeta"`
 }

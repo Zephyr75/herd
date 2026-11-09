@@ -88,6 +88,17 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 		xp := a.projectOf(x)
 		fmt.Fprintf(&b, "- sister task %s handles the %s part of this work, in %s; its run directory %s holds every artifact of that task: keep what both share consistent with it, and change only this repository\n", x.ID, xp.Name, worktreePath(xp, x), a.runDir(xp, x))
 	}
+	if steps, err := a.db.Steps(l.task.ID); err == nil {
+		var said []string
+		for _, s := range steps {
+			if s.Seq < l.step.Seq && s.Guidance != "" {
+				said = append(said, fmt.Sprintf("  - %s: %q", agentFor(a.settings.Agents(), s.Agent).DisplayName(s.N), s.Guidance))
+			}
+		}
+		if len(said) > 0 { // e.g. the plan's option the user picked
+			b.WriteString("- the user's guidance to earlier steps, oldest first:\n" + strings.Join(said, "\n") + "\n")
+		}
+	}
 	fmt.Fprintf(&b, "- run directory: %s (TASK.md, CONTEXT.md and every artifact)\n", runDir)
 	fmt.Fprintf(&b, "- your artifact: %s\n", filepath.Join(runDir, l.agent.ArtifactName(l.step.N)))
 	b.WriteString("- finished when its front matter has status: done (succeeded) or status: failed (did not; say why). The next automatic agent only starts after a success\n")
@@ -500,10 +511,11 @@ func (a *App) onExit(stepID string, code int, killed bool) {
 	}
 }
 
-// MarkDone marks a step succeeded when the agent forgot its front matter.
+// MarkDone marks a step succeeded: the agent forgot its front matter, or it
+// failed and the user goes on anyway.
 func (a *App) MarkDone(stepID string) error {
 	s, changed := a.updateStep(stepID, func(s *store.Step) bool {
-		if s.State == store.Done {
+		if s.Succeeded() {
 			return false
 		}
 		s.State, s.EndedAt, s.Verdict = store.Done, time.Now(), "" // the user says it succeeded
@@ -514,6 +526,38 @@ func (a *App) MarkDone(stepID string) error {
 	})
 	if changed {
 		a.complete(s.ID)
+		a.emitTask(s.TaskID)
+	}
+	return nil
+}
+
+// SkipStep ends a step at once as succeeded (ok) or failed, whatever its
+// agent did: its session ends, herd skips its git actions, and the task goes
+// on from that verdict (automatic next steps, or the Next step options).
+func (a *App) SkipStep(stepID string, ok bool) error {
+	if _, busy := a.busy.Load(stepID); busy {
+		return errors.New("herd is still finishing this step")
+	}
+	a.run.Stop(stepID) // its Stop hook must not change the verdict afterwards
+	a.setPaused(stepID, false)
+	s, changed := a.updateStep(stepID, func(s *store.Step) bool {
+		before := *s
+		s.State = store.Done
+		if s.EndedAt.IsZero() {
+			s.EndedAt = time.Now()
+		}
+		switch {
+		case !ok:
+			s.Verdict = store.Failure
+		case s.Agent == copilotAgent:
+			s.Verdict = skipped
+		default:
+			s.Verdict = ""
+		}
+		return *s != before
+	})
+	if changed {
+		a.completeWith(s.ID, false)
 		a.emitTask(s.TaskID)
 	}
 	return nil
@@ -631,7 +675,10 @@ func (a *App) setPaused(stepID string, on bool) {
 // with a success: commit, push, start the automatic agents. A failed step
 // leaves the worktree as it is, and its actions still run if the user gets it
 // to succeed in the same conversation.
-func (a *App) complete(stepID string) {
+func (a *App) complete(stepID string) { a.completeWith(stepID, true) }
+
+// completeWith is complete, with or without the agent's git actions.
+func (a *App) completeWith(stepID string, git bool) {
 	s, first := a.updateStep(stepID, func(s *store.Step) bool {
 		if s.Completed || !s.Succeeded() {
 			return false
@@ -646,11 +693,11 @@ func (a *App) complete(stepID string) {
 	go func() {
 		defer a.emitTask(s.TaskID)
 		defer a.busy.Delete(s.ID)
-		a.afterDone(s)
+		a.afterDone(s, git)
 	}()
 }
 
-func (a *App) afterDone(s store.Step) {
+func (a *App) afterDone(s store.Step, git bool) {
 	t, err := a.db.Task(s.TaskID)
 	if err != nil {
 		return
@@ -666,7 +713,7 @@ func (a *App) afterDone(s store.Step) {
 	if !s.Succeeded() {
 		return
 	}
-	if ag.Commit {
+	if ag.Commit && git {
 		a.emitTask(t.ID)
 		err := a.gitActions(t, s, ag, say)
 		_ = a.db.Set(gitErrKey(s.ID), errText(err))

@@ -50,7 +50,7 @@ function open(t: Task) {
       <template v-for="g in groups" :key="g.kind">
         <span class="group"><span :class="['dot', 's-' + g.kind]"></span>{{ g.label }} <span class="muted">{{ g.tasks.length }}</span></span>
         <button v-for="t in g.tasks" :key="t.id" class="row" @click="open(t)">
-          <TaskRef :issue="t.issue" width="46px" />
+          <TaskRef :issue="t.issue" width="46px" :task="t.id" />
           <span class="main">
             <span class="name">{{ t.title }}</span>
             <span class="sub">{{ current(t).what }} · {{ t.projectName }}</span>

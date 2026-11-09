@@ -60,7 +60,7 @@ Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
 Write IMPLEMENT-{n}.md with these sections:
 TLDR: two or three sentences, right after the front matter, saying what changed and why. Write this section with the humanizer skill so it reads naturally; do not use humanizer anywhere else.
-1. What changed: an intuitive explanation of the change and how each part of the code had to be updated for it, following the flow.
+1. What changed: an intuitive explanation of the change and how each part of the code had to be updated for it, following the flow. When the plan lists Options, start with the option taken and why: the user's guidance, else the plan's recommendation.
 2. Files: a table of the files actually changed, one row each, with what changed in it.
 3. Notes for the reviewer, only when there are any: deviations from the plan, what to look at closely, checks that failed or could not run.
 Keep IMPLEMENT-{n}.md short, intuitive and easy to read.
@@ -75,7 +75,7 @@ Start with a short summary of what the plan asks and what you would do first, th
 Make the changes they agree to, one at a time, and explain each briefly. Ask before doing anything the plan does not cover.
 Do not write or change tests: Test adds them once the review passes. Do not commit: Commit and push commits once Review and Test pass.
 Before finishing, run the existing tests that cover what you changed, and the build or type-check.
-Only when the user says the work is done, write DISCUSS-{n}.md with the sections of an IMPLEMENT file: What changed, Files, and Notes for the reviewer (with what you decided together).
+Only when the user says the work is done, write DISCUSS-{n}.md with the sections of an IMPLEMENT file: What changed, Files, and Notes for the reviewer (with what you decided together). When the plan lists Options, What changed starts with the option taken and why.
 Keep DISCUSS-{n}.md short, intuitive and easy to read.
 End with status: done, or status: failed if the user stops the work (say why).`,
 		},
@@ -124,7 +124,9 @@ says the issue lives in another repository, write "<that repository>#{issue}" in
 In the body, under a "## Flow" heading, draw the flow before and after the change as two mermaid flowcharts
 (mermaid code blocks: GitHub renders them, not archify pages), based on the current and new flow diagrams of the newest PLAN-n.md
 and updated with what was actually implemented. Keep each to the steps that matter (about 10 nodes) and mark what changed
-(e.g. with a classDef). Leave the section out when the change has no flow to show (docs, config, a one-line fix).
+in the node text, e.g. "(new)" or "(changed)": no colors, fills, classDef or style lines, which become unreadable in GitHub's dark or light theme. Leave the section out when the change has no flow to show (docs, config, a one-line fix).
+When the newest PLAN-n.md lists Options, add a "## Choices" section before Flow: for each choice, the option taken, the ones set aside
+in a few words, and why (the guidance in the herd step block, the IMPLEMENT and DISCUSS files, else the plan's recommendation).
 For a LOCAL task (no issue), leave the issue references out.
 Do not commit or push: herd commits every change with PR.md's title line and body as the message, pushes, and opens
 (or updates) the draft PR with them; then Copilot reviews it.

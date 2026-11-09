@@ -425,6 +425,11 @@ class Herd {
     if (await this.attempt('Could not revert ' + step.name, () => api.RevertStep(step.id).then(() => true))) this.toast('Reverted ' + step.name, 'The worktree is back to how it was when it started.')
   }
 
+  /** skipStep ends a step at once as succeeded (ok) or failed, to move on. */
+  skipStep(step: Step, ok: boolean) {
+    return this.attempt('Could not skip ' + step.name, () => api.SkipStep(step.id, ok))
+  }
+
   /** rerunStep runs a finished step again in its own session. */
   async rerunStep(step: Step) {
     const ok = await this.attempt('Could not rerun ' + step.name, () => api.RerunStep(step.id).then(() => true))

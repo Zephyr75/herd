@@ -52,6 +52,8 @@ func (a *App) GetTask(id string) (TaskView, error) {
 }
 
 func (a *App) emitTask(id string) {
+	a.emitMu.Lock()
+	defer a.emitMu.Unlock()
 	v, err := a.GetTask(id)
 	if err != nil {
 		return
@@ -60,6 +62,8 @@ func (a *App) emitTask(id string) {
 }
 
 func (a *App) emitAllTasks() {
+	a.emitMu.Lock()
+	defer a.emitMu.Unlock()
 	tasks, err := a.ListTasks()
 	if err != nil {
 		return

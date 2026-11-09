@@ -30,6 +30,7 @@ type StepView struct {
 	Revert   bool   `json:"revert"`   // after the latest commit: Revert puts the worktree back to its start and removes it and later steps
 	Paused   bool   `json:"paused"`   // stopped by the user until Resume
 	Rerun    bool   `json:"rerun"`    // Rerun applies (see markRerun)
+	Skip     bool   `json:"skip"`     // the check and cross buttons apply: the latest step, or one not finished
 	External bool   `json:"external"` // run by herd, not Claude: the Copilot review step
 	GitError string `json:"gitError"` // why herd's commit, push or PR after it failed
 	Busy     bool   `json:"-"`        // herd is running what follows its success: git actions, the automatic next step
@@ -84,7 +85,7 @@ type TaskView struct {
 	Sisters     []SisterRef       `json:"sisters"`     // tasks for the other repositories of the same work
 	Draft       bool              `json:"draft"`       // the open PR is a draft (herd opens them so)
 	Conflicting bool              `json:"conflicting"` // the open PR conflicts with its base: GitHub runs no checks
-	Feedback    []github.Feedback `json:"feedback"`    // what reviewers still ask for on the open PR
+	Feedback    []github.Feedback `json:"feedback"`    // review threads (resolved ones too) and reviews of the open PR
 	Behind      int               `json:"behind"`      // commits of origin/<base> the branch lacks
 	Notes       []Note            `json:"notes"`       // the user's comments on the diff, until sent to a step
 }
@@ -166,6 +167,10 @@ func (a *App) view(t store.Task) (TaskView, error) {
 		sv := &v.Steps[len(v.Steps)-1]
 		sv.GitError, _ = a.db.Get(gitErrKey(s.ID))
 		_, sv.Busy = a.busy.Load(s.ID)
+	}
+	for i := range v.Steps {
+		sv := &v.Steps[i]
+		sv.Skip = !t.Archived && !sv.Busy && (i == len(v.Steps)-1 || sv.State != store.Done)
 	}
 	if v.Steps == nil {
 		v.Steps = []StepView{}
@@ -491,8 +496,9 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		return nx
 	}
 	if last.Unsuccessful() {
-		nx.Text = last.Name + " failed: " + last.Artifact + " says why."
+		nx.Text = last.Name + " failed: " + last.Artifact + " says why. Mark it done to go on anyway."
 		nx.Options = append(nx.Options, offer(failureIDs(ag))...)
+		nx.MarkDone = last.ID
 		return nx
 	}
 	if last.Busy {

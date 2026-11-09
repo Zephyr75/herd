@@ -20,6 +20,7 @@ const groups = computed(() =>
     .filter((g) => !g.p.gone || g.tasks.length),
 )
 const toggle = (id: string) => (herd.collapsed[id] = !herd.collapsed[id])
+
 function addProject() {
   herd.view = 'settings'
   herd.settingsTab = 'projects'
@@ -50,7 +51,7 @@ function addProject() {
           <div v-for="t in g.tasks" :key="t.id" class="cardw">
             <button class="card" :class="{ on: t.id === herd.sel }" @click="herd.pickTask(t.id)">
               <span class="row">
-                <TaskRef :issue="t.issue" />
+                <TaskRef :issue="t.issue" :task="t.id" />
                 <span class="title">{{ t.title }}</span>
               </span>
               <StatusBadge :kind="t.status.kind" :label="t.status.label" />

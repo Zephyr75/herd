@@ -54,9 +54,19 @@ const canFix = computed(() => live.value && herd.canFix(props.task))
 const fix = (guidance: string) => herd.fixWith(props.task, guidance)
 
 // Review comments: every one is sent unless unticked.
-const skip = ref(new Set<string>())
-const toggle = (id: string) => (skip.value.has(id) ? skip.value.delete(id) : skip.value.add(id), (skip.value = new Set(skip.value)))
-const picked = computed(() => props.task.feedback.filter((f) => !skip.value.has(f.id)))
+// Ticked by default unless outdated (the code it points at changed since);
+// flipped holds the ones the user ticked or unticked.
+const flipped = ref(new Set<string>())
+const ticked = (f: Feedback) => f.outdated === flipped.value.has(f.id)
+const toggle = (id: string) => {
+  const s = new Set(flipped.value)
+  if (!s.delete(id)) s.add(id)
+  flipped.value = s
+}
+const openFb = computed(() => props.task.feedback.filter((f) => !f.resolvedBy))
+const resolvedFb = computed(() => props.task.feedback.filter((f) => f.resolvedBy))
+const showResolved = ref(false)
+const picked = computed(() => openFb.value.filter(ticked))
 const where = (f: Feedback) => (f.path ? `${f.path}:${f.line}` : 'on the PR')
 function fixFeedback() {
   const comments = picked.value
@@ -68,7 +78,6 @@ function fixFeedback() {
   fix(herd.prompt('fixFeedback', { pr: String(props.task.pr), comments }))
 }
 const rebase = () => fix(herd.prompt('rebase', { pr: String(props.task.pr), base: props.task.baseBranch, behind: String(props.task.behind || 'some') }))
-const fixReview = () => fix(herd.prompt('fixReview', { pr: String(props.task.pr), review: cop.value?.artifact ?? 'COPILOT-n.md' }))
 const fixChecks = () =>
   fix(
     herd.prompt('fixChecks', {
@@ -103,7 +112,7 @@ async function refresh() {
         <template v-if="cop">
           <span :class="['sdot', waiting ? 'd-running' : unsuccessful(cop) ? 'd-failed' : cop.verdict === 'skipped' ? 'd-off' : 'd-done']"></span>
           <span v-if="waiting">Waiting for Copilot's review and the CI checks (checked every minute); {{ cop.artifact }} gets both.</span>
-          <span v-else-if="unsuccessful(cop)">Copilot comments or failing CI checks: see {{ cop.artifact }}.</span>
+          <span v-else-if="unsuccessful(cop)">Copilot comments or failing CI checks ({{ cop.artifact }}): fix them from Review comments and CI checks below.</span>
           <span v-else-if="cop.verdict === 'skipped'">herd stopped waiting; no review arrived.</span>
           <span v-else>Copilot found nothing and CI passed.</span>
         </template>
@@ -113,7 +122,6 @@ async function refresh() {
         </template>
         <span class="grow"></span>
         <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
-        <button v-else-if="cop && unsuccessful(cop) && canFix" class="act" :title="`Start a ${fixer!.name} step that fixes what Copilot's review asks for`" @click="fixReview"><Icon name="pencil" :size="13" />Fix with {{ fixer!.name }}</button>
         <button v-if="live" class="act" title="Ask Copilot to review the PR as it is now; a Copilot step waits for the review" @click="askCopilot"><Icon name="rerun" :size="13" />{{ waiting ? 'Ask again' : 'Request review' }}</button>
       </div>
     </section>
@@ -122,15 +130,18 @@ async function refresh() {
       <div class="h">
         <h3>Review comments</h3>
         <span class="grow"></span>
-        <button v-if="canFix" class="act" :disabled="!picked.length" :title="`Start a ${fixer!.name} step that addresses the ticked comments`" @click="fixFeedback"><Icon name="pencil" :size="13" />Fix {{ picked.length }} with {{ fixer!.name }}</button>
+        <button v-if="canFix && openFb.length" class="act" :disabled="!picked.length" :title="`Start a ${fixer!.name} step that addresses the ticked comments`" @click="fixFeedback"><Icon name="pencil" :size="13" />Fix {{ picked.length }} with {{ fixer!.name }}</button>
       </div>
-      <div v-for="f in task.feedback" :key="f.id" class="fb">
-        <input type="checkbox" :checked="!skip.has(f.id)" :aria-label="'Send the comment of ' + f.author" @change="toggle(f.id)" />
+      <p v-if="!openFb.length" class="muted small">None open.</p>
+      <div v-for="f in [...openFb, ...(showResolved ? resolvedFb : [])]" :key="f.id" :class="['fb', { resolved: f.resolvedBy }]">
+        <input v-if="!f.resolvedBy" type="checkbox" :checked="ticked(f)" :aria-label="'Send the comment of ' + f.author" @change="toggle(f.id)" />
+        <Icon v-else name="check" :size="13" class="done" />
         <div class="fbody">
           <div class="fmeta">
             <span class="who">{{ f.author }}</span>
             <span class="mono muted">{{ where(f) }}</span>
-            <span v-if="f.outdated" class="muted">outdated</span>
+            <span v-if="f.resolvedBy" class="muted">resolved by {{ f.resolvedBy }}</span>
+            <span v-else-if="f.outdated" class="muted">outdated</span>
             <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
             <span class="grow"></span>
             <button class="icon" title="Open on GitHub" aria-label="Open on GitHub" @click="open(f.url)"><Icon name="external" :size="12" /></button>
@@ -138,6 +149,9 @@ async function refresh() {
           <div class="ftext" :title="f.body">{{ f.body }}</div>
         </div>
       </div>
+      <button v-if="resolvedFb.length" class="more muted small" :aria-expanded="showResolved" @click="showResolved = !showResolved">
+        <Icon :name="showResolved ? 'chevron' : 'chevron-right'" :size="12" />{{ resolvedFb.length }} resolved
+      </button>
     </section>
 
     <section>
@@ -334,6 +348,24 @@ async function refresh() {
   }
   .fb input {
     margin-top: 3px;
+  }
+  .fb .done {
+    margin-top: 2px;
+    flex: none;
+    color: var(--muted);
+  }
+  .fb.resolved .ftext {
+    color: var(--muted);
+  }
+  .more {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 2px 0;
+  }
+  .more:hover {
+    color: var(--text);
   }
   .fbody {
     flex: 1;

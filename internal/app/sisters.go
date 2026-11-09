@@ -80,16 +80,32 @@ func sistersKey(taskID string) string { return "sisters:" + taskID }
 
 // sisters lists a task's sister tasks that still exist.
 func (a *App) sisters(taskID string) []store.Task {
-	v, _ := a.db.Get(sistersKey(taskID))
-	var ids []string
-	_ = json.Unmarshal([]byte(v), &ids)
+	// Every task of its sister group, linked directly or through another
+	// sister: two sisters of the same task know each other too.
+	seen := map[string]bool{taskID: true}
+	todo := a.sisterLinks(taskID)
 	var out []store.Task
-	for _, id := range ids {
+	for len(todo) > 0 {
+		id := todo[0]
+		todo = todo[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		if t, err := a.db.Task(id); err == nil {
 			out = append(out, t)
+			todo = append(todo, a.sisterLinks(id)...)
 		}
 	}
 	return out
+}
+
+// sisterLinks are the ids a task is directly linked to.
+func (a *App) sisterLinks(taskID string) []string {
+	v, _ := a.db.Get(sistersKey(taskID))
+	var ids []string
+	_ = json.Unmarshal([]byte(v), &ids)
+	return ids
 }
 
 func (a *App) linkSister(taskID, sisterID string) error {
@@ -140,10 +156,14 @@ func (a *App) sisterOffers(t store.Task, steps []StepView, agents []settings.Age
 		}
 	}
 	sis := a.sisters(t.ID)
+	all, _ := a.db.Tasks()
 	for _, o := range asked {
 		o.Project, _ = a.projectFor(o.Repo)
 		if o.Project == t.Project || slices.ContainsFunc(sis, func(x store.Task) bool { return o.Project != "" && x.Project == o.Project }) {
-			continue
+			continue // the group already has it
+		}
+		if t.Issue != "" && slices.ContainsFunc(all, func(x store.Task) bool { return o.Project != "" && x.Project == o.Project && x.Issue == t.Issue }) {
+			continue // a task for the same issue exists there already
 		}
 		out = append(out, o)
 	}
@@ -185,11 +205,17 @@ func (a *App) CreateSister(taskID, repo string) (TaskView, error) {
 	if err := a.updateTask(sv.ID, func(x *store.Task) error { x.Sister = true; return nil }); err != nil {
 		return sv, err
 	}
-	if err := a.linkSister(t.ID, sv.ID); err != nil {
-		return sv, err
-	}
-	if err := a.linkSister(sv.ID, t.ID); err != nil {
-		return sv, err
+	// Linked with every task of the group, not only the one that asked.
+	for _, x := range append([]store.Task{t}, a.sisters(t.ID)...) {
+		if x.ID == sv.ID {
+			continue
+		}
+		if err := a.linkSister(x.ID, sv.ID); err != nil {
+			return sv, err
+		}
+		if err := a.linkSister(sv.ID, x.ID); err != nil {
+			return sv, err
+		}
 	}
 	// Linked first, so its Plan already sees the sister.
 	if first, ok := settings.First(a.settings.Agents()); ok {

@@ -48,7 +48,7 @@ function key(e: KeyboardEvent) {
     <span class="heading">{{ query.trim() ? `${matches.length} task${matches.length === 1 ? '' : 's'} match` : 'Recent tasks · all projects' }} · archived included</span>
     <div ref="list" class="rows">
       <button v-for="(t, i) in matches" :key="t.id" class="row" :class="{ hi: i === hi }" @click="herd.pickTask(t.id)" @mousemove="hi = i">
-        <TaskRef :issue="t.issue" width="46px" />
+        <TaskRef :issue="t.issue" width="46px" :task="t.id" />
         <span class="title">{{ t.title }}</span>
         <span class="proj">{{ t.projectName }}</span>
         <span :class="['badge', `s-${t.status.kind}`]"><span class="dot"></span>{{ t.status.short }}</span>

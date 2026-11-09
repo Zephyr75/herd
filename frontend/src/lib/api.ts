@@ -15,6 +15,7 @@ export interface Api {
   StartStep(task: string, agent: string, guidance: string, n: number): Promise<Step>
   AllowOnce(step: string): Promise<void>
   MarkDone(step: string): Promise<void>
+  SkipStep(step: string, ok: boolean): Promise<void>
   StopStep(step: string): Promise<void>
   SetIssuesRepo(repo: string): Promise<void>
   SetBranchPrefix(prefix: string): Promise<void>

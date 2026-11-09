@@ -186,6 +186,7 @@ function stepView(t: MockTask, s: MockStep, i: number): Step {
     artifact: a.writes.replace('{n}', String(s.n)), commits: a.commit, diff: !!s.sha, revert: false,
     paused, gitError: '',
     rerun: i === t.steps.length - 1 && a.rerun && !open,
+    skip: i === t.steps.length - 1 || s.state !== 'done',
     external: s.agent === 'copilot',
   }
 }
@@ -394,6 +395,7 @@ export const api: Api = {
     return ok(undefined)
   },
   AllowOnce: (sid) => { const t = find(sid.slice(0, sid.lastIndexOf('/'))); t.steps.forEach((s) => { if (s.state === 'approval') s.state = 'running' }); changed(t); return ok(undefined) },
+  SkipStep: (sid, good) => { const t = find(sid.slice(0, sid.lastIndexOf('/'))); const s = t.steps.find((x) => `${t.id}/${x.key}` === sid); if (s) { s.state = 'done'; s.verdict = good ? '' : 'failed' } changed(t); return ok(undefined) },
   MarkDone: (sid) => { const t = find(sid.slice(0, sid.lastIndexOf('/'))); const s = t.steps.find((x) => `${t.id}/${x.key}` === sid); if (s) s.state = 'done'; changed(t); return ok(undefined) },
   StopStep: () => ok(undefined),
   ArchiveTask: (id) => { const t = find(id); t.archived = true; t.archivedOn = new Date().toISOString(); changed(t); return ok(undefined) },

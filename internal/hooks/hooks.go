@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -54,16 +55,43 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
-	ev := Event{Name: r.URL.Query().Get("event"), StepID: r.Header.Get("X-Herd-Step"), Raw: body}
-	ev.PID, _ = strconv.Atoi(r.Header.Get("X-Herd-Pid"))
-	_ = json.Unmarshal(body, &ev)
-	if ev.Name == "" || ev.StepID == "" || ev.StepID == "/" {
+	ev, ok := decode(r.URL.Query().Get("event"), r.Header.Get("X-Herd-Step"), r.Header.Get("X-Herd-Pid"), body)
+	if !ok {
 		http.Error(w, "missing event or step", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 	if h.OnEvent != nil {
 		go h.OnEvent(ev)
+	}
+}
+
+func decode(name, step, pid string, body []byte) (Event, bool) {
+	ev := Event{Name: name, StepID: step, Raw: body}
+	ev.PID, _ = strconv.Atoi(pid)
+	_ = json.Unmarshal(body, &ev)
+	return ev, ev.Name != "" && ev.StepID != "" && ev.StepID != "/"
+}
+
+// Replay hands on the events hooks spooled in dir while no herd answered,
+// oldest first, and removes them. A spooled event is its name, step and pid
+// on a line each, then its JSON payload.
+func Replay(dir string, on func(Event)) {
+	es, _ := os.ReadDir(dir) // sorted by name: the time it was spooled
+	for _, e := range es {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue // still being written
+		}
+		p := filepath.Join(dir, e.Name())
+		b, err := os.ReadFile(p)
+		_ = os.Remove(p)
+		f := strings.SplitN(string(b), "\n", 4)
+		if err != nil || len(f) < 4 {
+			continue
+		}
+		if ev, ok := decode(f[0], f[1], f[2], []byte(f[3])); ok {
+			on(ev)
+		}
 	}
 }
 
@@ -77,8 +105,12 @@ const AskTool = "AskUserQuestion"
 // Command is the shell command a hook runs: it does nothing outside herd
 // sessions and never fails the hook. $HERD_ENDPOINT holds the current herd's
 // address and token, so sessions that outlived a herd restart still report.
+// When no herd answers (it is restarting), the event waits in spool/ next to
+// it for the next herd to Replay.
 func Command(event string) string {
-	return `[ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT"; [ -n "$HERD_URL" ] && curl -s -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "X-Herd-Pid: $PPID" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1; exit 0`
+	return `[ -n "$HERD_TASK" ] && [ -n "$HERD_ENDPOINT" ] || exit 0; b=$(cat); [ -r "$HERD_ENDPOINT" ] && . "$HERD_ENDPOINT"; ` +
+		`printf '%s' "$b" | curl -sf -m 3 -X POST "$HERD_URL/hook?event=` + event + `" -H "X-Herd-Token: $HERD_TOKEN" -H "X-Herd-Step: $HERD_TASK/$HERD_STEP" -H "X-Herd-Pid: $PPID" -H "Content-Type: application/json" --data-binary @- >/dev/null 2>&1 || ` +
+		`{ d="${HERD_ENDPOINT%/*}/spool"; mkdir -p "$d" && printf '%s\n%s\n%s\n%s' ` + event + ` "$HERD_TASK/$HERD_STEP" "$PPID" "$b" > "$d/.$$" && mv "$d/.$$" "$d/$(date +%s%N)-$$"; }; exit 0`
 }
 
 // Settings returns the Claude Code settings every herd session gets: herd's

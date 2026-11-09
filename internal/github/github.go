@@ -315,18 +315,19 @@ func (g GH) Rerun(ctx context.Context, repo, run, job string) error {
 	return err
 }
 
-// Feedback is what a reviewer asks for on a PR: an unresolved review thread,
-// or the comment of a review of the PR's latest commit. Anyone's, Copilot's
-// threads included.
+// Feedback is what a reviewer asks for on a PR: a review thread, or the
+// comment of a review of the PR's latest commit. Anyone's, Copilot's threads
+// included. Resolved threads are only shown, not fixed.
 type Feedback struct {
-	ID       string  `json:"id"`
-	Author   string  `json:"author"`
-	Path     string  `json:"path"` // "" for a review's own comment
-	Line     int     `json:"line"`
-	Outdated bool    `json:"outdated"` // the code it points at changed since
-	Body     string  `json:"body"`
-	URL      string  `json:"url"`
-	Replies  []Reply `json:"replies"`
+	ID         string  `json:"id"`
+	Author     string  `json:"author"`
+	Path       string  `json:"path"` // "" for a review's own comment
+	Line       int     `json:"line"`
+	Outdated   bool    `json:"outdated"`   // the code it points at changed since
+	ResolvedBy string  `json:"resolvedBy"` // who resolved the thread; "" while open
+	Body       string  `json:"body"`
+	URL        string  `json:"url"`
+	Replies    []Reply `json:"replies"`
 }
 
 const feedbackQuery = `query($owner: String!, $name: String!, $n: Int!) {
@@ -334,7 +335,7 @@ const feedbackQuery = `query($owner: String!, $name: String!, $n: Int!) {
     pullRequest(number: $n) {
       headRefOid
       reviewThreads(first: 100) {
-        nodes { id isResolved isOutdated path line originalLine
+        nodes { id isResolved resolvedBy { login } isOutdated path line originalLine
           comments(first: 30) { nodes { author { login } body url } } }
       }
       reviews(last: 30) {
@@ -370,6 +371,7 @@ func parseFeedback(out string) ([]Feedback, error) {
 						Nodes []struct {
 							ID                     string
 							IsResolved, IsOutdated bool
+							ResolvedBy             *author
 							Path                   string
 							Line, OriginalLine     *int
 							Comments               struct {
@@ -398,11 +400,17 @@ func parseFeedback(out string) ([]Feedback, error) {
 	pr := v.Data.Repository.PullRequest
 	fs := []Feedback{}
 	for _, th := range pr.ReviewThreads.Nodes {
-		if th.IsResolved || len(th.Comments.Nodes) == 0 {
+		if len(th.Comments.Nodes) == 0 {
 			continue
 		}
 		first := th.Comments.Nodes[0]
 		f := Feedback{ID: th.ID, Author: first.Author.Login, Path: th.Path, Outdated: th.IsOutdated, Body: strings.TrimSpace(first.Body), URL: first.URL, Replies: []Reply{}}
+		if th.IsResolved {
+			f.ResolvedBy = "someone"
+			if th.ResolvedBy != nil && th.ResolvedBy.Login != "" {
+				f.ResolvedBy = th.ResolvedBy.Login
+			}
+		}
 		if th.Line != nil {
 			f.Line = *th.Line
 		} else if th.OriginalLine != nil {

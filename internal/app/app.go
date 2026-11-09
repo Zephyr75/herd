@@ -78,13 +78,16 @@ type App struct {
 	mu     sync.Mutex // serialises step and task state transitions
 
 	pollMu sync.Mutex // one pollPRs at a time
+	// emitMu: tasks are read and sent one at a time, so the last view sent
+	// is never older than one sent before it (e.g. a step still busy).
+	emitMu sync.Mutex
 
 	checksMu sync.Mutex
 	checks   map[string][]github.Check    // CI checks of each open PR, by task id
 	labels   map[string][]string          // labels of each open PR, by task id
 	drafts   map[string]bool              // whether each open PR is a draft, by task id
 	conflict map[string]bool              // whether each open PR conflicts with its base, by task id
-	feedback map[string][]github.Feedback // what reviewers still ask for on each open PR, by task id
+	feedback map[string][]github.Feedback // review threads (resolved ones too) and reviews of each open PR, by task id
 	behind   map[string]int               // commits of origin/<base> each task's branch lacks, by task id
 
 	busy sync.Map // ids of the steps whose post-success actions (git, automatic next steps) are running
@@ -157,6 +160,7 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 	}()
 
 	a.reconcile()
+	hooks.Replay(a.spoolDir(), a.onHook)
 	_ = a.settings.Watch(a.ctx, func() {
 		if err := a.writePlugin(); err != nil {
 			log.Printf("plugin: %v", err)
@@ -286,6 +290,7 @@ func (a *App) OverrideSystemClaudeMd() (string, error) {
 
 func (a *App) hooksPath() string    { return filepath.Join(a.Home, "hooks.json") }
 func (a *App) endpointPath() string { return filepath.Join(a.Home, "endpoint") }
+func (a *App) spoolDir() string     { return filepath.Join(a.Home, "spool") }
 func (a *App) pluginDir() string    { return filepath.Join(a.Home, "plugin") }
 func (a *App) baseURL() string      { return fmt.Sprintf("http://127.0.0.1:%d", a.port) }
 
@@ -315,6 +320,7 @@ func (a *App) loop() {
 			return
 		case <-reap.C:
 			a.reap()
+			hooks.Replay(a.spoolDir(), a.onHook) // spooled by a hook that read the old endpoint
 		case <-prs.C:
 			go a.pollPRs()
 		case <-drift.C:

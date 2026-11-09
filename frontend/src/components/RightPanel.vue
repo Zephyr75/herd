@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { herd } from '../lib/state'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
+import { groupOf } from '../lib/sisters'
 import Preview from './Preview.vue'
 import Splitter from './ui/Splitter.vue'
 import { unsuccessful, type Step } from '../lib/types'
@@ -75,7 +76,7 @@ async function archive() {
     <template v-if="t">
       <div class="head">
         <div class="title-row">
-          <TaskRef :issue="t.issue" />
+          <TaskRef :issue="t.issue" :task="t.id" />
           <span class="title">{{ t.title }}</span>
           <button v-if="t.issue && (t.issueRepo || t.repo)" class="act" :title="`Open issue #${t.issue} on GitHub`" @click="openIssue"><Icon name="external" :size="12" />Open issue</button>
           <button v-if="t.issue && !t.archived" class="act" :title="`Copy issue #${t.issue} and its comments to ISSUE.md again (herd also does it before each run of the first agent)`" @click="refreshIssue"><Icon name="rerun" :size="12" />Issue</button>
@@ -91,7 +92,7 @@ async function archive() {
         </div>
         <div v-if="t.sisters.length" class="sisters">
           <span class="muted small">Sister</span>
-          <button v-for="x in t.sisters" :key="x.id" class="chip" title="Go to the sister task: the same work in another repository" @click="herd.pickTask(x.id)">{{ x.project }} →</button>
+          <button v-for="x in t.sisters" :key="x.id" :class="['chip', 'sister', groupOf.get(t.id) ? 'sis-' + groupOf.get(t.id)!.color : '']" title="Go to the sister task: the same work in another repository" @click="herd.pickTask(x.id)">{{ x.project }} →</button>
         </div>
         <p v-if="t.description" class="desc">{{ t.description }}</p>
       </div>
@@ -118,6 +119,10 @@ async function archive() {
           </button>
           <span class="acts">
             <button v-if="s.revert" class="act" :class="{ danger: herd.confirmRevert === s.id }" :title="`Put the worktree back to how it was when ${s.name} started, and remove it and the steps after it`" @click="herd.revertStep(s)">{{ herd.confirmRevert === s.id ? 'Discard its changes?' : 'Revert' }}</button>
+            <template v-if="s.skip">
+              <button v-if="!(s.state === 'done' && !unsuccessful(s))" class="act icon" :aria-label="`Skip ${s.name} as succeeded`" :title="`Skip ${s.name} as succeeded: end it now and move on (herd does not commit or push for it)`" @click="herd.skipStep(s, true)"><Icon name="check" :size="13" /></button>
+              <button v-if="!unsuccessful(s)" class="act icon" :aria-label="`Skip ${s.name} as failed`" :title="`Skip ${s.name} as failed: end it now and get the options for a failure`" @click="herd.skipStep(s, false)"><Icon name="close" :size="13" /></button>
+            </template>
             <button v-if="s.rerun" class="act" :title="`Run ${s.name} again in its own session, on the current worktree`" @click="herd.rerunStep(s)"><Icon name="rerun" :size="12" />Rerun</button>
             <button v-if="s.diff && diffs(s)" class="act" aria-label="Open this step's changes in Zed" title="Open this step's changes in Zed: the commit it belongs to, or the uncommitted work" @click="herd.openDiff(s)"><Icon name="eye" :size="12" />Diff</button>
           </span>
@@ -138,6 +143,10 @@ async function archive() {
 </template>
 
 <style scoped>
+  .chip.sister[class*='sis-'] {
+    color: var(--sis);
+    border-color: color-mix(in srgb, var(--sis) 45%, transparent);
+  }
   .src {
     display: flex;
     align-items: center;
@@ -347,6 +356,9 @@ async function archive() {
     background: var(--surface);
     color: var(--text);
     font-size: 12px;
+  }
+  .act.icon {
+    padding: 0 4px;
   }
   .act:hover {
     background: var(--hover);

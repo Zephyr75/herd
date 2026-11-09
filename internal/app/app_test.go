@@ -1350,3 +1350,122 @@ func TestCommonIssuesRepo(t *testing.T) {
 		t.Fatal("bad repository saved")
 	}
 }
+
+func TestStepBlockListsEarlierGuidance(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, err := a.CreateTask("core", "", "choices", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	impl := store.Step{ID: store.StepID(tv.ID, "impl-1"), TaskID: tv.ID, Key: "impl-1", Agent: "impl", N: 1, Seq: 1, State: store.Done, Guidance: "take option B: no migration"}
+	push := store.Step{ID: store.StepID(tv.ID, "push-1"), TaskID: tv.ID, Key: "push-1", Agent: "push", N: 1, Seq: 2, State: store.Running}
+	for _, s := range []store.Step{impl, push} {
+		if err := a.db.SaveStep(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task, _ := a.db.Task(tv.ID)
+	p, _ := a.settings.Project("core")
+	ag, _ := a.settings.Agent("push")
+	block := a.stepBlock(launch{task: task, proj: p, agent: ag, step: push}, "/run", "/wt")
+	if !strings.Contains(block, `Implement 1: "take option B: no migration"`) {
+		t.Fatalf("step block:\n%s", block)
+	}
+	if strings.Contains(a.stepBlock(launch{task: task, proj: p, agent: ag, step: impl}, "/run", "/wt"), "guidance to earlier steps") {
+		t.Fatal("a step's own guidance listed as earlier")
+	}
+}
+
+func TestSistersKnowEachOther(t *testing.T) {
+	a, repo := newTestApp(t)
+	for _, name := range []string{"groom", "ff"} {
+		dir := filepath.Join(filepath.Dir(repo), name)
+		os.MkdirAll(dir, 0o755)
+		run(t, dir, "git", "init", "-q", "-b", "main")
+		run(t, dir, "git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+		if err := a.SaveProject(settings.Project{ID: name, Name: name, Path: dir, BaseBranch: "main"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	main, _ := a.CreateTask("core", "", "end to end", "", false, nil)
+	b, _ := a.CreateTask("groom", "", "groom part", "", false, nil)
+	c, _ := a.CreateTask("ff", "", "ff part", "", false, nil)
+	for _, x := range []string{b.ID, c.ID} { // as before: each linked to the main task only
+		a.linkSister(main.ID, x)
+		a.linkSister(x, main.ID)
+	}
+	ids := func(ts []store.Task) (out []string) {
+		for _, x := range ts {
+			out = append(out, x.ID)
+		}
+		return
+	}
+	if got := ids(a.sisters(b.ID)); !slices.Contains(got, c.ID) || !slices.Contains(got, main.ID) || len(got) != 2 {
+		t.Fatalf("sisters of B = %v", got)
+	}
+	// B's plan asks for the ff part again: the group already has it.
+	plan := store.Step{ID: store.StepID(b.ID, "plan-1"), TaskID: b.ID, Key: "plan-1", Agent: "plan", N: 1, Seq: 1, State: store.Done}
+	a.db.SaveStep(plan)
+	os.WriteFile(filepath.Join(b.RunDir, "PLAN-1.md"), []byte("---\nstatus: done\n---\n\n# Plan\n\n---\n\n## Sister tasks\n\n### ff\n\nDo the ff part.\n"), 0o644)
+	v, _ := a.GetTask(b.ID)
+	if len(v.Next.Sisters) != 0 {
+		t.Fatalf("offered again: %+v", v.Next.Sisters)
+	}
+}
+
+// A failed step can be marked done, to go on without fixing it.
+func TestMarkFailedStepDone(t *testing.T) {
+	a, _ := newTestApp(t)
+	t.Setenv("FAKE_STATUS", "failed")
+	tv, err := a.CreateTask("core", "", "fail me", "", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "failed verdict", func() bool { s, _ := a.db.Step(id); return s.Unsuccessful() })
+	if v, _ := a.GetTask(tv.ID); v.Next.MarkDone != id {
+		t.Fatalf("Mark done not offered: %+v", v.Next)
+	}
+	if err := a.MarkDone(id); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "succeeded", func() bool { s, _ := a.db.Step(id); return s.Succeeded() && s.Completed })
+}
+
+// The check and cross buttons end a step at once, whatever its agent did.
+func TestSkipStep(t *testing.T) {
+	a, _ := newTestApp(t)
+	t.Setenv("FAKE_STATUS", "working") // the plan never says it finished
+	tv, err := a.CreateTask("core", "", "skip me", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.StartStep(tv.ID, "plan", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	id := store.StepID(tv.ID, "plan-1")
+	waitFor(t, "idle", func() bool { return stepState(a, id) == store.Idle })
+	if v, _ := a.GetTask(tv.ID); !v.Steps[0].Skip {
+		t.Fatal("no skip buttons on the waiting step")
+	}
+	if err := a.SkipStep(id, true); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := a.db.Step(id); !s.Succeeded() {
+		t.Fatalf("skipped as succeeded: %+v", s)
+	}
+	if _, live := a.run.Get(id); live {
+		t.Fatal("its session still runs")
+	}
+	waitFor(t, "completed", func() bool { _, busy := a.busy.Load(id); s, _ := a.db.Step(id); return s.Completed && !busy })
+	if err := a.SkipStep(id, false); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := a.db.Step(id)
+	if !s.Unsuccessful() {
+		t.Fatalf("skipped as failed: %+v", s)
+	}
+	if v, _ := a.GetTask(tv.ID); v.Steps[len(v.Steps)-1].ID == id && v.Next.MarkDone != id {
+		t.Fatalf("no failure next step: %+v", v.Next)
+	}
+}

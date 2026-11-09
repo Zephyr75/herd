@@ -308,7 +308,9 @@ func sourceText(t store.Task, p settings.Project) string {
 // statusOf is the task's badge: its current (or last) step with Running,
 // Waiting, Failure or, only for a Copilot step that passed (the task is
 // done), Success; and the open PR, with Ready once it is ready for review.
-// Any other success waits for the next step.
+// Steps that succeed after that Copilot step without changing code (a
+// Discuss to understand something) keep the Success. Any other success
+// waits for the next step.
 func statusOf(t store.Task, steps []StepView, ready bool) Status {
 	if t.Archived {
 		day := t.ArchivedAt.Format("Jan 2")
@@ -353,10 +355,25 @@ func statusOf(t store.Task, steps []StepView, ready bool) Status {
 	case last.State == store.Failed || last.Unsuccessful():
 		return st("failed", "Failure", last)
 	}
-	if last.External {
+	if last.External || untouchedSinceCopilot(steps) {
 		return st("done", "Success", last)
 	}
 	return st("waiting", "Waiting for next step", last)
+}
+
+// untouchedSinceCopilot reports whether a Copilot step passed and every step
+// since succeeded without changing code.
+func untouchedSinceCopilot(steps []StepView) bool {
+	for i := len(steps) - 1; i >= 0; i-- {
+		s := steps[i]
+		if s.External {
+			return s.Succeeded()
+		}
+		if !s.Succeeded() || s.Diff {
+			return false
+		}
+	}
+	return false
 }
 
 func countAgent(steps []StepView, id string) int {

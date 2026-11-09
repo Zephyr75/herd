@@ -69,13 +69,12 @@ End with status: done, or status: failed if you could not implement it (say what
 		{
 			ID: "discuss", Name: "Discuss", Command: "/herd:discuss {task} -- {guidance}", Model: "opus", Trigger: "manual",
 			Writes: "DISCUSS-{n}.md", ShowDiff: true, Sisters: true, Revert: true, Next: []string{"review", "impl"}, OnFail: []string{"discuss", "impl"},
-			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist (older ones were handled by earlier steps).
-This step is a conversation: implement the plan together with the user, in this worktree.
-Start with a short summary of what the plan asks and what you would do first, then ask the user how they want to go.
-Make the changes they agree to, one at a time, and explain each briefly. Ask before doing anything the plan does not cover.
-Do not write or change tests: Test adds them once the review passes. Do not commit: Commit and push commits once Review and Test pass.
-Before finishing, run the existing tests that cover what you changed, and the build or type-check.
-Only when the user says the work is done, write DISCUSS-{n}.md with the sections of an IMPLEMENT file: What changed, Files, and Notes for the reviewer (with what you decided together). When the plan lists Options, What changed starts with the option taken and why.
+			Instructions: `Read TASK.md, the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist, and look at the branch's changes (git diff origin/{base}...HEAD, git status).
+This step is a conversation led by the user: they may want to understand something, explore an idea, or change code. Do not start working on your own.
+After reading, say in two or three lines where the task stands, then wait for the user's questions. When there is guidance, start from it.
+Change code only when the user asks, one change at a time, and explain each briefly. Do not write or change tests unless asked, and do not commit: Commit and push commits.
+If you changed code, run the existing tests that cover it, and the build or type-check, before finishing.
+Only when the user says the discussion is over, write DISCUSS-{n}.md: a short summary of what you discussed and concluded, or whatever the user asked you to write. If you changed code, add What changed and Files, so Review can check them; when the plan lists Options and you implemented one, say which and why.
 Keep DISCUSS-{n}.md short, intuitive and easy to read.
 End with status: done, or status: failed if the user stops the work (say why).`,
 		},

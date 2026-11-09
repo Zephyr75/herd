@@ -856,6 +856,8 @@ func TestStatus(t *testing.T) {
 		"waiting":  {open, []StepView{step("impl", 2, store.Idle, "")}, "waiting", "Implement 2 · Waiting · PR #7", false},
 		"approval": {store.Task{}, []StepView{step("impl", 1, store.Approval, "")}, "approval", "Implement 1 · Waiting", false},
 		"ended":    {store.Task{}, []StepView{step("impl", 1, store.Failed, "")}, "failed", "Implement 1 · Failure", false},
+		"talk":     {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}, step("discuss", 1, store.Done, "")}, "done", "Discuss 1 · Success · PR #7", false},
+		"changed":  {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}, {Step: store.Step{Agent: "discuss", N: 1, State: store.Done}, Name: "Discuss 1", Diff: true}}, "waiting", "Discuss 1 · Waiting for next step · PR #7", false},
 		"ready":    {open, []StepView{step("push", 1, store.Done, ""), {Step: store.Step{Agent: copilotAgent, N: 1, State: store.Done}, Name: "Copilot 1", External: true}}, "done", "Copilot 1 · Success · PR #7 Ready", true},
 	} {
 		if s := statusOf(c.task, c.steps, c.ready); s.Kind != c.kind || s.Label != c.label {

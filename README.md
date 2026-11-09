@@ -16,7 +16,7 @@ Plan → Implement ─→ Review → Test → Commit and push → Copilot
      ↘ Discuss ──↗   ↑____ fails send you back to Implement or Discuss ____|
 ```
 
-- **Implement** codes on its own and kicks off **Review** by itself. **Discuss** is the hands-on version: you and Claude implement it together in its terminal, then you pick **Review**, or hand over to **Implement**.
+- **Implement** codes on its own and kicks off **Review** by itself. **Discuss** is a conversation: Claude reads the task and waits for your questions, changes code only when you ask, and sums up the talk in `DISCUSS-n.md`. After a passed Copilot, a Discuss that changes no code keeps the task green.
 - Review happy? Go to **Test**. Not happy? Edit by hand and **Rerun** the review.
 - **Test** fails? Back to **Implement** or **Discuss**. Nothing is committed before **Commit and push**.
 - **Commit and push** asks you for the PR's type, scope and title in a small form, writes `PR.md`, then herd commits, pushes and opens a **draft** PR with it. **Copilot** then reviews it and herd tracks CI. The **PR** tab (next to the artifact and Changes) shows both, asks Copilot for a new review, reruns one check or all of them, and lists every unresolved review comment (anyone's) to fix in one Implement step. Hover a line in a diff and click its **+** to comment on it (drag for several lines), then **Send to Implement** (or Discuss) with all your comments. The task header says when the branch falls behind its base, with a **Rebase** button. **Mark ready** when you are.

@@ -486,6 +486,15 @@ func (a *App) SetMaxTabs(n int) error {
 	return a.updateConfig(func(c *settings.Config) { c.MaxTabs = n })
 }
 
+// SetIssuesRepo sets the common issues repository (owner/name; "" for none).
+func (a *App) SetIssuesRepo(repo string) error {
+	repo = strings.TrimSpace(repo)
+	if repo != "" && strings.Count(repo, "/") != 1 {
+		return fmt.Errorf("%q is not owner/name", repo)
+	}
+	return a.updateConfig(func(c *settings.Config) { c.IssuesRepo = repo })
+}
+
 // SetBranchPrefix sets the prefix every new task's branch starts with.
 func (a *App) SetBranchPrefix(prefix string) error {
 	prefix = strings.TrimSpace(prefix)

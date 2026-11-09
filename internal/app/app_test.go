@@ -1319,3 +1319,34 @@ func TestBehindBase(t *testing.T) {
 		t.Fatalf("behind = %d, want 1", n)
 	}
 }
+
+func TestCommonIssuesRepo(t *testing.T) {
+	a, repo := newTestApp(t)
+	if err := a.SetIssuesRepo("org/issues"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SaveProject(settings.Project{ID: "core", Name: "pony-core", Path: repo, Repo: "org/core", BaseBranch: "main", CommonIssues: true}); err != nil {
+		t.Fatal(err)
+	}
+	a.gh.Bin = "false" // no GitHub: the title stays the issue number
+	tv, err := a.CreateTask("core", "42", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ := a.db.Task(tv.ID)
+	if task.IssueRepo != "org/issues" || task.Sister {
+		t.Fatalf("task = %+v", task)
+	}
+	p, _ := a.settings.Project("core")
+	block := a.stepBlock(launch{task: task, proj: p, agent: settings.Agent{ID: "push", Name: "Commit and push", Writes: "PR.md"}, step: store.Step{N: 1}}, "/run", "/wt")
+	if !strings.Contains(block, "refer to it as org/issues#42") || strings.Contains(block, "sister task") {
+		t.Fatalf("step block:\n%s", block)
+	}
+	task.Sister = true
+	if block := a.stepBlock(launch{task: task, proj: p, agent: settings.Agent{ID: "push", Name: "Commit and push", Writes: "PR.md"}, step: store.Step{N: 1}}, "/run", "/wt"); !strings.Contains(block, "only Part of org/issues#42") {
+		t.Fatalf("sister step block:\n%s", block)
+	}
+	if a.SetIssuesRepo("not-a-repo") == nil {
+		t.Fatal("bad repository saved")
+	}
+}

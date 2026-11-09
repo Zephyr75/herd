@@ -17,9 +17,9 @@ function emit(event: string, data: unknown) {
 }
 
 const projects: Project[] = [
-  { id: 'core', name: 'pony-core', path: '~/code/pony/pony-core', repo: 'pony-org/pony-core', baseBranch: 'main', worktreesDir: '.worktrees' },
-  { id: 'rider', name: 'pony-rider-app', path: '~/code/pony/rider-app', repo: 'pony-org/rider-app', baseBranch: 'develop', worktreesDir: '.worktrees' },
-  { id: 'infra', name: 'pony-infra', path: '~/code/pony/infra', repo: 'pony-org/infra', baseBranch: 'main', worktreesDir: '.worktrees' },
+  { id: 'core', name: 'pony-core', path: '~/code/pony/pony-core', repo: 'pony-org/pony-core', baseBranch: 'main', worktreesDir: '.worktrees', commonIssues: false },
+  { id: 'rider', name: 'pony-rider-app', path: '~/code/pony/rider-app', repo: 'pony-org/rider-app', baseBranch: 'develop', worktreesDir: '.worktrees', commonIssues: false },
+  { id: 'infra', name: 'pony-infra', path: '~/code/pony/infra', repo: 'pony-org/infra', baseBranch: 'main', worktreesDir: '.worktrees', commonIssues: false },
 ]
 const ISSUE_TITLES: Record<string, string> = { '1190': 'Pause rides when the battery drops under 5%', '4356': 'Retry BLE unlock on flaky connections' }
 
@@ -50,7 +50,7 @@ let mockSynced = false
 const settings: Settings = {
   config: {
     appearance: { theme: 'dark', uiFont: 'IBM Plex Sans', uiFontSize: 13, termFont: 'IBM Plex Mono', termFontSize: 12.5 },
-    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, notifications: true, maxTabs: 5, branchPrefix: 'ar-',
+    zedCommand: 'zed', claudeCommand: 'claude', maxLiveSessions: 6, notifications: true, maxTabs: 5, branchPrefix: 'ar-', issuesRepo: '',
     rules: 'Never edit generated files under gen/.\nRun the tests you touched before writing the artifact.', projects,
   },
   agents, context,
@@ -383,6 +383,7 @@ export const api: Api = {
     })
     return ok(derive(t).steps.find((x) => x.key === key)!)
   },
+  SetIssuesRepo: (r) => { settings.config.issuesRepo = r; return ok(undefined) },
   SetBranchPrefix: (prefix) => { settings.config.branchPrefix = prefix; emit('settings:changed', settings); return ok(undefined) },
   RerunStep: (sid) => {
     const t = find(sid.slice(0, sid.lastIndexOf('/'))), s = t.steps.find((x) => `${t.id}/${x.key}` === sid)

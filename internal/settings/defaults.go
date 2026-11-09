@@ -120,7 +120,11 @@ Then ask the user in one form, with the AskUserQuestion tool: the type of change
 the scope (the part of the code it touches) and the title. Suggest a scope and a title from the changes.
 Write PR.md: the title line "<type>(<scope>): <title> #{issue}", then a short body saying what changed and why, from the newest
 PLAN-n.md's Goal and the What changed of the IMPLEMENT and DISCUSS files, ending with "Closes #{issue}". When the herd step block
-says the issue lives in another repository, write "<that repository>#{issue}" instead of "#{issue}", and "Part of" instead of "Closes".
+says the issue lives in another repository, write "<that repository>#{issue}" instead of "#{issue}"; when it says this is a sister task, write "Part of" instead of "Closes".
+In the body, under a "## Flow" heading, draw the flow before and after the change as two mermaid flowcharts
+(mermaid code blocks: GitHub renders them, not archify pages), based on the current and new flow diagrams of the newest PLAN-n.md
+and updated with what was actually implemented. Keep each to the steps that matter (about 10 nodes) and mark what changed
+(e.g. with a classDef). Leave the section out when the change has no flow to show (docs, config, a one-line fix).
 For a LOCAL task (no issue), leave the issue references out.
 Do not commit or push: herd commits every change with PR.md's title line and body as the message, pushes, and opens
 (or updates) the draft PR with them; then Copilot reviews it.

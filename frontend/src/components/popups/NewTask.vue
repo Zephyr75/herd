@@ -58,7 +58,7 @@ const branchOk = computed(() => branch.value.startsWith(prefix.value) && branch.
 const info = computed(
   () =>
     ({
-      issue: { label: 'Issue only', text: `Claude reads issue #${nIssue.value} from ${p.value?.repo || 'the repo'} and plans from it.`, cls: 's-running' },
+      issue: { label: 'Issue only', text: `Claude reads issue #${nIssue.value} from ${issuesRepo.value || 'the repo'} and plans from it.`, cls: 's-running' },
       both: { label: 'Issue + description', text: `Claude reads issue #${nIssue.value} and follows your description on top of it.`, cls: 's-running' },
       local: { label: 'LOCAL', text: 'No GitHub issue. Claude works from your description only; the task is tagged LOCAL.', cls: 's-local' },
       none: { label: 'Missing', text: 'Add a GitHub issue number, a description, or both.', cls: 's-idle' },
@@ -76,7 +76,7 @@ function onIssue(e: Event) {
 }
 
 async function fetchTitle() {
-  if (!nIssue.value || !p.value?.repo) return
+  if (!nIssue.value || !issuesRepo.value) return
   const want = nIssue.value
   try {
     const t = await api.IssueTitle(project.value, want)
@@ -86,6 +86,8 @@ async function fetchTitle() {
   }
 }
 
+// Where the project's issues live: the common issues repository when it uses it.
+const issuesRepo = computed(() => (p.value?.commonIssues && herd.settings?.config.issuesRepo) || p.value?.repo || '')
 // Open issues assigned to you; the # field takes any other issue.
 const mine = ref<Issue[] | null>(null)
 const mineError = ref('')
@@ -96,7 +98,7 @@ watch(
     const want = ++mseq
     mine.value = null
     mineError.value = ''
-    if (!herd.project(id)?.repo) return
+    if (!issuesRepo.value) return
     try {
       const is = await api.MyIssues(id)
       if (want === mseq) mine.value = is
@@ -188,14 +190,14 @@ function key(e: KeyboardEvent) {
       </div>
       <div class="group">
         <span class="lbl">GitHub issue <span class="faint">optional</span></span>
-        <Dropdown v-if="p?.repo" class="mine" wide :items="mineItems" :value="nIssue" :placeholder="minePlaceholder" :disabled="!mine?.length" @pick="pickMine" />
+        <Dropdown v-if="issuesRepo" class="mine" wide :items="mineItems" :value="nIssue" :placeholder="minePlaceholder" :disabled="!mine?.length" @pick="pickMine" />
         <div class="issue-row">
-          <span v-if="p?.repo" class="muted small">or any issue</span>
+          <span v-if="issuesRepo" class="muted small">or any issue</span>
           <div class="issue">
             <span class="muted mono">#</span>
             <input id="nfissue" ref="issueInput" :value="issue" placeholder="1190" inputmode="numeric" autocomplete="off" @input="onIssue" @blur="fetchTitle" />
           </div>
-          <span class="repo">{{ p?.repo || 'no GitHub repo' }}</span>
+          <span class="repo">{{ issuesRepo || 'no GitHub repo' }}</span>
           <span v-if="issueTitle" class="fetched">“{{ issueTitle }}”</span>
           <span v-if="titleError" class="err">{{ titleError }}</span>
         </div>

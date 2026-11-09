@@ -10,6 +10,7 @@ export interface Project {
   repo: string
   baseBranch: string
   worktreesDir: string
+  commonIssues: boolean // its issues live in the common issues repository (config.issuesRepo)
 }
 
 export interface Agent {
@@ -95,6 +96,7 @@ export interface Config {
   maxTabs: number
   rules: string // followed by every agent
   branchPrefix: string // every new task's branch starts with it
+  issuesRepo: string // the common issues repository (owner/name)
   projects: Project[] | null
 }
 

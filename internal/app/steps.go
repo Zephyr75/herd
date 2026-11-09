@@ -66,8 +66,13 @@ func (a *App) stepBlock(l launch, runDir, wt string) string {
 	fmt.Fprintf(&b, "- step: %s ({n} = %d)\n", l.agent.DisplayName(l.step.N), l.step.N)
 	if l.task.Issue != "" {
 		fmt.Fprintf(&b, "- {issue} = %s (%s)\n", l.task.Issue, a.issueRepo(l.task))
+		ref := "#" + l.task.Issue
 		if l.task.IssueRepo != "" && l.task.IssueRepo != l.proj.Repo {
-			fmt.Fprintf(&b, "- the issue lives in another repository: refer to it as %s#%s; its main task closes it\n", l.task.IssueRepo, l.task.Issue)
+			ref = l.task.IssueRepo + "#" + l.task.Issue
+			fmt.Fprintf(&b, "- the issue lives in another repository: refer to it as %s\n", ref)
+		}
+		if l.task.Sister {
+			fmt.Fprintf(&b, "- sister task: its main task closes the issue; this one's PR is only Part of %s\n", ref)
 		}
 	} else {
 		b.WriteString("- LOCAL task: no GitHub issue\n")

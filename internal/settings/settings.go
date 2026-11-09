@@ -24,6 +24,7 @@ type Project struct {
 	Repo         string `toml:"repo" json:"repo"`
 	BaseBranch   string `toml:"base_branch" json:"baseBranch"`
 	WorktreesDir string `toml:"worktrees_dir" json:"worktreesDir"`
+	CommonIssues bool   `toml:"common_issues,omitempty" json:"commonIssues"` // its issues live in the common issues repository (Config.IssuesRepo)
 }
 
 // Appearance holds the theme and fonts.
@@ -52,10 +53,20 @@ type Config struct {
 	MaxTabs         int                    `toml:"max_tabs" json:"maxTabs"`            // open terminal tabs; the oldest closes first
 	Rules           string                 `toml:"rules" json:"rules"`                 // always followed by every agent
 	BranchPrefix    string                 `toml:"branch_prefix" json:"branchPrefix"`  // every new task's branch starts with it
+	IssuesRepo      string                 `toml:"issues_repo,omitempty" json:"issuesRepo"` // the common issues repository (owner/name) of projects set to use it
 	Keymap          Keymap                 `toml:"keymap,omitempty" json:"-"`          // shortcuts that differ from DefaultKeymap
 	Prompts         map[string]string      `toml:"prompts,omitempty" json:"-"`         // prompts that differ from DefaultPrompts, by id
 	Projects        []Project              `toml:"project" json:"projects"`
 	Context         map[string]ContextMeta `toml:"context" json:"contextMeta"`
+}
+
+// IssuesOf is the repository a project's issues live in: the common one
+// when the project uses it, else its own.
+func (c Config) IssuesOf(p Project) string {
+	if p.CommonIssues && c.IssuesRepo != "" {
+		return c.IssuesRepo
+	}
+	return p.Repo
 }
 
 // Agent is one step type, from agents.toml. The order of agents is the pipeline.

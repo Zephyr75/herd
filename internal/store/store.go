@@ -26,7 +26,8 @@ type Task struct {
 	Title           string    `json:"title"`
 	Description     string    `json:"description"`
 	Branch          string    `json:"-"`         // "" for tasks made before branches were named: agent/<slug>
-	IssueRepo       string    `json:"issueRepo"` // the repository holding Issue, when not the project's (a sister task)
+	IssueRepo       string    `json:"issueRepo"` // the repository holding Issue, when not the project's (a common issues repository, or a sister task's)
+	Sister          bool      `json:"sister"`    // created as a sister task: another task closes the issue
 	CreatedAt       time.Time `json:"createdAt"`
 	Archived        bool      `json:"archived"`
 	ArchivedAt      time.Time `json:"archivedAt"`
@@ -106,6 +107,7 @@ type taskJSON struct {
 	Slug            string    `json:"slug"`
 	Issue           string    `json:"issue,omitempty"`
 	IssueRepo       string    `json:"issueRepo,omitempty"`
+	Sister          bool      `json:"sister,omitempty"`
 	Title           string    `json:"title"`
 	Description     string    `json:"description,omitempty"`
 	Branch          string    `json:"branch,omitempty"`
@@ -119,13 +121,13 @@ type taskJSON struct {
 }
 
 func (j taskJSON) task() Task {
-	return Task{ID: j.ID, Project: j.Project, Slug: j.Slug, Issue: j.Issue, IssueRepo: j.IssueRepo, Title: j.Title,
+	return Task{ID: j.ID, Project: j.Project, Slug: j.Slug, Issue: j.Issue, IssueRepo: j.IssueRepo, Sister: j.Sister, Title: j.Title,
 		Description: j.Description, Branch: j.Branch, CreatedAt: j.CreatedAt, Archived: j.Archived, ArchivedAt: j.ArchivedAt,
 		PRNumber: j.PRNumber, PRURL: j.PRURL, PRState: j.PRState, WorktreeRemoved: j.WorktreeRemoved}
 }
 
 func toJSON(t Task) taskJSON {
-	return taskJSON{ID: t.ID, Project: t.Project, Slug: t.Slug, Issue: t.Issue, IssueRepo: t.IssueRepo, Title: t.Title,
+	return taskJSON{ID: t.ID, Project: t.Project, Slug: t.Slug, Issue: t.Issue, IssueRepo: t.IssueRepo, Sister: t.Sister, Title: t.Title,
 		Description: t.Description, Branch: t.Branch, CreatedAt: t.CreatedAt, Archived: t.Archived, ArchivedAt: t.ArchivedAt,
 		PRNumber: t.PRNumber, PRURL: t.PRURL, PRState: t.PRState, WorktreeRemoved: t.WorktreeRemoved}
 }

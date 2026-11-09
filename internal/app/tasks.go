@@ -75,22 +75,25 @@ func (a *App) IssueTitle(projectID, issue string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unknown project %q", projectID)
 	}
-	if p.Repo == "" {
+	repo := a.settings.Config().IssuesOf(p)
+	if repo == "" {
 		return "", errors.New("the project has no GitHub repo")
 	}
-	return a.gh.IssueTitle(a.ctx, p.Repo, issue)
+	return a.gh.IssueTitle(a.ctx, repo, issue)
 }
 
-// MyIssues lists the project's open issues assigned to you (the gh user).
+// MyIssues lists the open issues assigned to you (the gh user) in the
+// repository holding the project's issues.
 func (a *App) MyIssues(projectID string) ([]github.Issue, error) {
 	p, ok := a.settings.Project(projectID)
 	if !ok {
 		return nil, fmt.Errorf("unknown project %q", projectID)
 	}
-	if p.Repo == "" {
+	repo := a.settings.Config().IssuesOf(p)
+	if repo == "" {
 		return nil, errors.New("the project has no GitHub repo")
 	}
-	return a.gh.MyIssues(a.ctx, p.Repo)
+	return a.gh.MyIssues(a.ctx, repo)
 }
 
 var nonWord = regexp.MustCompile(`[^a-z0-9 ]+`)
@@ -160,6 +163,9 @@ func (a *App) createTask(projectID, issue, issueRepo, description, branch string
 	p, ok := a.settings.Project(projectID)
 	if !ok {
 		return TaskView{}, fmt.Errorf("unknown project %q", projectID)
+	}
+	if issueRepo == "" { // not a sister task: where the project's issues live
+		issueRepo = a.settings.Config().IssuesOf(p)
 	}
 	if issueRepo == p.Repo {
 		issueRepo = ""

@@ -182,6 +182,9 @@ func (a *App) CreateSister(taskID, repo string) (TaskView, error) {
 	if err != nil {
 		return TaskView{}, err
 	}
+	if err := a.updateTask(sv.ID, func(x *store.Task) error { x.Sister = true; return nil }); err != nil {
+		return sv, err
+	}
 	if err := a.linkSister(t.ID, sv.ID); err != nil {
 		return sv, err
 	}

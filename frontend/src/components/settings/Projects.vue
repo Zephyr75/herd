@@ -26,12 +26,24 @@ const open = (id: string) => herd.tasks.filter((t) => t.project === id && !t.arc
 const save = debounce((p: Project) => {
   void herd.attempt('Could not save the project', () => api.SaveProject(JSON.parse(JSON.stringify(p))))
 }, 600)
-function set(p: Project, k: keyof Project, e: Event) {
+function set(p: Project, k: 'name' | 'path' | 'repo' | 'baseBranch' | 'worktreesDir', e: Event) {
   let v = (e.target as HTMLInputElement).value
   if (k === 'worktreesDir') v = v.replace(/\/+$/, '')
   p[k] = v
   herd.edited()
   save(p)
+}
+function setCommon(p: Project, e: Event) {
+  p.commonIssues = (e.target as HTMLInputElement).checked
+  herd.edited()
+  save(p)
+}
+const issuesRepo = computed(() => herd.settings?.config.issuesRepo ?? '')
+function setIssuesRepo(e: Event) {
+  const v = (e.target as HTMLInputElement).value.trim()
+  if (!herd.settings) return
+  herd.settings.config.issuesRepo = v
+  void herd.attempt('Could not save the issues repository', () => api.SetIssuesRepo(v))
 }
 
 async function add() {
@@ -88,6 +100,11 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
       <span class="detail grow">every new task's branch starts with it</span>
       <input class="input mono prefix" :value="herd.settings?.config.branchPrefix" placeholder="ar-" spellcheck="false" @change="setPrefix" />
     </label>
+    <label class="check">
+      <span class="label">Issues repository</span>
+      <span class="detail grow">where the issues of projects set to use it live, e.g. one repo for all the team's issues</span>
+      <input class="input mono prefix wide" :value="issuesRepo" placeholder="owner/name" spellcheck="false" @change="setIssuesRepo" />
+    </label>
     <div class="check">
       <span class="grow muted small">{{ checking ? 'Checking…' : 'zed, gh and each repository are checked when this page opens.' }}</span>
       <button class="btn ghost" @click="runChecks">Check again</button>
@@ -109,6 +126,10 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
       <label class="field" title="New task worktrees start from origin/<this branch> (fetched first); pull requests target it">Base branch<input class="input mono" :value="p.baseBranch" @input="set(p, 'baseBranch', $event)" /></label>
       <label class="field">Worktrees folder<input class="input mono" :value="p.worktreesDir + '/'" @input="set(p, 'worktreesDir', $event)" /></label>
     </div>
+    <label class="issues" :title="issuesRepo ? '' : 'Set the Issues repository above first'">
+      <input type="checkbox" :checked="p.commonIssues" :disabled="!issuesRepo" @change="setCommon(p, $event)" />
+      Issues come from {{ issuesRepo || 'the issues repository' }}<span class="muted">, not {{ p.repo || 'its own repo' }}: New task lists them and its PRs close them there</span>
+    </label>
     <div v-for="c in failing(p.id)" :key="c.label" class="check bad">
       <span class="ico"><Icon name="warn" /></span><span class="label">{{ c.label }}</span><span class="detail">{{ c.detail }}</span>
     </div>
@@ -121,6 +142,15 @@ const openInZed = (id: string) => herd.attempt('Could not open Zed', () => api.O
 </template>
 
 <style scoped>
+  .issues {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+  .prefix.wide {
+    width: 220px;
+  }
   .top {
     display: flex;
     align-items: flex-end;

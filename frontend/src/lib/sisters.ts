@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import { herd } from './state'
 
-export const SISTER_COLORS = 6
+export const SISTER_COLORS = 4
 
 export interface SisterGroup {
   color: number // 0..SISTER_COLORS-1

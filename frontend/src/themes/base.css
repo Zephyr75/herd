@@ -103,10 +103,8 @@ button:disabled {
 /* sister groups (lib/sisters.ts): the same color for the linked tasks */
 .sis-0 { --sis: #4f8ff7; }
 .sis-1 { --sis: #b36cf0; }
-.sis-2 { --sis: #ec8a2f; }
-.sis-3 { --sis: #1fb3a3; }
-.sis-4 { --sis: #e2589a; }
-.sis-5 { --sis: #8fb82c; }
+.sis-2 { --sis: #1fb3a3; }
+.sis-3 { --sis: #e2589a; }
 .issue-ref.sis {
   color: var(--sis);
 }

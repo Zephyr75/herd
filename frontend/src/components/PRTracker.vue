@@ -173,7 +173,7 @@ async function refresh() {
         <Icon name="warn" :size="14" />
         <span>Merge conflicts with {{ task.baseBranch }}: GitHub runs no checks until they are resolved.</span>
         <span class="grow"></span>
-        <button v-if="canFix" class="act" :title="`Start a ${fixer!.name} step that rebases the branch on origin/${task.baseBranch} and resolves the conflicts`" @click="rebase"><Icon name="branch" :size="13" />Rebase with {{ fixer!.name }}</button>
+        <button v-if="canFix" class="act" :title="`Start a ${fixer!.name} step that rebases the branch on origin/${task.baseBranch} and resolves the conflicts`" @click="rebase"><Icon name="rebase" :size="13" />Rebase with {{ fixer!.name }}</button>
       </div>
       <p v-if="!workflows.length && !task.conflicting" class="muted small">No checks reported yet (refreshed every minute).</p>
       <div v-for="w in workflows" :key="w.name" class="wf">

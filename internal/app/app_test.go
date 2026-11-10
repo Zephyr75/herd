@@ -1009,10 +1009,15 @@ func TestCopilotStep(t *testing.T) {
 	if !s.Unsuccessful() {
 		t.Fatalf("a review with comments should fail the step: %+v", s)
 	}
-	b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-1.md"))
-	for _, want := range []string{"status: failed", "#### 1. Check the error · Medium", "`a.go:3`", "```diff\n@@ -1,2 +1,3 @@\n x := f()\n+y := x.v\n```", "nil check", "> **ant** replied: on it"} {
+	// Claude explains the changes in COPILOT-1.md (the fake writes "# Goal").
+	waitFor(t, "the explanation", func() bool {
+		b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-1.md"))
+		return strings.Contains(string(b), "# Goal") && strings.Contains(string(b), "status: failed") && strings.Contains(string(b), "COPILOT-1-review.md")
+	})
+	b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-1-review.md"))
+	for _, want := range []string{"#### 1. Check the error · Medium", "`a.go:3`", "```diff\n@@ -1,2 +1,3 @@\n x := f()\n+y := x.v\n```", "nil check", "> **ant** replied: on it"} {
 		if !strings.Contains(string(b), want) {
-			t.Fatalf("COPILOT-1.md lacks %q:\n%s", want, b)
+			t.Fatalf("COPILOT-1-review.md lacks %q:\n%s", want, b)
 		}
 	}
 	setChecks := func(cs ...github.Check) {
@@ -1020,7 +1025,7 @@ func TestCopilotStep(t *testing.T) {
 		a.checks[tv.ID] = cs
 		a.checksMu.Unlock()
 	}
-	// A later review, with no Copilot step waiting, gets a step of its own,
+	// A later review, once copilot-1 has its own, gets a step of its own,
 	// which waits for CI when Copilot found nothing.
 	setChecks(github.Check{Workflow: "Tests", Name: "pytest", Bucket: "pending"})
 	a.takeCopilotReview(task, github.Review{ID: 2, Body: "All good now"})
@@ -1033,8 +1038,8 @@ func TestCopilotStep(t *testing.T) {
 	if s2, _ := a.db.Step(c2); !s2.Succeeded() {
 		t.Fatalf("copilot-2 after CI passed: %+v", s2)
 	}
-	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-2.md")); !strings.Contains(string(b), "All good now") || !strings.Contains(string(b), "All 1 checks passed") {
-		t.Fatalf("COPILOT-2.md: %s", b)
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-2-review.md")); !strings.Contains(string(b), "All good now") || !strings.Contains(string(b), "All 1 checks passed") {
+		t.Fatalf("COPILOT-2-review.md: %s", b)
 	}
 	// Copilot is happy but a regtest failed: the step fails and says which.
 	setChecks(github.Check{Workflow: "Tests", Name: "pytest", Bucket: "pass"},
@@ -1043,11 +1048,43 @@ func TestCopilotStep(t *testing.T) {
 	if s3, _ := a.db.Step(store.StepID(tv.ID, "copilot-3")); !s3.Unsuccessful() {
 		t.Fatalf("copilot-3 with a failing regtest: %+v", s3)
 	}
-	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-3.md")); !strings.Contains(string(b), "**Regtests (local stack) / Regtests 2/4** failed: https://github.com/x/y/runs/1") || !strings.Contains(string(b), "ci: failed") {
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-3-review.md")); !strings.Contains(string(b), "**Regtests (local stack) / Regtests 2/4** failed: https://github.com/x/y/runs/1") {
+		t.Fatalf("COPILOT-3-review.md: %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-3.md")); !strings.Contains(string(b), "ci: failed") {
 		t.Fatalf("COPILOT-3.md: %s", b)
 	}
 	if _, err := os.Stat(filepath.Join(tv.RunDir, "FEEDBACK.md")); err == nil {
 		t.Fatal("FEEDBACK.md written")
+	}
+}
+
+// A review that arrives after the user moved on goes to the Copilot step that
+// stopped waiting for it, not to a new one.
+func TestLateCopilotReview(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "late copilot", "", false, nil)
+	_ = a.updateTask(tv.ID, func(t *store.Task) error { t.PRNumber, t.PRState = 7, "open"; return nil })
+	a.startCopilotStep(tv.ID)
+	c1 := store.StepID(tv.ID, "copilot-1")
+	if err := a.MarkDone(c1); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := a.db.Task(tv.ID)
+	a.takeCopilotReview(task, github.Review{ID: 1, Body: "Late", Comments: []github.Comment{{Path: "a.go", Body: "nil check"}}})
+	if _, err := a.db.Step(store.StepID(tv.ID, "copilot-2")); err == nil {
+		t.Fatal("a late review started copilot-2")
+	}
+	if s, _ := a.db.Step(c1); s.Verdict != skipped {
+		t.Fatalf("copilot-1 verdict changed: %+v", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(tv.RunDir, "COPILOT-1-review.md")); !strings.Contains(string(b), "nil check") {
+		t.Fatalf("COPILOT-1-review.md: %s", b)
+	}
+	// Copilot reviews again: that one gets a step of its own.
+	a.takeCopilotReview(task, github.Review{ID: 2, Body: "Again"})
+	if _, err := a.db.Step(store.StepID(tv.ID, "copilot-2")); err != nil {
+		t.Fatal("a second review got no step")
 	}
 }
 
@@ -1176,7 +1213,17 @@ func TestSisterTask(t *testing.T) {
 }
 
 func TestRevertStep(t *testing.T) {
-	a, _ := newTestApp(t)
+	a, repo := newTestApp(t)
+	// A tracked file .gitignore matches, and one committed with CRLF: the
+	// revert keeps both as they are.
+	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("*.json\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, "data.json"), []byte("{}\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, "dos.txt"), []byte("a\r\nb\r\n"), 0o644)
+	run(t, repo, "git", "add", "-f", ".gitignore", "data.json", "dos.txt")
+	run(t, repo, "git", "commit", "-q", "-m", "data")
+	os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("* text=auto\n"), 0o644)
+	run(t, repo, "git", "add", ".gitattributes")
+	run(t, repo, "git", "commit", "-q", "-m", "attributes")
 	tv, _ := a.CreateTask("core", "", "revert an implement", "", true, nil)
 	plan := store.StepID(tv.ID, "plan-1")
 	waitFor(t, "plan", func() bool { return stepState(a, plan) == store.Done })
@@ -1210,6 +1257,9 @@ func TestRevertStep(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(wt, f)); (err == nil) != want {
 			t.Errorf("%s exists=%v after the revert", f, err == nil)
 		}
+	}
+	if st := run(t, wt, "git", "status", "--porcelain", "--", "data.json", "dos.txt"); st != "" {
+		t.Errorf("the revert changed committed files:\n%s", st)
 	}
 	steps, _ := a.db.Steps(tv.ID)
 	if len(steps) != 1 || steps[0].ID != plan {

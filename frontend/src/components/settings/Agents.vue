@@ -41,7 +41,7 @@ const checked = (e: Event) => (e.target as HTMLInputElement).checked
 
 const nameOf = (id: string) => agents.value.find((x) => x.id === id)?.name ?? id
 const afterName = (a: Agent) => nameOf(afterOf(a.trigger))
-const sub = (a: Agent) => (a.builtin ? 'run by herd · ' : modelLabel(a.model) + ' · ') + (isAuto(a) ? 'automatic after ' + afterName(a) : a.builtin ? 'not started' : 'manual')
+const sub = (a: Agent) => (a.builtin ? 'run by herd, explained by ' + modelLabel(a.model) + ' · ' : modelLabel(a.model) + ' · ') + (isAuto(a) ? 'automatic after ' + afterName(a) : a.builtin ? 'not started' : 'manual')
 
 // "Starts after X" would loop when X (or what X waits for) starts after this agent.
 function loops(a: Agent, target: string) {
@@ -194,10 +194,21 @@ watch(() => [JSON.stringify(A.value), JSON.stringify(herd.settings?.prompts)], l
     <div v-if="A" class="editor card">
       <template v-if="A.builtin">
         <p class="special">
-          Built in: herd runs it, not Claude, because it works with GitHub. It asks Copilot to review the PR, then waits for the review and the CI checks
-          (checked every minute), writes {{ A.writes.replace('{n}', 'n') }} with Copilot's comments and the failing checks, and fails when there is something to
-          fix. When it passes, the task is done (green). Only when it starts and what Next step offers can change.
+          Built in: herd runs it, because it works with GitHub. It asks Copilot to review the PR, then waits for the review and the CI checks (checked every
+          minute), and fails when there is something to fix; the PR tab shows both. When it passes, the task is done (green). Meanwhile Claude explains the
+          PR's changes in {{ A.writes.replace('{n}', 'n') }}, with the model and instructions below.
         </p>
+        <div class="field">
+          <span>Model of the explanation</span>
+          <div class="segs">
+            <button v-for="[v, l] in models" :key="v" class="seg" :class="{ on: A.model === v }" @click="set('model', v)">{{ l }}</button>
+          </div>
+        </div>
+        <label class="field"
+          >Instructions of the explanation
+          <textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea>
+          <span class="hint flat">Placeholders: {{ '{pr} {base} {file}' }} (the file to write, which becomes {{ A.writes.replace('{n}', 'n') }}). herd's Diagrams prompt follows them.</span>
+        </label>
       </template>
       <template v-else>
         <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>

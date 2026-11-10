@@ -30,7 +30,7 @@ const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.st
 <template>
   <footer>
     <button class="dock" :class="{ off: herd.leftHidden }" :title="tip('task list', herd.leftHidden, 'toggleLeft')" @click="herd.togglePanel('left')">
-      <Icon :name="herd.leftHidden ? 'panel-left-off' : 'panel-left'" :size="16" />
+      <Icon :name="herd.leftHidden ? 'panel-left-off' : 'panel-left'" :size="19" />
     </button>
     <button v-if="counts.running + counts.waiting + counts.approval" class="activity" :class="{ on: herd.overlay === 'activity' }" title="Show running tasks" @click="herd.openOverlay(herd.overlay === 'activity' ? 'none' : 'activity')">
       <span v-if="counts.running" class="item"><span class="dot s-running"></span>{{ counts.running }} running</span>
@@ -42,7 +42,7 @@ const autoReview = computed(() => herd.settings?.agents.some((a) => a.trigger.st
     <span>{{ right }}</span>
     <span v-if="autoReview">auto-review on</span>
     <button class="dock" :class="{ off: herd.rightHidden }" :title="tip('steps and preview', herd.rightHidden, 'toggleRight')" @click="herd.togglePanel('right')">
-      <Icon :name="herd.rightHidden ? 'panel-right-off' : 'panel-right'" :size="16" />
+      <Icon :name="herd.rightHidden ? 'panel-right-off' : 'panel-right'" :size="19" />
     </button>
   </footer>
 </template>
@@ -95,8 +95,8 @@ footer {
 }
 .dock {
   flex: none;
-  width: 24px;
-  height: 22px;
+  width: 28px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;

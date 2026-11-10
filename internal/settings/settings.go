@@ -453,8 +453,18 @@ const CopilotID = "copilot"
 // Copilot is the built-in agent with its fixed parts; the user sets its
 // trigger and its next steps.
 func Copilot() Agent {
-	return Agent{ID: CopilotID, Name: "Copilot", Trigger: "manual", Writes: "COPILOT-{n}.md", Builtin: true}
+	return Agent{ID: CopilotID, Name: "Copilot", Trigger: "manual", Writes: "COPILOT-{n}.md", Builtin: true, Model: "opus", Instructions: CopilotInstructions}
 }
+
+// CopilotInstructions is what the Claude run of a Copilot step does: explain
+// the PR's changes in COPILOT-n.md. {pr}: the PR number, {base}: the base
+// branch, {file}: the file to write.
+const CopilotInstructions = `Explain the changes of PR #{pr} to someone who has not read the code. Read TASK.md and the newest PLAN-n.md in the run directory, then the diff: git diff origin/{base}...HEAD.
+Write {file} in markdown, without front matter, with:
+- ## TL;DR: two to four plain sentences on the idea behind the change (what was wrong, how it is fixed), the way you would tell a colleague. Run the humanizer skill (Skill tool) on it when you have it.
+- ## How it works: each change in the order the reader needs it, what it does and why, with the files it touches. For a change that is hard to picture, add an everyday analogy.
+- a diagram of the flow before and after, when the change alters a flow.
+Keep it short, intuitive and easy to read. Write only {file}: never change the code, commit or push.`
 
 // normalize makes agents consistent: lists are never nil (the UI always
 // gets lists), Push needs Commit and Open the PR needs Push, and Copilot is
@@ -466,6 +476,12 @@ func normalize(agents []Agent) []Agent {
 		if a.ID == CopilotID {
 			c := Copilot()
 			c.Trigger, c.Next, c.OnFail = a.Trigger, a.Next, a.OnFail
+			if a.Model != "" {
+				c.Model = a.Model
+			}
+			if strings.TrimSpace(a.Instructions) != "" {
+				c.Instructions = a.Instructions
+			}
 			cop = &c
 			continue
 		}

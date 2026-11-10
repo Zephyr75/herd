@@ -502,7 +502,7 @@ func nextOf(t store.Task, steps []StepView, agents []settings.Agent) Next {
 		ids := successIDs(cop)
 		switch {
 		case last.Unsuccessful():
-			nx.Text = fmt.Sprintf("PR #%d needs fixes: %s lists Copilot's comments and the failing CI checks.", t.PRNumber, last.Artifact)
+			nx.Text = fmt.Sprintf("PR #%d needs fixes: the PR tab lists Copilot's comments and the failing CI checks.", t.PRNumber)
 			ids = failureIDs(cop)
 		case last.Verdict == skipped:
 			nx.Text = fmt.Sprintf("herd stopped waiting for Copilot on PR #%d.", t.PRNumber)

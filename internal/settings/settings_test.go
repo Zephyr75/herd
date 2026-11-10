@@ -142,3 +142,15 @@ func TestPromptOverride(t *testing.T) {
 		t.Fatal("unknown prompt saved")
 	}
 }
+
+// Copilot keeps its model and instructions (the explanation's), with defaults.
+func TestCopilotModelAndInstructions(t *testing.T) {
+	got := normalize([]Agent{{ID: CopilotID, Model: "sonnet", Instructions: "Explain #{pr}"}})
+	if c := got[len(got)-1]; c.Model != "sonnet" || c.Instructions != "Explain #{pr}" || !c.Builtin {
+		t.Fatalf("%+v", c)
+	}
+	got = normalize([]Agent{{ID: CopilotID}})
+	if c := got[len(got)-1]; c.Model != "opus" || c.Instructions != CopilotInstructions {
+		t.Fatalf("defaults: %+v", c)
+	}
+}

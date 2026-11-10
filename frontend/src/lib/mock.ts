@@ -170,7 +170,7 @@ const T: MockTask[] = [
 
 const proj = (id: string) => projects.find((p) => p.id === id) ?? projects[0]
 // herd's own step after a push: it waits for Copilot's review.
-const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '', model: '', trigger: 'manual', writes: 'COPILOT-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: true, ignoreRules: false, showDiff: false, sisters: false, allow: [], next: [], onFail: [], instructions: '' }
+const copilotA: Agent = { id: 'copilot', name: 'Copilot', command: '', model: 'opus', trigger: 'manual', writes: 'COPILOT-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: true, ignoreRules: false, showDiff: false, sisters: false, allow: [], next: [], onFail: [], instructions: '' }
 const agent = (id: string) => (id === 'copilot' ? copilotA : agents.find((a) => a.id === id) ?? agents[0])
 const displayName = (a: Agent, n: number) => (a.writes.includes('{n}') ? `${a.name} ${n}` : a.name)
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

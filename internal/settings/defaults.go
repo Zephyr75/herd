@@ -54,7 +54,7 @@ End with status: done, or status: failed if the task cannot be done as described
 			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, Sisters: true, Revert: true, OnFail: []string{"impl", "discuss", "plan"},
 			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and DISCUSS-n.md in the run directory when they exist (older ones were handled by earlier steps).
 Implement the plan's New flow and Files in this worktree. When the plan lists Options, take the one the guidance picks, else the recommended one.
-When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n.md.
+When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n-review.md.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
@@ -104,7 +104,7 @@ End with status: done when the tests pass, or status: failed when one shows a bu
 			Instructions: PushInstructions,
 		},
 		{
-			ID: CopilotID, Name: "Copilot", Trigger: "after:push", Writes: "COPILOT-{n}.md", Builtin: true,
+			ID: CopilotID, Name: "Copilot", Trigger: "after:push", Writes: "COPILOT-{n}.md", Builtin: true, Model: "opus", Instructions: CopilotInstructions,
 			Next: []string{"impl", "discuss"}, OnFail: []string{"impl", "discuss"},
 		},
 	}

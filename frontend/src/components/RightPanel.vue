@@ -87,7 +87,7 @@ async function archive() {
           <span class="muted small">{{ t.source }}{{ t.pr ? ` · PR #${t.pr}` : '' }}</span>
           <template v-if="t.behind && !t.archived">
             <span class="behind small" :title="`origin/${t.baseBranch} has ${t.behind} commits this branch lacks (herd fetches it every 5 minutes)`">{{ t.behind }} behind {{ t.baseBranch }}</span>
-            <button v-if="herd.canFix(t)" class="act" :title="`Start a ${herd.fixers()[0]?.name} step that rebases the branch on origin/${t.baseBranch}`" @click="rebase"><Icon name="branch" :size="12" />Rebase</button>
+            <button v-if="herd.canFix(t)" class="act" :title="`Start a ${herd.fixers()[0]?.name} step that rebases the branch on origin/${t.baseBranch}`" @click="rebase"><Icon name="rebase" :size="12" />Rebase</button>
           </template>
         </div>
         <div v-if="t.sisters.length" class="sisters">

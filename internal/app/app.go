@@ -80,7 +80,9 @@ type App struct {
 	pollMu sync.Mutex // one pollPRs at a time
 	// emitMu: tasks are read and sent one at a time, so the last view sent
 	// is never older than one sent before it (e.g. a step still busy).
-	emitMu sync.Mutex
+	copilotMu  sync.Mutex     // COPILOT-n.md is written by the review and the explanation
+	explaining sync.WaitGroup // explanations being written (see explainChanges)
+	emitMu     sync.Mutex
 
 	checksMu sync.Mutex
 	checks   map[string][]github.Check    // CI checks of each open PR, by task id
@@ -177,6 +179,7 @@ func Stop(a *App) {
 	if a.cancel != nil {
 		a.cancel()
 	}
+	a.explaining.Wait() // their Claude runs end with the context
 	if a.run != nil {
 		// Steps still working keep running in their holders; the next herd
 		// reattaches them. Finished and paused ones end.

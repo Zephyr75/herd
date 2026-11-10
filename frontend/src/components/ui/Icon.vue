@@ -2,7 +2,7 @@
 // herd's icons, from Lucide (lucide.dev), by the names herd uses.
 import { computed, type Component } from 'vue'
 import {
-  Archive, Check, ChevronDown, ChevronRight, Copy, Diff, ExternalLink, Eye, File, Folder, FolderGit2, GitBranch, GitPullRequest, Maximize2, Menu, Minus,
+  Archive, Check, ChevronDown, ChevronRight, Copy, Diff, ExternalLink, Eye, File, Folder, FolderGit2, GitBranch, GitMerge, GitPullRequestArrow, Maximize2, Menu, Minus,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCw, Search, Settings, Square, SquareTerminal, TriangleAlert, Undo2, X,
 } from '@lucide/vue'
 
@@ -15,6 +15,7 @@ const icons: Record<string, Component> = {
   'chevron-right': ChevronRight,
   folder: Folder,
   branch: GitBranch,
+  rebase: GitMerge,
   search: Search,
   plus: Plus,
   close: X,
@@ -25,7 +26,7 @@ const icons: Record<string, Component> = {
   eye: Eye,
   diff: Diff,
   revert: Undo2,
-  pr: GitPullRequest,
+  pr: GitPullRequestArrow,
   rerun: RotateCw,
   pencil: Pencil,
   check: Check,

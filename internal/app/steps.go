@@ -837,19 +837,51 @@ func (a *App) runCopilot(taskID string, say func(string)) {
 }
 
 // copilotAgent is the built-in step herd runs itself: it waits for Copilot's
-// review and the CI checks and writes them to COPILOT-<n>.md (no Claude).
+// review and the CI checks (COPILOT-<n>-review.md), while Claude explains the
+// PR's changes in COPILOT-<n>.md (see explain.go).
 const copilotAgent = settings.CopilotID
 
 // skipped is the Verdict of a Copilot step herd stopped waiting on.
 const skipped = "skipped"
 
-// takeCopilotReview writes a review to the waiting Copilot step, or to a new
-// one when none waits (e.g. after Mark done).
+// takeCopilotReview writes a review to the waiting Copilot step. A review
+// that arrives after the user moved on goes to the Copilot step that stopped
+// waiting for it, without changing its verdict; any other (Copilot reviewed
+// again on its own) gets a new step.
 func (a *App) takeCopilotReview(t store.Task, r github.Review) {
 	if a.waitingCopilot(t.ID) == nil {
+		if s := a.lateCopilot(t); s != nil {
+			a.writeReview(t, *s, r)
+			a.emit(EvArtifact, map[string]string{"taskId": t.ID, "file": filepath.Base(a.copilotPath(t, *s))})
+			a.emitTask(t.ID)
+			return
+		}
 		a.startCopilotStep(t.ID)
 	}
 	a.finishCopilotStep(t, r)
+}
+
+// lateCopilot is the task's last Copilot step when it ended before its review
+// arrived (the user moved on, marked it done or skipped it).
+func (a *App) lateCopilot(t store.Task) *store.Step {
+	steps, _ := a.db.Steps(t.ID)
+	for i := len(steps) - 1; i >= 0; i-- {
+		if steps[i].Agent != copilotAgent {
+			continue
+		}
+		if art, _ := artifacts.Read(a.copilotPath(t, steps[i])); steps[i].State == store.Done && art.Get("comments") == "" {
+			return &steps[i]
+		}
+		return nil
+	}
+	return nil
+}
+
+// writeReview writes Copilot's review to COPILOT-n-review.md and its count
+// to COPILOT-n.md.
+func (a *App) writeReview(t store.Task, s store.Step, r github.Review) {
+	_ = os.WriteFile(a.reviewPath(t, s), []byte(copilotMarkdown(t.PRNumber, r.Body, r.Comments)), 0o644)
+	a.writeCopilot(t, s, map[string]string{"pr": fmt.Sprint(t.PRNumber), "comments": fmt.Sprint(len(r.Comments))})
 }
 
 func (a *App) startCopilotStep(taskID string) {
@@ -870,7 +902,16 @@ func (a *App) startCopilotStep(taskID string) {
 		return
 	}
 	key := fmt.Sprintf("%s-%d", copilotAgent, n)
-	_ = a.db.SaveStep(store.Step{ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: copilotAgent, N: n, Seq: seq, State: store.Running, StartedAt: time.Now()})
+	s := store.Step{ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: copilotAgent, N: n, Seq: seq, State: store.Running, StartedAt: time.Now()}
+	if a.db.SaveStep(s) == nil {
+		if t, err := a.db.Task(taskID); err == nil {
+			a.explaining.Add(1)
+			go func() {
+				defer a.explaining.Done()
+				a.explainChanges(t, s)
+			}()
+		}
+	}
 	a.emitTask(taskID)
 }
 
@@ -881,8 +922,7 @@ func (a *App) finishCopilotStep(t store.Task, r github.Review) {
 	if s == nil {
 		return
 	}
-	md := fmt.Sprintf("---\npr: %d\ncomments: %d\n---\n\n%s", t.PRNumber, len(r.Comments), copilotMarkdown(t.PRNumber, r.Body, r.Comments))
-	_ = os.WriteFile(a.copilotPath(t, *s), []byte(md), 0o644)
+	a.writeReview(t, *s, r)
 	a.settleCopilotStep(t)
 }
 
@@ -893,15 +933,14 @@ const ciGrace = 5 * time.Minute
 // settleCopilotStep ends the waiting Copilot step once its review is in and
 // it can tell the outcome: at once when Copilot left comments, else when the
 // PR's CI finished. It succeeds only when Copilot found nothing and every
-// check passed; COPILOT-n.md then lists the CI result for the next step.
+// check passed; COPILOT-n-review.md then lists the CI result for the next step.
 func (a *App) settleCopilotStep(t store.Task) {
 	s := a.waitingCopilot(t.ID)
 	if s == nil {
 		return
 	}
-	path := a.copilotPath(t, *s)
-	art, _ := artifacts.Read(path)
-	if !art.Exists { // the review has not arrived
+	art, _ := artifacts.Read(a.copilotPath(t, *s))
+	if art.Get("comments") == "" { // the review has not arrived
 		return
 	}
 	comments := art.Get("comments") != "0"
@@ -911,7 +950,7 @@ func (a *App) settleCopilotStep(t store.Task) {
 		if ci == "CI running" {
 			return
 		}
-		if fi, err := os.Stat(path); ci == "" && err == nil && time.Since(fi.ModTime()) < ciGrace {
+		if fi, err := os.Stat(a.reviewPath(t, *s)); ci == "" && err == nil && time.Since(fi.ModTime()) < ciGrace {
 			return
 		}
 	}
@@ -924,9 +963,9 @@ func (a *App) settleCopilotStep(t store.Task) {
 	if ci != "" {
 		ciWord = strings.TrimPrefix(ci, "CI ")
 	}
-	md := fmt.Sprintf("---\nstatus: %s\npr: %d\ncomments: %s\nci: %s\n---\n\n%s\n%s", status, t.PRNumber, art.Get("comments"),
-		ciWord, strings.TrimSpace(art.Body), ciMarkdown(checks))
-	_ = os.WriteFile(path, []byte(md), 0o644)
+	review, _ := os.ReadFile(a.reviewPath(t, *s))
+	_ = os.WriteFile(a.reviewPath(t, *s), []byte(strings.TrimSpace(string(review))+"\n"+ciMarkdown(checks)), 0o644)
+	a.writeCopilot(t, *s, map[string]string{"status": status, "ci": ciWord})
 	done, changed := a.updateStep(s.ID, func(x *store.Step) bool {
 		if x.State != store.Running {
 			return false
@@ -944,7 +983,7 @@ func (a *App) settleCopilotStep(t store.Task) {
 	}
 }
 
-// ciMarkdown is the CI section of COPILOT-n.md: the failing checks first.
+// ciMarkdown is the CI section of COPILOT-n-review.md: the failing checks first.
 func ciMarkdown(cs []github.Check) string {
 	var b strings.Builder
 	b.WriteString("\n## CI checks\n\n")

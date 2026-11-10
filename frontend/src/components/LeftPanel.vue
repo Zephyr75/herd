@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
+import type { Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
@@ -11,11 +12,17 @@ const counts = computed(() => ({
   active: herd.tasks.filter((t) => !t.archived).length,
   archived: herd.tasks.filter((t) => t.archived).length,
 }))
+// Within a project, newest first: tasks by creation, archives by when they
+// were closed (archived).
+const time = (iso: string) => Date.parse(iso) || 0 // Go's times vary in offset and precision: compare them as dates
+const newest = (key: 'createdAt' | 'archivedAt') => (a: Task, b: Task) => time(b[key]) - time(a[key])
 const groups = computed(() =>
   herd.groups
     .map((p) => ({
       p,
-      tasks: herd.tasks.filter((t) => t.project === p.id && (herd.left === 'archive' ? t.archived : !t.archived)),
+      tasks: herd.tasks
+        .filter((t) => t.project === p.id && (herd.left === 'archive' ? t.archived : !t.archived))
+        .sort(newest(herd.left === 'archive' ? 'archivedAt' : 'createdAt')),
     }))
     .filter((g) => !g.p.gone || g.tasks.length),
 )

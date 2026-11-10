@@ -281,8 +281,13 @@ func (g Git) SnapshotIndex(ctx context.Context, worktree string) (string, error)
 }
 
 // Snapshot stores the worktree's content, untracked files included (not
-// ignored ones), as a tree and returns its hash.
+// ignored ones), as a tree and returns its hash. The index starts from HEAD:
+// tracked files that .gitignore matches stay in, and files committed with
+// CRLF keep them.
 func (g Git) Snapshot(ctx context.Context, worktree, index string) (string, error) {
+	if _, err := g.privateIndex(ctx, worktree, index, "read-tree", "HEAD"); err != nil {
+		return "", err
+	}
 	if _, err := g.privateIndex(ctx, worktree, index, "add", "-A"); err != nil {
 		return "", err
 	}

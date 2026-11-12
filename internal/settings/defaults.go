@@ -54,7 +54,7 @@ End with status: done, or status: failed if the task cannot be done as described
 			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, Sisters: true, Revert: true, OnFail: []string{"impl", "discuss", "plan"},
 			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and DISCUSS-n.md in the run directory when they exist (older ones were handled by earlier steps).
 Implement the plan's New flow and Files in this worktree. When the plan lists Options, take the one the guidance picks, else the recommended one.
-When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest FEEDBACK-n.md. Check each comment against the code first and change the code only when its concern is real; when it is not, leave the code as it is and say why in IMPLEMENT-{n}.md, so the user can resolve it in the Copilot step.
+When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest FEEDBACK-n.md. Check each comment against the code first and change the code only when its concern is real and worth fixing; when it is wrong or unnecessary, reject it: leave the code as it is. List the ids of the comments you handled in the front matter of IMPLEMENT-{n}.md (the number after "comment" in FEEDBACK-n.md or in your guidance), comma-separated: fixed: <ids> and rejected: <ids>. herd marks the rejected ones in the PR tab, where the user resolves them.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
@@ -62,7 +62,7 @@ Write IMPLEMENT-{n}.md with these sections:
 TLDR: two or three sentences, right after the front matter, saying what changed and why. Then ELI5: a short paragraph explaining the same thing as you would to a five-year-old, with an everyday metaphor (no jargon, no file or function names). Write both with the humanizer skill so they read naturally; do not use humanizer anywhere else.
 1. What changed: an intuitive explanation of the change and how each part of the code had to be updated for it, following the flow. When the plan lists Options, start with the option taken and why: the user's guidance, else the plan's recommendation.
 2. Files: a table of the files actually changed, one row each, with what changed in it.
-3. Copilot comments, only when you handled some: one row per comment (its title, or file:line), whether you fixed it or it is not a real concern, and why.
+3. Review comments, only when you handled some: one row per comment (its id and title), fixed or rejected, and why (for a rejection: why it is wrong or unnecessary).
 4. Notes for the reviewer, only when there are any: deviations from the plan, what to look at closely, checks that failed or could not run.
 Keep IMPLEMENT-{n}.md short, intuitive and easy to read.
 End with status: done, or status: failed if you could not implement it (say what blocks).`,

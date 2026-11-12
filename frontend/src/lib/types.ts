@@ -214,6 +214,7 @@ export interface Task {
   draft: boolean // the open PR is a draft (herd opens them so)
   conflicting: boolean // the open PR conflicts with its base: GitHub runs no checks
   feedback: Feedback[] // what reviewers still ask for on the open PR
+  rejected: Record<string, { step: string; name: string }> // open threads a step found wrong or unnecessary, by thread id
   behind: number // commits of origin/<base> the branch lacks
   notes: Note[] // the user's comments on the diff, until sent to a step
 }

@@ -1207,6 +1207,34 @@ func TestRenameArtifacts(t *testing.T) {
 	}
 }
 
+// A step lists the review comments it handled in its front matter; herd
+// shows the rejected ones in the PR tab until a later step fixes them.
+func TestRejectedComments(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "reject", "", false, nil)
+	a.checksMu.Lock()
+	a.feedback[tv.ID] = []github.Feedback{
+		{ID: "t1", Path: "a.go", URL: "https://github.com/x/y/pull/7#discussion_r111"},
+		{ID: "t2", Path: "b.go", URL: "https://github.com/x/y/pull/7#discussion_r222"},
+	}
+	a.checksMu.Unlock()
+	impl := func(n int, front string) {
+		s := store.Step{ID: store.StepID(tv.ID, fmt.Sprintf("impl-%d", n)), TaskID: tv.ID, Key: fmt.Sprintf("impl-%d", n), Agent: "impl", N: n, Seq: 10 + n, State: store.Done}
+		_ = a.db.SaveStep(s)
+		os.WriteFile(filepath.Join(tv.RunDir, fmt.Sprintf("IMPLEMENT-%d.md", n)), []byte("---\nstatus: done\n"+front+"---\n# x\n"), 0o644)
+		a.recordComments(s)
+	}
+	impl(1, "fixed: 222\nrejected: [111, 222]\n")
+	v, _ := a.GetTask(tv.ID)
+	if v.Rejected["t1"].Name != "Implement 1" || v.Rejected["t2"].Name != "Implement 1" {
+		t.Fatalf("rejected: %+v", v.Rejected)
+	}
+	impl(2, "fixed: 222\n")
+	if v, _ := a.GetTask(tv.ID); v.Rejected["t1"].Step == "" || v.Rejected["t2"].Step != "" {
+		t.Fatalf("after a fix: %+v", v.Rejected)
+	}
+}
+
 func TestCISummary(t *testing.T) {
 	for want, buckets := range map[string][]string{"": nil, "CI passed": {"pass", "skipping"}, "CI running": {"pass", "pending"}, "CI failed": {"pending", "fail"}} {
 		var cs []github.Check

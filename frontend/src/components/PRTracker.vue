@@ -57,7 +57,11 @@ const fix = (guidance: string) => herd.fixWith(props.task, guidance)
 // Ticked by default unless outdated (the code it points at changed since);
 // flipped holds the ones the user ticked or unticked.
 const flipped = ref(new Set<string>())
-const ticked = (f: Feedback) => f.outdated === flipped.value.has(f.id)
+// Unticked too when a step rejected it (found it wrong or unnecessary).
+const rejected = (f: Feedback) => props.task.rejected?.[f.id]
+const ticked = (f: Feedback) => (f.outdated || !!rejected(f)) === flipped.value.has(f.id)
+// The GitHub id of a thread's first comment: steps name comments by it.
+const commentId = (f: Feedback) => /#discussion_r(\d+)/.exec(f.url)?.[1] ?? ''
 const toggle = (id: string) => {
   const s = new Set(flipped.value)
   if (!s.delete(id)) s.add(id)
@@ -79,7 +83,9 @@ function fixFeedback() {
   const comments = picked.value
     .map((f) => {
       const replies = f.replies.map((r) => `> ${r.author}: ${r.body.replace(/\n/g, '\n> ')}`).join('\n')
-      return `### ${where(f)}${f.outdated ? ' (outdated: the code changed since)' : ''}, by ${f.author}\n${f.body}${replies ? '\n\n' + replies : ''}`
+      const id = commentId(f) ? ` (comment ${commentId(f)})` : ''
+      const was = [f.outdated && 'outdated: the code changed since', rejected(f) && `rejected by ${rejected(f)!.name}`].filter(Boolean).join('; ')
+      return `### ${where(f)}${id}${was ? ` (${was})` : ''}, by ${f.author}\n${f.body}${replies ? '\n\n' + replies : ''}`
     })
     .join('\n\n')
   fix(herd.prompt('fixFeedback', { pr: String(props.task.pr), comments }))
@@ -137,6 +143,7 @@ async function refresh() {
               <span class="mono muted">{{ where(f) }}</span>
               <span v-if="f.resolvedBy" class="muted">resolved by {{ f.resolvedBy }}</span>
               <span v-else-if="f.outdated" class="muted">outdated</span>
+              <button v-if="!f.resolvedBy && rejected(f)" class="tag rejected" :title="`${rejected(f)!.name} found it wrong or unnecessary and left the code as it is: open its artifact to see why`" @click="herd.openStep(task.id, rejected(f)!.step)">rejected</button>
               <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
               <span class="grow"></span>
               <button v-if="live && f.path && !f.resolvedBy" class="icon" :disabled="resolving === f.id" title="Mark resolved on GitHub" aria-label="Mark resolved on GitHub" @click="resolve(f)"><Icon name="check" :size="15" /></button>
@@ -346,6 +353,16 @@ async function refresh() {
     margin-top: 2px;
     flex: none;
     color: var(--muted);
+  }
+  .tag.rejected {
+    padding: 0 5px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--approval);
+    font-size: 11px;
+    line-height: 16px;
+    cursor: pointer;
   }
   .fb.resolved .ftext {
     color: var(--muted);

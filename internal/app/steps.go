@@ -682,6 +682,9 @@ func (a *App) complete(stepID string) { a.completeWith(stepID, true) }
 
 // completeWith is complete, with or without the agent's git actions.
 func (a *App) completeWith(stepID string, git bool) {
+	if s, err := a.db.Step(stepID); err == nil && s.State == store.Done {
+		a.recordComments(s) // succeeded or not
+	}
 	s, first := a.updateStep(stepID, func(s *store.Step) bool {
 		if s.Completed || !s.Succeeded() {
 			return false
@@ -1119,6 +1122,9 @@ func copilotMarkdown(pr int, body string, comments []github.Comment) string {
 		}
 		if c.Severity != "" {
 			title += " · " + c.Severity
+		}
+		if c.ID != 0 {
+			title += fmt.Sprintf(" (comment %d)", c.ID)
 		}
 		fmt.Fprintf(&b, "#### %d. %s\n\n", i+1, title)
 		if c.Title != "" {

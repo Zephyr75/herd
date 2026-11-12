@@ -54,7 +54,7 @@ End with status: done, or status: failed if the task cannot be done as described
 			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, Sisters: true, Revert: true, OnFail: []string{"impl", "discuss", "plan"},
 			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and DISCUSS-n.md in the run directory when they exist (older ones were handled by earlier steps).
 Implement the plan's New flow and Files in this worktree. When the plan lists Options, take the one the guidance picks, else the recommended one.
-When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n-review.md. Check each comment against the code first and change the code only when its concern is real; when it is not, leave the code as it is and say why in IMPLEMENT-{n}.md, so the user can resolve it in the Copilot step.
+When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest FEEDBACK-n.md. Check each comment against the code first and change the code only when its concern is real; when it is not, leave the code as it is and say why in IMPLEMENT-{n}.md, so the user can resolve it in the Copilot step.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
@@ -70,7 +70,7 @@ End with status: done, or status: failed if you could not implement it (say what
 		{
 			ID: "discuss", Name: "Discuss", Command: "/herd:discuss {task} -- {guidance}", Model: "opus", Trigger: "manual",
 			Writes: "DISCUSS-{n}.md", ShowDiff: true, Sisters: true, Revert: true, Next: []string{"review", "impl"}, OnFail: []string{"discuss", "impl"},
-			Instructions: `Read TASK.md, the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md and COPILOT-n.md in the run directory when they exist, and look at the branch's changes (git diff origin/{base}...HEAD, git status).
+			Instructions: `Read TASK.md, the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and FEEDBACK-n.md in the run directory when they exist, and look at the branch's changes (git diff origin/{base}...HEAD, git status).
 This step is a conversation led by the user: they may want to understand something, explore an idea, or change code. Do not start working on your own.
 After reading, say in two or three lines where the task stands, then wait for the user's questions. When there is guidance, start from it.
 Change code only when the user asks, one change at a time, and explain each briefly. Do not write or change tests unless asked, and do not commit: Commit and push commits.
@@ -101,7 +101,7 @@ End with status: done when the tests pass, or status: failed when one shows a bu
 		},
 		{
 			ID: "push", Name: "Commit and push", Command: "/herd:push {task}", Model: "haiku", Trigger: "manual",
-			Writes: "PR.md", Commit: true, Push: true, OpenPR: true, IgnoreRules: true, Next: []string{"impl", "discuss"},
+			Writes: "PUSH.md", Commit: true, Push: true, OpenPR: true, IgnoreRules: true, Next: []string{"impl", "discuss"},
 			Instructions: PushInstructions,
 		},
 		{
@@ -112,13 +112,13 @@ End with status: done when the tests pass, or status: failed when one shows a bu
 }
 
 // PushInstructions: the default PR agent asks for the PR's type, scope and
-// title in a form, then writes the commit message and the PR in PR.md.
+// title in a form, then writes the commit message and the PR in PUSH.md.
 const PushInstructions = `First bring the branch up to date: git fetch origin {base}; when origin/{base} has commits this branch lacks,
 run git rebase --autostash origin/{base}. If the rebase stops on a conflict, run git rebase --abort,
 list the conflicting files and end with status: failed.
 Then ask the user in one form, with the AskUserQuestion tool: the type of change (feat, fix, perf, test, refactor, chore),
 the scope (the part of the code it touches) and the title. Suggest a scope and a title from the changes.
-Write PR.md: the title line "<type>(<scope>): <title> #{issue}", then a short body saying what changed and why, from the newest
+Write PUSH.md: the title line "<type>(<scope>): <title> #{issue}", then a short body saying what changed and why, from the newest
 PLAN-n.md's Goal and the What changed of the IMPLEMENT and DISCUSS files, ending with "Closes #{issue}". When the herd step block
 says the issue lives in another repository, write "<that repository>#{issue}" instead of "#{issue}"; when it says this is a sister task, write "Part of" instead of "Closes".
 In the body, under a "## Flow" heading, draw the flow before and after the change as two mermaid flowcharts
@@ -128,7 +128,7 @@ in the node text, e.g. "(new)" or "(changed)": no colors, fills, classDef or sty
 When the newest PLAN-n.md lists Options, add a "## Choices" section before Flow: for each choice, the option taken, the ones set aside
 in a few words, and why (the guidance in the herd step block, the IMPLEMENT and DISCUSS files, else the plan's recommendation).
 For a LOCAL task (no issue), leave the issue references out.
-Do not commit or push: herd commits every change with PR.md's title line and body as the message, pushes, and opens
+Do not commit or push: herd commits every change with PUSH.md's title line and body as the message, pushes, and opens
 (or updates) the draft PR with them; then Copilot reviews it.
 End with status: done.`
 

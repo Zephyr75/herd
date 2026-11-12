@@ -26,7 +26,7 @@ const rows = (text: string) => Math.max(8, Math.min(30, text.split('\n').reduce(
 
 <template>
   <div class="prompts">
-    <p class="muted small">What herd adds to every agent's command, around its instructions (Show full command in Settings › Agents shows the result), and the guidance of the steps the PR tab starts. Words in braces are replaced by herd; an emptied prompt goes back to its default.</p>
+    <p class="muted small">What herd adds to every agent's command, around its instructions (Preview full context in Settings › Agents shows the result), and the guidance of the steps the PR tab starts. Words in braces are replaced by herd; an emptied prompt goes back to its default.</p>
     <div v-for="p in herd.settings?.prompts ?? []" :key="p.id" class="editor card">
       <div class="title">
         <span class="name">{{ p.name }}</span>

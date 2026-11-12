@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // The PR at a glance, in the task's PR tab and as the Copilot step's view:
 // Copilot's latest review and the CI checks, refreshed every minute, with
-// buttons to ask Copilot again and to rerun checks. The review itself is the
-// Copilot step's artifact (COPILOT-n.md).
+// buttons to ask Copilot again and to rerun checks. The review itself is in
+// the Copilot step's FEEDBACK-n.md.
 import { computed, ref } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
-import { unsuccessful, type CICheck, type Feedback, type Step, type Task } from '../lib/types'
+import { type CICheck, type Feedback, type Step, type Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 
 const props = defineProps<{ task: Task; step?: Step }>()
@@ -113,30 +113,13 @@ async function refresh() {
       <button v-if="task.prUrl" class="act" :title="`Open PR #${task.pr} on GitHub`" @click="open(task.prUrl)"><Icon name="external" :size="13" />Open PR</button>
     </div>
 
-    <section>
-      <h3>Copilot review</h3>
-      <div class="line">
-        <template v-if="cop">
-          <span :class="['sdot', waiting ? 'd-running' : unsuccessful(cop) ? 'd-failed' : cop.verdict === 'skipped' ? 'd-off' : 'd-done']"></span>
-          <span v-if="waiting">Waiting for Copilot's review and the CI checks (checked every minute); {{ cop.artifact }} gets both.</span>
-          <span v-else-if="unsuccessful(cop)">Copilot comments or failing CI checks ({{ cop.artifact }}): fix them from Review comments and CI checks below.</span>
-          <span v-else-if="cop.verdict === 'skipped'">herd stopped waiting; no review arrived.</span>
-          <span v-else>Copilot found nothing and CI passed.</span>
-        </template>
-        <template v-else>
-          <span class="sdot d-off"></span>
-          <span>No Copilot review yet.</span>
-        </template>
-        <span class="grow"></span>
-        <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
-        <button v-if="live" class="act" title="Ask Copilot to review the PR as it is now; a Copilot step waits for the review" @click="askCopilot"><Icon name="rerun" :size="13" />{{ waiting ? 'Ask again' : 'Request review' }}</button>
-      </div>
-    </section>
-
-    <section v-if="task.feedback.length">
+    <section v-if="task.feedback.length || live">
       <div class="h">
         <h3>Review comments</h3>
+        <span v-if="waiting" class="muted small">waiting for Copilot's review</span>
         <span class="grow"></span>
+        <button v-if="waiting" class="act" title="Stop waiting for Copilot (Mark done)" @click="stop">Stop waiting</button>
+        <button v-if="live" class="act" title="Ask Copilot to review the PR as it is now; a Copilot step waits for the review" @click="askCopilot"><Icon name="rerun" :size="13" />{{ waiting ? 'Ask Copilot again' : 'Request Copilot review' }}</button>
         <button v-if="canFix && openFb.length" class="act" :disabled="!picked.length" :title="`Start a ${fixer!.name} step that addresses the ticked comments`" @click="fixFeedback"><Icon name="pencil" :size="13" />Fix {{ picked.length }} with {{ fixer!.name }}</button>
       </div>
       <p v-if="!openFb.length" class="muted small">None open.</p>
@@ -276,7 +259,6 @@ async function refresh() {
   .d-done { background: var(--done-dot); }
   .d-running { background: var(--running-dot); }
   .d-failed { background: var(--approval-dot); }
-  .d-off { background: var(--faint); }
   .act {
     flex: none;
     display: flex;

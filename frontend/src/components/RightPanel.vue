@@ -114,6 +114,7 @@ async function archive() {
             <span class="name-row">
               <span class="name">{{ s.name }}</span>
               <span v-if="meta(s).text" :class="['meta', meta(s).cls]">{{ meta(s).text }}</span>
+              <span v-if="s.skipped || (s.external && s.verdict === 'skipped')" class="meta skipped" :title="s.skipped ? 'Ended with the check or cross button' : 'herd stopped waiting for Copilot: you moved on'">skipped</span>
             </span>
             <span class="sub">{{ s.external ? 'run by herd · PR #' + t.pr : s.sha ? 'commit ' + s.sha : 'session ' + s.session.slice(0, 8) }}{{ s.auto ? ' · auto' : '' }}</span>
           </button>
@@ -332,6 +333,9 @@ async function archive() {
   .meta {
     font-size: 12px;
     color: var(--muted);
+  }
+  .meta.skipped {
+    font-size: 11px;
   }
   .c-running { color: var(--running); }
   .c-approval { color: var(--approval); }

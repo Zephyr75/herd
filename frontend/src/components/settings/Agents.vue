@@ -2,13 +2,14 @@
 // Settings > Agents: the pipeline and one agent's definition. Edits save to
 // ~/.herd/agents.toml and regenerate the agent's /herd: command. The first
 // agent starts every task; Copilot is built in (herd runs it, not Claude).
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { api } from '../../lib/api'
 import { debounce } from '../../lib/debounce'
 import { herd } from '../../lib/state'
 import { afterOf, type Agent } from '../../lib/types'
 import Icon from '../ui/Icon.vue'
 import Dropdown from '../ui/Dropdown.vue'
+import ContextPreview from './ContextPreview.vue'
 
 const agents = computed(() => herd.settings?.agents ?? [])
 const claudeAgents = computed(() => agents.value.filter((a) => !a.builtin))
@@ -154,17 +155,6 @@ function pick(id: string) {
   confirmDelete.value = false
 }
 
-// Show full command: the command herd writes for the agent as it is being edited.
-const cmd = ref<string | null>(null)
-const loadCmd = debounce(async () => {
-  if (cmd.value === null || !A.value) return
-  cmd.value = (await herd.attempt('Could not build the command', () => api.AgentCommand(JSON.parse(JSON.stringify(A.value))))) ?? ''
-}, 300)
-function toggleCmd() {
-  cmd.value = cmd.value === null ? '' : null
-  loadCmd()
-}
-watch(() => [JSON.stringify(A.value), JSON.stringify(herd.settings?.prompts)], loadCmd)
 </script>
 
 <template>
@@ -209,6 +199,7 @@ watch(() => [JSON.stringify(A.value), JSON.stringify(herd.settings?.prompts)], l
           <textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea>
           <span class="hint flat">Placeholders: {{ '{pr} {base} {file}' }} (the file to write, which becomes {{ A.writes.replace('{n}', 'n') }}). herd's Diagrams prompt follows them.</span>
         </label>
+        <ContextPreview :agent="A" />
       </template>
       <template v-else>
         <span class="muted small">ID <span class="mono">{{ A.id }}</span>: made from the name when the agent was created, used by triggers and step names</span>
@@ -271,11 +262,7 @@ watch(() => [JSON.stringify(A.value), JSON.stringify(herd.settings?.prompts)], l
           <span class="hint flat">Tools and commands this agent may use without a permission prompt. Your rules still apply: only list what they allow.</span>
         </label>
         <label class="field">Instructions (the agent's skill: what it reads, does and writes)<textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea></label>
-        <div class="cmd">
-          <button class="linkish" @click="toggleCmd">{{ cmd === null ? 'Show full command' : 'Hide full command' }}</button>
-          <span class="hint flat">What the agent gets: these instructions between herd's Protocol, Diagrams and Sister tasks prompts (Settings › Context › Prompts).</span>
-          <pre v-if="cmd !== null" class="cmdtext mono">{{ cmd }}</pre>
-        </div>
+        <ContextPreview :agent="A" />
         <div class="actions">
           <span class="muted small">Placeholders: {{ '{task} {guidance} {n} {sha} {issue} {base}' }}</span>
           <span class="grow"></span>
@@ -421,33 +408,6 @@ watch(() => [JSON.stringify(A.value), JSON.stringify(herd.settings?.prompts)], l
     font-size: 12px;
     line-height: 1.45;
     color: var(--muted);
-  }
-  .cmd {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-  .linkish {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--accent, var(--text));
-    font-size: 12.5px;
-    text-decoration: underline;
-  }
-  .cmdtext {
-    align-self: stretch;
-    max-height: 420px;
-    overflow: auto;
-    margin: 0;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface);
-    font-size: 11.5px;
-    line-height: 1.5;
-    white-space: pre-wrap;
   }
   .hint.flat {
     margin-left: 0;

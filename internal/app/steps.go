@@ -545,7 +545,7 @@ func (a *App) SkipStep(stepID string, ok bool) error {
 	a.setPaused(stepID, false)
 	s, changed := a.updateStep(stepID, func(s *store.Step) bool {
 		before := *s
-		s.State = store.Done
+		s.State, s.Skipped = store.Done, true
 		if s.EndedAt.IsZero() {
 			s.EndedAt = time.Now()
 		}
@@ -645,7 +645,7 @@ func (a *App) RerunStep(stepID string) error {
 	p := a.projectOf(t)
 	_ = os.Remove(filepath.Join(a.runDir(p, t), ag.ArtifactName(s.N))) // done again only once rewritten
 	s, _ = a.updateStep(s.ID, func(x *store.Step) bool {
-		x.State, x.Completed, x.Verdict, x.EndedAt = store.Running, false, "", time.Time{}
+		x.State, x.Completed, x.Verdict, x.EndedAt, x.Skipped = store.Running, false, "", time.Time{}, false
 		return true
 	})
 	a.setPaused(s.ID, false)
@@ -840,7 +840,7 @@ func (a *App) runCopilot(taskID string, say func(string)) {
 }
 
 // copilotAgent is the built-in step herd runs itself: it waits for Copilot's
-// review and the CI checks (COPILOT-<n>-review.md), while Claude explains the
+// review and the CI checks (FEEDBACK-<n>.md), while Claude explains the
 // PR's changes in COPILOT-<n>.md (see explain.go).
 const copilotAgent = settings.CopilotID
 
@@ -872,7 +872,7 @@ func (a *App) lateCopilot(t store.Task) *store.Step {
 		if steps[i].Agent != copilotAgent {
 			continue
 		}
-		if art, _ := artifacts.Read(a.copilotPath(t, steps[i])); steps[i].State == store.Done && art.Get("comments") == "" {
+		if art, _ := artifacts.Read(a.reviewPath(t, steps[i])); steps[i].State == store.Done && art.Get("comments") == "" {
 			return &steps[i]
 		}
 		return nil
@@ -880,11 +880,11 @@ func (a *App) lateCopilot(t store.Task) *store.Step {
 	return nil
 }
 
-// writeReview writes Copilot's review to COPILOT-n-review.md and its count
-// to COPILOT-n.md.
+// writeReview writes Copilot's review, and how many comments it left, to
+// FEEDBACK-n.md.
 func (a *App) writeReview(t store.Task, s store.Step, r github.Review) {
-	_ = os.WriteFile(a.reviewPath(t, s), []byte(copilotMarkdown(t.PRNumber, r.Body, r.Comments)), 0o644)
-	a.writeCopilot(t, s, map[string]string{"pr": fmt.Sprint(t.PRNumber), "comments": fmt.Sprint(len(r.Comments))})
+	body := copilotMarkdown(t.PRNumber, r.Body, r.Comments)
+	a.writeReviewFile(t, s, map[string]string{"pr": fmt.Sprint(t.PRNumber), "comments": fmt.Sprint(len(r.Comments))}, &body)
 }
 
 func (a *App) startCopilotStep(taskID string) {
@@ -908,6 +908,7 @@ func (a *App) startCopilotStep(taskID string) {
 	s := store.Step{ID: store.StepID(taskID, key), TaskID: taskID, Key: key, Agent: copilotAgent, N: n, Seq: seq, State: store.Running, StartedAt: time.Now()}
 	if a.db.SaveStep(s) == nil {
 		if t, err := a.db.Task(taskID); err == nil {
+			_ = os.Remove(a.reviewPath(t, s)) // left by a step of that number a revert removed
 			a.explaining.Add(1)
 			go func() {
 				defer a.explaining.Done()
@@ -936,13 +937,13 @@ const ciGrace = 5 * time.Minute
 // settleCopilotStep ends the waiting Copilot step once its review is in and
 // it can tell the outcome: at once when Copilot left comments, else when the
 // PR's CI finished. It succeeds only when Copilot found nothing and every
-// check passed; COPILOT-n-review.md then lists the CI result for the next step.
+// check passed; FEEDBACK-n.md then lists the CI result for the next step.
 func (a *App) settleCopilotStep(t store.Task) {
 	s := a.waitingCopilot(t.ID)
 	if s == nil {
 		return
 	}
-	art, _ := artifacts.Read(a.copilotPath(t, *s))
+	art, _ := artifacts.Read(a.reviewPath(t, *s))
 	if art.Get("comments") == "" { // the review has not arrived
 		return
 	}
@@ -966,9 +967,8 @@ func (a *App) settleCopilotStep(t store.Task) {
 	if ci != "" {
 		ciWord = strings.TrimPrefix(ci, "CI ")
 	}
-	review, _ := os.ReadFile(a.reviewPath(t, *s))
-	_ = os.WriteFile(a.reviewPath(t, *s), []byte(strings.TrimSpace(string(review))+"\n"+ciMarkdown(checks)), 0o644)
-	a.writeCopilot(t, *s, map[string]string{"status": status, "ci": ciWord})
+	body := strings.TrimSpace(art.Body) + "\n" + ciMarkdown(checks)
+	a.writeReviewFile(t, *s, map[string]string{"status": status, "ci": ciWord}, &body)
 	done, changed := a.updateStep(s.ID, func(x *store.Step) bool {
 		if x.State != store.Running {
 			return false
@@ -986,7 +986,44 @@ func (a *App) settleCopilotStep(t store.Task) {
 	}
 }
 
-// ciMarkdown is the CI section of COPILOT-n-review.md: the failing checks first.
+// recheckCopilot passes the task's latest step when it is a Copilot step that
+// failed and what failed it is gone: every review thread is resolved and CI
+// passed (e.g. a flaky check was rerun).
+func (a *App) recheckCopilot(t store.Task) {
+	steps, _ := a.db.Steps(t.ID)
+	if len(steps) == 0 {
+		return
+	}
+	last := steps[len(steps)-1]
+	if last.Agent != copilotAgent || !last.Unsuccessful() || last.Skipped {
+		return
+	}
+	a.checksMu.Lock()
+	fs, fetched := a.feedback[t.ID]
+	a.checksMu.Unlock()
+	if !fetched || ciSummary(a.checksOf(t.ID)) != "CI passed" {
+		return
+	}
+	for _, f := range fs {
+		if f.Path != "" && f.ResolvedBy == "" {
+			return // an open review thread
+		}
+	}
+	s, changed := a.updateStep(last.ID, func(x *store.Step) bool {
+		if !x.Unsuccessful() {
+			return false
+		}
+		x.Verdict = ""
+		return true
+	})
+	if changed {
+		a.writeReviewFile(t, s, map[string]string{"status": "done", "ci": "passed"}, nil)
+		a.toast("Copilot step passed", fmt.Sprintf("PR #%d: every review thread resolved and CI passed", t.PRNumber), false)
+		a.emitTask(t.ID)
+	}
+}
+
+// ciMarkdown is the CI section of FEEDBACK-n.md: the failing checks first.
 func ciMarkdown(cs []github.Check) string {
 	var b strings.Builder
 	b.WriteString("\n## CI checks\n\n")
@@ -1038,7 +1075,7 @@ func splitTitle(md string) (string, string) {
 }
 
 // collectCopilot writes each new Copilot review of the PR to its own Copilot
-// step (COPILOT-n.md), where the next step reads it; a review that
+// step (FEEDBACK-n.md), where the next step reads it; a review that
 // arrives while no Copilot step waits gets a new one. The kv key holds the last review id seen.
 func (a *App) collectCopilot(t store.Task) {
 	p := a.projectOf(t)

@@ -80,7 +80,7 @@ type App struct {
 	pollMu sync.Mutex // one pollPRs at a time
 	// emitMu: tasks are read and sent one at a time, so the last view sent
 	// is never older than one sent before it (e.g. a step still busy).
-	copilotMu  sync.Mutex     // COPILOT-n.md is written by the review and the explanation
+	copilotMu  sync.Mutex     // FEEDBACK-n.md is written by the review and the CI checks
 	explaining sync.WaitGroup // explanations being written (see explainChanges)
 	emitMu     sync.Mutex
 
@@ -161,6 +161,12 @@ func Start(a *App, ctx context.Context, plat Platform) error {
 		}
 	}()
 
+	if ts, err := a.db.Tasks(); err == nil {
+		for _, t := range ts {
+			renameArtifacts(a.runDir(a.projectOf(t), t))
+			migrateCopilotFiles(a.runDir(a.projectOf(t), t))
+		}
+	}
 	a.reconcile()
 	hooks.Replay(a.spoolDir(), a.onHook)
 	_ = a.settings.Watch(a.ctx, func() {
@@ -530,10 +536,45 @@ func (a *App) SetPrompt(id, text string) error {
 	return a.writePlugin()
 }
 
-// AgentCommand is the full command an agent gets, as Settings shows it: the
-// agent as being edited, between herd's prompts.
-func (a *App) AgentCommand(ag settings.Agent) string {
-	return a.CommandText(ag)
+// ContextPart is one part of what an agent's session gets.
+type ContextPart struct {
+	Title string `json:"title"`
+	Where string `json:"where"` // how it reaches the session
+	Text  string `json:"text"`
+}
+
+// AgentContext is everything a step of the agent (as being edited) gets, for
+// an example task of the project (the first one when projectID is ""), in
+// the order Claude reads it: the system prompt, the repository's CLAUDE.md,
+// the command, then CONTEXT.md, which the command has it read.
+func (a *App) AgentContext(ag settings.Agent, projectID string) []ContextPart {
+	ps := a.settings.Config().Projects
+	p, ok := a.settings.Project(projectID)
+	if !ok && len(ps) > 0 {
+		p = ps[0]
+	}
+	t := store.Task{ID: p.ID + ":1234", Project: p.ID, Slug: "1234", Title: "Example task", Issue: "1234"}
+	var out []ContextPart
+	if ag.Builtin {
+		out = append(out, ContextPart{"System prompt", "Appended to Claude Code's own system prompt", a.explainSystemPrompt(t, p)})
+	} else {
+		l := launch{task: t, proj: p, agent: ag, step: store.Step{Agent: ag.ID, N: 1}}
+		out = append(out, ContextPart{"System prompt", "Appended to Claude Code's own system prompt: it stays for the whole conversation", a.stepBlock(l, a.runDir(p, t), worktreePath(p, t))})
+	}
+	// Your own ~/.claude/CLAUDE.md is left out (herd's settings exclude it);
+	// the repository's is not.
+	if b, err := os.ReadFile(filepath.Join(p.Path, "CLAUDE.md")); err == nil && strings.TrimSpace(string(b)) != "" {
+		out = append(out, ContextPart{"CLAUDE.md of " + p.Name, "Claude Code loads the repository's CLAUDE.md in every session", string(b)})
+	}
+	if ag.Builtin {
+		stem := strings.TrimSuffix(ag.ArtifactName(1), ".md")
+		file := filepath.Join(a.runDir(p, t), ag.ArtifactName(1))
+		prompt := settings.Fill(ag.Instructions, map[string]string{"pr": "42", "base": p.BaseBranch, "file": file}) +
+			"\n\n" + settings.Fill(a.settings.Prompt(settings.PromptDiagrams), map[string]string{"stem": stem, "artifact": filepath.Base(file)})
+		return append(out, ContextPart{"Prompt", "The prompt of the run (claude -p), for an example PR #42", prompt})
+	}
+	out = append(out, ContextPart{"Command /herd:" + ag.ID, "The step's first message: " + strings.TrimSpace(ag.Command), a.CommandText(ag)})
+	return append(out, ContextPart{"CONTEXT.md", "Written in the run directory before each step; the Protocol has the agent read it", a.contextText(p)})
 }
 
 // ChooseFolder opens the native folder picker; "" when cancelled.

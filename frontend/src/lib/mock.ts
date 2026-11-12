@@ -34,8 +34,8 @@ const agents: Agent[] = [
     instructions: 'Review the uncommitted changes in this worktree (git status, git diff HEAD) against PLAN.md.\nWrite REVIEW-{n}.md with the findings, most important first. End with status: done if the changes are ready, or status: failed if they need changes.\nNever edit code, and do not commit: Commit and push commits once the tests pass.' },
   { id: 'test', name: 'Test', command: '/herd:test {task} -- {guidance}', model: 'sonnet', trigger: 'manual', writes: 'TEST-{n}.md', commit: false, push: false, openPR: false, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: false, showDiff: true, sisters: false, allow: [], next: ['push', 'impl', 'discuss'], onFail: ['impl', 'discuss'],
     instructions: 'Read PLAN.md, the IMPLEMENT files and the REVIEW files.\nWrite tests for the reviewed changes, following the repo\'s test conventions.\nRun them. Change only tests, never the code under test.\nWrite TEST-{n}.md with Tests added, How to run and Results. End with status: done.' },
-  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PR.md', commit: true, push: true, openPR: true, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: true, showDiff: false, sisters: false, allow: [], next: ['impl', 'discuss'], onFail: [],
-    instructions: 'First rebase on origin/{base} when it has new commits (git rebase --autostash); on a conflict, abort and end with status: failed.\nWrite PR.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
+  { id: 'push', name: 'Commit and push', command: '/herd:push {task}', model: 'haiku', trigger: 'manual', writes: 'PUSH.md', commit: true, push: true, openPR: true, revert: false, rerun: false, choose: false, builtin: false, ignoreRules: true, showDiff: false, sisters: false, allow: [], next: ['impl', 'discuss'], onFail: [],
+    instructions: 'First rebase on origin/{base} when it has new commits (git rebase --autostash); on a conflict, abort and end with status: failed.\nWrite PUSH.md: a title line, then a body summarising PLAN.md and the IMPLEMENT files.\nAdd Closes #{issue} when the task has an issue.\nDo not push: herd pushes, opens the PR and collects the Copilot review.' },
 ]
 
 const context: Record<string, Context> = {
@@ -310,7 +310,7 @@ export function mockTerminal(stepId: string): string {
     if (s.state === 'running') { L(''); L(`✻ Reviewing ${sha}…  (esc to interrupt)`, C.yellow) }
     else { (fx.findings ?? []).forEach((f) => L('  · ' + f, C.grey)); L(`⏺ Write(${run}/REVIEW-${s.n}.md)`); L('  ⎿ status: ' + (s.verdict === 'failed' ? 'failed' : 'done'), s.verdict === 'failed' ? C.yellow : C.cyan) }
   } else {
-    L(`⏺ Write(${run}/PR.md)`); L(`● herd: git push -u origin agent/${t.slug}`, C.cyan); L(`● herd: gh pr create --body-file PR.md  →  #${t.pr}`, C.cyan)
+    L(`⏺ Write(${run}/PUSH.md)`); L(`● herd: git push -u origin agent/${t.slug}`, C.cyan); L(`● herd: gh pr create --body-file PUSH.md  →  #${t.pr}`, C.cyan)
     L(`● herd: Copilot review, ${(fx.copilot ?? []).length} comments in COPILOT-${s.n}.md`, C.cyan)
   }
   return out.join('\r\n') + '\r\n'
@@ -463,7 +463,10 @@ export const api: Api = {
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },
   SetNotes: (id, notes) => { const t = find(id); t.notes = notes; changed(t); return ok(undefined) },
   SetPrompt: (id, text) => { const p = settings.prompts.find((x) => x.id === id); if (p) p.text = text || p.default; emit('settings:changed', settings); return ok(undefined) },
-  AgentCommand: (a) => ok(`You are the herd **${a.name}** agent.\n\n## Instructions\n\n${a.instructions}`),
+  AgentContext: (a) => ok([
+    { title: 'System prompt', where: "Appended to Claude Code's own system prompt", text: '# herd step\n- task: core:1234 (Example task), project core\n\n# Claims\nHighlight each claim you have not verified.' },
+    { title: 'Command /herd:' + a.id, where: "The step's first message", text: `You are the herd **${a.name}** agent.\n\n## Instructions\n\n${a.instructions}` },
+  ]),
   SaveContext: (c) => { settings.context[c.id] = c; emit('settings:changed', settings); return ok(undefined) },
   SaveProject: (p) => { const i = projects.findIndex((x) => x.id === p.id); if (i >= 0) projects[i] = p; else projects.push(p); emit('settings:changed', settings); return ok(undefined) },
   RemoveProject: (id) => { const i = projects.findIndex((x) => x.id === id); if (i >= 0) projects.splice(i, 1); emit('settings:changed', settings); return ok(undefined) },

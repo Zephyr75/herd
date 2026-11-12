@@ -138,6 +138,7 @@ export interface Step {
   session: string
   sha: string
   verdict: string
+  skipped?: boolean // ended by the check or cross button
   model: string
   completed: boolean
   startedAt: string
@@ -300,5 +301,12 @@ export interface Note {
   from: number
   to: number
   code: string // the lines it is about
+  text: string
+}
+
+/** One part of what an agent's session gets (Settings > Agents > Preview full context). */
+export interface ContextPart {
+  title: string
+  where: string // how it reaches the session
   text: string
 }

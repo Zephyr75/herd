@@ -500,6 +500,7 @@ func (a *App) collectChecks(t store.Task) {
 		a.emitTask(t.ID)
 	}
 	a.settleCopilotStep(t) // a review waiting for CI ends when CI does
+	a.recheckCopilot(t)
 }
 
 // readyLabel marks a PR ready for a human review.
@@ -567,6 +568,7 @@ func (a *App) collectFeedback(t store.Task) {
 	if now, _ := json.Marshal(fs); string(now) != string(old) {
 		a.emitTask(t.ID)
 	}
+	a.recheckCopilot(t)
 }
 
 func (a *App) feedbackOf(taskID string) []github.Feedback {

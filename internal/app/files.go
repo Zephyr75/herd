@@ -105,6 +105,11 @@ func (a *App) writeTaskFile(p settings.Project, t store.Task) error {
 // writeContextFile writes CONTEXT.md: the general context, then the
 // project's, then the knowledge base folders.
 func (a *App) writeContextFile(p settings.Project, t store.Task) error {
+	return os.WriteFile(filepath.Join(a.runDir(p, t), "CONTEXT.md"), []byte(a.contextText(p)), 0o644)
+}
+
+// contextText is CONTEXT.md for a task of project p.
+func (a *App) contextText(p settings.Project) string {
 	var b strings.Builder
 	b.WriteString("<!-- Written by herd before each step. Edit it in Settings > Context. -->\n\n")
 	if c, ok := a.settings.Context("general"); ok && strings.TrimSpace(c.Text) != "" {
@@ -126,7 +131,7 @@ func (a *App) writeContextFile(p settings.Project, t store.Task) error {
 			fmt.Fprintf(&b, "- %s\n", d)
 		}
 	}
-	return os.WriteFile(filepath.Join(a.runDir(p, t), "CONTEXT.md"), []byte(b.String()), 0o644)
+	return b.String()
 }
 
 var cmdName = regexp.MustCompile(`^/herd:([A-Za-z0-9_-]+)`)

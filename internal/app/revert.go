@@ -91,6 +91,9 @@ func (a *App) RevertStep(stepID string) error {
 	for _, x := range v.Steps[i:] {
 		a.run.Stop(x.ID)
 		_ = os.Remove(filepath.Join(a.runDir(p, t), agentFor(agents, x.Agent).ArtifactName(x.N)))
+		if x.Agent == copilotAgent {
+			_ = os.Remove(a.reviewPath(t, x.Step))
+		}
 		_ = a.db.Set(snapKey(x.ID), "")
 	}
 	if err := a.db.DeleteStepsFrom(t.ID, s.Seq); err != nil {

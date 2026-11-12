@@ -73,6 +73,7 @@ type Step struct {
 	SessionID string    `json:"session"`
 	SHA       string    `json:"sha"`
 	Verdict   string    `json:"verdict"`
+	Skipped   bool      `json:"skipped,omitempty"` // ended by the user's check or cross button
 	Model     string    `json:"model"`
 	Completed bool      `json:"completed"` // post-done actions ran
 	StartedAt time.Time `json:"startedAt"`
@@ -277,7 +278,7 @@ func (d *DB) SaveStep(s Step) error {
 		if r.Steps[i].ID == s.ID {
 			x := &r.Steps[i]
 			x.State, x.Guidance, x.SessionID, x.SHA, x.Verdict, x.Model = s.State, s.Guidance, s.SessionID, s.SHA, s.Verdict, s.Model
-			x.Completed, x.StartedAt, x.EndedAt = s.Completed, s.StartedAt, s.EndedAt
+			x.Completed, x.StartedAt, x.EndedAt, x.Skipped = s.Completed, s.StartedAt, s.EndedAt, s.Skipped
 			return d.save(r)
 		}
 	}

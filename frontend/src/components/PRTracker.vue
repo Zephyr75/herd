@@ -140,26 +140,29 @@ async function refresh() {
         <button v-if="canFix && openFb.length" class="act" :disabled="!picked.length" :title="`Start a ${fixer!.name} step that addresses the ticked comments`" @click="fixFeedback"><Icon name="pencil" :size="13" />Fix {{ picked.length }} with {{ fixer!.name }}</button>
       </div>
       <p v-if="!openFb.length" class="muted small">None open.</p>
-      <div v-for="f in [...openFb, ...(showResolved ? resolvedFb : [])]" :key="f.id" :class="['fb', { resolved: f.resolvedBy }]">
-        <input v-if="!f.resolvedBy" type="checkbox" :checked="ticked(f)" :aria-label="'Send the comment of ' + f.author" @change="toggle(f.id)" />
-        <Icon v-else name="check" :size="13" class="done" />
-        <div class="fbody">
-          <div class="fmeta">
-            <span class="who">{{ f.author }}</span>
-            <span class="mono muted">{{ where(f) }}</span>
-            <span v-if="f.resolvedBy" class="muted">resolved by {{ f.resolvedBy }}</span>
-            <span v-else-if="f.outdated" class="muted">outdated</span>
-            <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
-            <span class="grow"></span>
-            <button v-if="live && f.path && !f.resolvedBy" class="icon" :disabled="resolving === f.id" title="Mark resolved on GitHub" aria-label="Mark resolved on GitHub" @click="resolve(f)"><Icon name="check" :size="15" /></button>
-            <button class="icon" title="Open on GitHub" aria-label="Open on GitHub" @click="open(f.url)"><Icon name="external" :size="12" /></button>
+      <!-- open comments, then the resolved ones under their toggle: they collapse from the top -->
+      <template v-for="(list, i) in [openFb, showResolved ? resolvedFb : []]" :key="i">
+        <button v-if="i === 1 && resolvedFb.length" class="more muted small" :aria-expanded="showResolved" @click="showResolved = !showResolved">
+          <Icon :name="showResolved ? 'chevron' : 'chevron-right'" :size="12" />{{ resolvedFb.length }} resolved
+        </button>
+        <div v-for="f in list" :key="f.id" :class="['fb', { resolved: f.resolvedBy }]">
+          <input v-if="!f.resolvedBy" type="checkbox" :checked="ticked(f)" :aria-label="'Send the comment of ' + f.author" @change="toggle(f.id)" />
+          <Icon v-else name="check" :size="13" class="done" />
+          <div class="fbody">
+            <div class="fmeta">
+              <span class="who">{{ f.author }}</span>
+              <span class="mono muted">{{ where(f) }}</span>
+              <span v-if="f.resolvedBy" class="muted">resolved by {{ f.resolvedBy }}</span>
+              <span v-else-if="f.outdated" class="muted">outdated</span>
+              <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
+              <span class="grow"></span>
+              <button v-if="live && f.path && !f.resolvedBy" class="icon" :disabled="resolving === f.id" title="Mark resolved on GitHub" aria-label="Mark resolved on GitHub" @click="resolve(f)"><Icon name="check" :size="15" /></button>
+              <button class="icon" title="Open on GitHub" aria-label="Open on GitHub" @click="open(f.url)"><Icon name="external" :size="12" /></button>
+            </div>
+            <div class="ftext" :title="f.body">{{ f.body }}</div>
           </div>
-          <div class="ftext" :title="f.body">{{ f.body }}</div>
         </div>
-      </div>
-      <button v-if="resolvedFb.length" class="more muted small" :aria-expanded="showResolved" @click="showResolved = !showResolved">
-        <Icon :name="showResolved ? 'chevron' : 'chevron-right'" :size="12" />{{ resolvedFb.length }} resolved
-      </button>
+      </template>
     </section>
 
     <section>

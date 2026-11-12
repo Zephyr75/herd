@@ -19,6 +19,9 @@ async function reset(id: string) {
   await herd.attempt('Could not reset the prompt', () => api.SetPrompt(id, ''))
 }
 const textOf = (id: string, text: string) => drafts[id] ?? text
+// Tall enough to read the whole prompt: each line counts once per ~90
+// characters it wraps over, between 8 and 30 rows.
+const rows = (text: string) => Math.max(8, Math.min(30, text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 90)), 1)))
 </script>
 
 <template>
@@ -31,7 +34,7 @@ const textOf = (id: string, text: string) => drafts[id] ?? text
         <span class="muted small mono">{{ p.vars }}</span>
       </div>
       <label :for="'prompt-' + p.id" class="sr-only">{{ p.name }}</label>
-      <textarea :id="'prompt-' + p.id" class="area mono" :rows="Math.min(14, textOf(p.id, p.text).split('\n').length + 1)" :value="textOf(p.id, p.text)" @input="edit(p.id, $event)"></textarea>
+      <textarea :id="'prompt-' + p.id" class="area mono" :rows="rows(textOf(p.id, p.text))" :value="textOf(p.id, p.text)" @input="edit(p.id, $event)"></textarea>
       <div v-if="textOf(p.id, p.text).trim() !== p.default.trim()" class="row">
         <span class="muted small">Edited</span>
         <button class="btn ghost" @click="reset(p.id)">Reset to default</button>

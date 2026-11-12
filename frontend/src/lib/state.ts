@@ -63,6 +63,7 @@ class Herd {
   /** Steps whose session another process still runs (the resume guard). */
   elsewhere: Record<string, Proc[]> = {}
   scope: ScopeMode = 'project'
+  /** Projects folded in the left panel, by tab and project ("archive:core"): each tab folds its own. */
   collapsed: Record<string, boolean> = {}
   guidance = ''
   toasts: Toast[] = []
@@ -391,14 +392,28 @@ class Herd {
     this.persistTabs()
   }
 
+  isCollapsed(projectId: string): boolean {
+    return !!this.collapsed[this.left + ':' + projectId]
+  }
+
+  toggleCollapsed(projectId: string) {
+    const k = this.left + ':' + projectId
+    this.collapsed[k] = !this.collapsed[k]
+  }
+
+  /** A project's tasks in the left panel's tab, newest first: tasks by
+   *  creation, archives by when they were closed (archived). */
+  panelTasks(projectId: string): Task[] {
+    const key = this.left === 'archive' ? 'archivedAt' : 'createdAt'
+    const time = (iso: string) => Date.parse(iso) || 0 // Go's times vary in offset and precision: compare them as dates
+    return this.tasks
+      .filter((t) => t.project === projectId && (this.left === 'archive' ? t.archived : !t.archived))
+      .sort((a, b) => time(b[key]) - time(a[key]))
+  }
+
   /** The tasks in the left panel, in display order. */
   visibleTasks(): Task[] {
-    const out: Task[] = []
-    for (const p of this.groups) {
-      if (this.collapsed[p.id]) continue
-      out.push(...this.tasks.filter((t) => t.project === p.id && (this.left === 'archive' ? t.archived : !t.archived)))
-    }
-    return out
+    return this.groups.filter((p) => !this.isCollapsed(p.id)).flatMap((p) => this.panelTasks(p.id))
   }
 
   moveTask(delta: number) {

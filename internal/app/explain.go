@@ -86,6 +86,9 @@ func (a *App) explainChanges(t store.Task, s store.Step) {
 		args = append(args, "--add-dir", dir)
 	}
 	sys := fmt.Sprintf("# herd\nYou explain the changes of the task %s (project %s) in its worktree %s. The run directory %s holds TASK.md and every artifact.", t.ID, p.Name, wt, runDir)
+	if claims := strings.TrimSpace(a.settings.Prompt(settings.PromptClaims)); claims != "" {
+		sys += "\n\n# Claims\n" + claims
+	}
 	if rules := strings.TrimSpace(a.settings.Config().Rules); rules != "" {
 		sys += "\n\n# Rules\nAlways follow these rules:\n" + rules
 	}

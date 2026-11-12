@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { herd } from '../lib/state'
-import type { Task } from '../lib/types'
 import Icon from './ui/Icon.vue'
 import TaskRef from './ui/TaskRef.vue'
 import StatusBadge from './ui/StatusBadge.vue'
@@ -12,21 +11,7 @@ const counts = computed(() => ({
   active: herd.tasks.filter((t) => !t.archived).length,
   archived: herd.tasks.filter((t) => t.archived).length,
 }))
-// Within a project, newest first: tasks by creation, archives by when they
-// were closed (archived).
-const time = (iso: string) => Date.parse(iso) || 0 // Go's times vary in offset and precision: compare them as dates
-const newest = (key: 'createdAt' | 'archivedAt') => (a: Task, b: Task) => time(b[key]) - time(a[key])
-const groups = computed(() =>
-  herd.groups
-    .map((p) => ({
-      p,
-      tasks: herd.tasks
-        .filter((t) => t.project === p.id && (herd.left === 'archive' ? t.archived : !t.archived))
-        .sort(newest(herd.left === 'archive' ? 'archivedAt' : 'createdAt')),
-    }))
-    .filter((g) => !g.p.gone || g.tasks.length),
-)
-const toggle = (id: string) => (herd.collapsed[id] = !herd.collapsed[id])
+const groups = computed(() => herd.groups.map((p) => ({ p, tasks: herd.panelTasks(p.id) })).filter((g) => !g.p.gone || g.tasks.length))
 
 function addProject() {
   herd.view = 'settings'
@@ -46,14 +31,14 @@ function addProject() {
 
     <div class="list">
       <template v-for="g in groups" :key="g.p.id">
-        <button class="group" :aria-expanded="!herd.collapsed[g.p.id]" @click="toggle(g.p.id)">
-          <Icon :name="herd.collapsed[g.p.id] ? 'chevron-right' : 'chevron'" :size="14" />
+        <button class="group" :aria-expanded="!herd.isCollapsed(g.p.id)" @click="herd.toggleCollapsed(g.p.id)">
+          <Icon :name="herd.isCollapsed(g.p.id) ? 'chevron-right' : 'chevron'" :size="14" />
           <Icon name="folder" />
           <span class="name">{{ g.p.name }}</span>
           <span v-if="g.p.gone" class="gone" title="This project was removed from Settings > Projects">removed</span>
           <span>{{ g.tasks.length }}</span>
         </button>
-        <template v-if="!herd.collapsed[g.p.id]">
+        <template v-if="!herd.isCollapsed(g.p.id)">
           <span v-if="!g.tasks.length" class="empty">{{ herd.left === 'archive' ? 'Nothing archived' : 'No open tasks' }}</span>
           <div v-for="t in g.tasks" :key="t.id" class="cardw">
             <button class="card" :class="{ on: t.id === herd.sel }" @click="herd.pickTask(t.id)">

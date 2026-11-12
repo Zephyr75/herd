@@ -18,6 +18,7 @@ type Prompt struct {
 const (
 	PromptProtocol  = "protocol"
 	PromptDiagrams  = "diagrams"
+	PromptClaims    = "claims"
 	PromptSisters   = "sisters"
 	PromptRebase    = "rebase"
 	PromptFixChecks = "fixChecks"
@@ -38,7 +39,9 @@ The *herd step* block in your system prompt gives the task, the step number ` + 
 3. Never commit or push: herd does it.
    Skills you can use whenever they help: context7 (current docs of libraries and frameworks) and archify (diagrams, see below).
 4. Write your artifact (` + "`{artifact}`" + `) in the run directory. It starts with YAML front matter; when the step is finished it contains ` + "`status: done`" + ` (it succeeded) or ` + "`status: failed`" + ` (it did not, and the artifact says why).
-   Only add that line when the step is truly finished. If you need the user, ask in the terminal and stop.`},
+   Only add that line when the step is truly finished. If you need the user, ask in the terminal and stop.
+5. When something is complex (a flow, a mechanism, a tricky bug), you can add an ELI5 explanation of it, in your artifact or your replies: a few plain sentences with an everyday metaphor.`},
+		{ID: PromptClaims, Name: "Claims", Where: "Every agent's system prompt, for the whole conversation: its artifact and every reply", Default: `In your artifact and in every reply of this conversation, highlight each claim you have not verified (in the code, by running it, or in logs or docs) with your confidence, e.g. **Unverified (medium confidence):** the retry also covers timeouts.`},
 		{ID: PromptDiagrams, Name: "Diagrams", Where: "Every agent's command, after its instructions", Vars: "{stem}: the artifact's name without .md, e.g. PLAN-{n}", Default: `## Diagrams
 
 Every diagram is an archify page: run the archify skill (Skill tool), never draw it by hand. herd shows the page inside your artifact, and the reader can open it full size.
@@ -53,7 +56,7 @@ one "### <repository folder name>" per repository, then what that part must do, 
 Leave out repositories that already have a sister task (listed in the herd step block).`},
 		{ID: PromptRebase, Name: "Rebase", Where: "The guidance of Rebase with Implement: in the PR tab when the PR conflicts with its base, and in the task header when the branch is behind it", Vars: "{base}: the base branch, {behind}: how many of its commits the branch lacks", Default: `Rebase this branch on origin/{base}, which has {behind} commits it lacks. git fetch origin {base}, then git rebase origin/{base}; resolve each conflict keeping what both sides meant, and continue with git rebase --continue (the only commits allowed in this step). Run the tests of the files you resolved. Do not push: Commit and push does it. List the conflicts and how you resolved them, or say there were none.`},
 		{ID: PromptFixChecks, Name: "Fix CI checks", Where: "The guidance of Fix with Implement, in the PR tab's CI checks", Vars: "{pr}: the PR number, {checks}: the failing checks, {links}: their links", Default: `Fix the failing CI checks of PR #{pr}: {checks}. Read their logs (gh run view <run id> --log-failed; the run id is in each check's link: {links}), fix the cause in the code, or the test when the test is what is wrong, and run those tests locally when you can.`},
-		{ID: PromptFeedback, Name: "Fix review comments", Where: "The guidance of Fix with Implement, in the PR tab's Review comments", Vars: "{pr}: the PR number, {comments}: the chosen comments, with their file, line and replies", Default: `Address these review comments on PR #{pr}. For each one, fix the code when it is right; when it is not, or when it asks a question, say so in your artifact with the answer to post. List in your artifact which comment each change answers.
+		{ID: PromptFeedback, Name: "Fix review comments", Where: "The guidance of Fix with Implement, in the PR tab's Review comments", Vars: "{pr}: the PR number, {comments}: the chosen comments, with their file, line and replies", Default: `Address these review comments on PR #{pr}. For each one, check it against the code and fix the code only when its concern is real; when it is not, or when it asks a question, change nothing for it and say why in your artifact, with the answer to post. List in your artifact which comment each change answers.
 
 {comments}`},
 		{ID: PromptNotes, Name: "Diff comments", Where: "The guidance of the step that Send to starts, from your comments on the diff (Changes)", Vars: "{comments}: your comments, each with its file, lines and code", Default: `Address my comments on the diff, one by one. Each gives the file, the lines and their code, then what I want. List in your artifact what you changed for each.

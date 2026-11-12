@@ -17,7 +17,7 @@ const selId = ref(claudeAgents.value[0]?.id ?? '')
 const A = computed(() => agents.value.find((a) => a.id === selId.value) ?? claudeAgents.value[0])
 const confirmDelete = ref(false)
 
-const models: [string, string][] = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]
+const models: [string, string][] = [['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]
 const modelLabel = (m: string) => models.find((x) => x[0] === m)?.[1] ?? m
 const isAuto = (a: Agent) => a.trigger.startsWith('after:')
 const vFocus = { mounted: (el: HTMLElement) => el.focus() }

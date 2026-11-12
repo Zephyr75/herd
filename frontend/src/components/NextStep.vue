@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { api } from '../lib/api'
 import { herd } from '../lib/state'
 import Icon from './ui/Icon.vue'
+import TaskRef from './ui/TaskRef.vue'
 
 const t = computed(() => herd.selTask)
 const nx = computed(() => t.value?.next)
@@ -41,8 +42,8 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
     <div class="top">
       <span class="muted small">Next step</span>
       <span class="grow"></span>
-      <span v-if="!t.issue" class="local-chip">LOCAL</span>
-      <span class="ref">{{ t.issue ? `#${t.issue} · ` : '' }}{{ t.projectName }}</span>
+      <TaskRef :issue="t.issue" :task="t.id" class="tref" />
+      <span class="ref">· {{ t.projectName }}</span>
     </div>
 
     <div v-for="o in nx.sisters" :key="o.repo" class="sister">
@@ -108,10 +109,14 @@ const markDone = (id: string) => herd.attempt('Mark done failed', () => api.Mark
 .small {
   font-size: 12px;
 }
-.ref {
+.ref,
+.tref {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--muted);
+}
+.tref.sis {
+  color: var(--sis);
 }
 .grow {
   flex: 1;

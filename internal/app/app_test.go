@@ -1391,7 +1391,7 @@ func TestCommonIssuesRepo(t *testing.T) {
 	}
 	p, _ := a.settings.Project("core")
 	block := a.stepBlock(launch{task: task, proj: p, agent: settings.Agent{ID: "push", Name: "Commit and push", Writes: "PR.md"}, step: store.Step{N: 1}}, "/run", "/wt")
-	if !strings.Contains(block, "refer to it as org/issues#42") || strings.Contains(block, "sister task") {
+	if !strings.Contains(block, "refer to it as org/issues#42") || strings.Contains(block, "sister task") || !strings.Contains(block, "every reply of this conversation") {
 		t.Fatalf("step block:\n%s", block)
 	}
 	task.Sister = true

@@ -39,7 +39,7 @@ func DefaultAgents() []Agent {
 			Instructions: `Read TASK.md, and ISSUE.md when the task has a GitHub issue (herd copied it there, comments included).
 Explore the repo and decide an approach. Do not edit code.
 Write PLAN-{n}.md with these sections, in this order:
-TLDR: two or three sentences, right after the front matter, saying what is wrong and how it will be fixed. Write this section with the humanizer skill so it reads naturally; do not use humanizer anywhere else.
+TLDR: two or three sentences, right after the front matter, saying what is wrong and how it will be fixed. Then ELI5: a short paragraph explaining the same thing as you would to a five-year-old, with an everyday metaphor (no jargon, no file or function names). Write both with the humanizer skill so they read naturally; do not use humanizer anywhere else.
 1. Goal: what is wrong or missing today and what will be true once it is done, in plain words that someone new to this code understands.
 2. Current flow: PLAN-{n}-current.html, an archify diagram of how the code works today, drawn from the code with source evidence, the part that goes wrong marked. Embed it: ![Current flow](PLAN-{n}-current.html).
 3. New flow: PLAN-{n}-new.html, the same flow with the fix applied and what changes marked, laid out like the current one so the two compare at a glance. Embed it: ![New flow](PLAN-{n}-new.html).
@@ -54,15 +54,16 @@ End with status: done, or status: failed if the task cannot be done as described
 			Writes: "IMPLEMENT-{n}.md", ShowDiff: true, Sisters: true, Revert: true, OnFail: []string{"impl", "discuss", "plan"},
 			Instructions: `Read the newest PLAN-n.md (PLAN.md in older tasks), and the newest REVIEW-n.md, TEST-n.md, COPILOT-n.md and DISCUSS-n.md in the run directory when they exist (older ones were handled by earlier steps).
 Implement the plan's New flow and Files in this worktree. When the plan lists Options, take the one the guidance picks, else the recommended one.
-When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n-review.md.
+When the task already has a pull request, also fix its failing CI checks (gh pr checks) and the comments in the newest COPILOT-n-review.md. Check each comment against the code first and change the code only when its concern is real; when it is not, leave the code as it is and say why in IMPLEMENT-{n}.md, so the user can resolve it in the Copilot step.
 Do not write or change tests: Test adds them once the review passes.
 Run the existing tests that cover what you changed, and the build or type-check.
 Do not commit: Commit and push commits once Review and Test pass.
 Write IMPLEMENT-{n}.md with these sections:
-TLDR: two or three sentences, right after the front matter, saying what changed and why. Write this section with the humanizer skill so it reads naturally; do not use humanizer anywhere else.
+TLDR: two or three sentences, right after the front matter, saying what changed and why. Then ELI5: a short paragraph explaining the same thing as you would to a five-year-old, with an everyday metaphor (no jargon, no file or function names). Write both with the humanizer skill so they read naturally; do not use humanizer anywhere else.
 1. What changed: an intuitive explanation of the change and how each part of the code had to be updated for it, following the flow. When the plan lists Options, start with the option taken and why: the user's guidance, else the plan's recommendation.
 2. Files: a table of the files actually changed, one row each, with what changed in it.
-3. Notes for the reviewer, only when there are any: deviations from the plan, what to look at closely, checks that failed or could not run.
+3. Copilot comments, only when you handled some: one row per comment (its title, or file:line), whether you fixed it or it is not a real concern, and why.
+4. Notes for the reviewer, only when there are any: deviations from the plan, what to look at closely, checks that failed or could not run.
 Keep IMPLEMENT-{n}.md short, intuitive and easy to read.
 End with status: done, or status: failed if you could not implement it (say what blocks).`,
 		},

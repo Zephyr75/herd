@@ -461,9 +461,10 @@ func Copilot() Agent {
 // branch, {file}: the file to write.
 const CopilotInstructions = `Explain the changes of PR #{pr} to someone who has not read the code. Read TASK.md and the newest PLAN-n.md in the run directory, then the diff: git diff origin/{base}...HEAD.
 Write {file} in markdown, without front matter, with:
-- ## TL;DR: two to four plain sentences on the idea behind the change (what was wrong, how it is fixed), the way you would tell a colleague. Run the humanizer skill (Skill tool) on it when you have it.
+- ## TL;DR: two to four plain sentences on the idea behind the change (what was wrong, how it is fixed), the way you would tell a colleague. Then ### ELI5: the same idea as you would explain it to a five-year-old, with an everyday metaphor (no jargon, no file or function names). Run the humanizer skill (Skill tool) on both when you have it.
 - ## How it works: each change in the order the reader needs it, what it does and why, with the files it touches. For a change that is hard to picture, add an everyday analogy.
 - a diagram of the flow before and after, when the change alters a flow.
+When something is complex, you can add an ELI5 explanation of it, with an everyday metaphor.
 Keep it short, intuitive and easy to read. Write only {file}: never change the code, commit or push.`
 
 // normalize makes agents consistent: lists are never nil (the UI always

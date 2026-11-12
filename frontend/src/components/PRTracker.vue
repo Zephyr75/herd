@@ -74,22 +74,6 @@ async function resolve(f: Feedback) {
   await herd.attempt('Could not resolve the comment', () => api.ResolveThread(props.task.id, f.id))
   resolving.value = ''
 }
-// The outdated check: a quick Claude run says whether the current code
-// handles an outdated comment; the user resolves it from that.
-const checking = ref(new Set<string>())
-async function checkOutdated(f: Feedback) {
-  checking.value = new Set(checking.value).add(f.id)
-  await herd.attempt('Could not check the comment', () => api.CheckOutdated(props.task.id, f.id))
-  const s = new Set(checking.value)
-  s.delete(f.id)
-  checking.value = s
-}
-const checkModel = computed(() => herd.settings?.agents.find((a) => a.builtin)?.checkModel || 'haiku')
-const outdatedText = (f: Feedback) => {
-  if (checking.value.has(f.id)) return 'outdated, checking…'
-  const c = props.task.checked?.[f.id]
-  return c ? (c.resolved ? 'outdated, resolved' : 'outdated, not resolved') : 'outdated'
-}
 const where = (f: Feedback) => (f.path ? `${f.path}:${f.line}` : 'on the PR')
 function fixFeedback() {
   const comments = picked.value
@@ -152,10 +136,7 @@ async function refresh() {
               <span class="who">{{ f.author }}</span>
               <span class="mono muted">{{ where(f) }}</span>
               <span v-if="f.resolvedBy" class="muted">resolved by {{ f.resolvedBy }}</span>
-              <template v-else-if="f.outdated">
-                <span :class="['muted', { ok: task.checked?.[f.id]?.resolved, ko: task.checked?.[f.id] && !task.checked[f.id].resolved }]" :title="task.checked?.[f.id]?.why ?? 'The code it points at changed since'">{{ outdatedText(f) }}</span>
-                <button v-if="live && f.path && !checking.has(f.id)" class="icon" :title="`Ask ${checkModel} whether the current code handles this comment (you resolve it)`" aria-label="Check whether the current code handles this comment" @click="checkOutdated(f)"><Icon name="search" :size="12" /></button>
-              </template>
+              <span v-else-if="f.outdated" class="muted">outdated</span>
               <span v-if="f.replies.length" class="muted">· {{ f.replies.length }} {{ f.replies.length > 1 ? 'replies' : 'reply' }}</span>
               <span class="grow"></span>
               <button v-if="live && f.path && !f.resolvedBy" class="icon" :disabled="resolving === f.id" title="Mark resolved on GitHub" aria-label="Mark resolved on GitHub" @click="resolve(f)"><Icon name="check" :size="15" /></button>
@@ -365,12 +346,6 @@ async function refresh() {
     margin-top: 2px;
     flex: none;
     color: var(--muted);
-  }
-  .fmeta .ok {
-    color: var(--done);
-  }
-  .fmeta .ko {
-    color: var(--approval);
   }
   .fb.resolved .ftext {
     color: var(--muted);

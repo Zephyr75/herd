@@ -64,17 +64,35 @@ func frontMatter(art artifacts.Artifact, set map[string]string) string {
 // in the Copilot step's COPILOT-n.md.
 func (a *App) explainChanges(t store.Task, s store.Step) {
 	p := a.projectOf(t)
-	file := a.copilotPath(t, s)
+	runDir, wt, file := a.runDir(p, t), worktreePath(p, t), a.copilotPath(t, s)
 	_ = os.WriteFile(file, []byte(explaining), 0o644)
 	a.emit(EvArtifact, map[string]string{"taskId": t.ID, "file": filepath.Base(file)})
 	stem := strings.TrimSuffix(filepath.Base(file), ".md")
 	ag := agentFor(a.settings.Agents(), copilotAgent)
 	prompt := settings.Fill(ag.Instructions, map[string]string{"pr": fmt.Sprint(t.PRNumber), "base": p.BaseBranch, "file": file}) +
 		"\n\n" + settings.Fill(a.settings.Prompt(settings.PromptDiagrams), map[string]string{"stem": stem, "artifact": filepath.Base(file)})
+	bin := strings.Fields(a.settings.Config().ClaudeCommand)
+	if len(bin) == 0 {
+		bin = []string{"claude"}
+	}
+	args := append([]string{}, bin[1:]...)
+	if ag.Model != "" {
+		args = append(args, "--model", ag.Model)
+	}
+	args = append(args, "-p", "--permission-mode", "auto", "--settings", a.hooksPath(), "--add-dir", runDir)
+	for _, dir := range a.knowledgeDirs(p) {
+		args = append(args, "--add-dir", dir)
+	}
+	args = append(args, "--append-system-prompt", a.explainSystemPrompt(t, p), "--", prompt)
 	ctx, cancel := context.WithCancel(a.ctx)
 	defer cancel()
-	cmd := a.headless(ctx, t, ag.Model, a.explainSystemPrompt(t, p), prompt)
-	cmd.Env = append(cmd.Env, "HERD_ARTIFACT="+file)
+	cmd := exec.CommandContext(ctx, bin[0], args...)
+	cmd.Dir = wt
+	// No HERD_TASK: herd's hooks do nothing for this run.
+	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(inheritedSessionVars, name) || strings.HasPrefix(name, "HERD_")
+	}), "HERD_RUN_DIR="+runDir, "HERD_ARTIFACT="+file)
 	out, err := cmd.CombinedOutput()
 	if a.ctx.Err() != nil {
 		return // herd is quitting
@@ -89,43 +107,10 @@ func (a *App) explainChanges(t store.Task, s store.Step) {
 	a.emit(EvArtifact, map[string]string{"taskId": t.ID, "file": filepath.Base(file)})
 }
 
-// headless is a Claude run without a terminal (claude -p) in the task's
-// worktree, for the work herd does itself: herd's settings (no hooks fire:
-// no HERD_TASK), the run directory and knowledge base readable.
-func (a *App) headless(ctx context.Context, t store.Task, model, system, prompt string) *exec.Cmd {
-	p := a.projectOf(t)
-	runDir := a.runDir(p, t)
-	bin := strings.Fields(a.settings.Config().ClaudeCommand)
-	if len(bin) == 0 {
-		bin = []string{"claude"}
-	}
-	args := append([]string{}, bin[1:]...)
-	if model != "" {
-		args = append(args, "--model", model)
-	}
-	args = append(args, "-p", "--permission-mode", "auto", "--settings", a.hooksPath(), "--add-dir", runDir)
-	for _, dir := range a.knowledgeDirs(p) {
-		args = append(args, "--add-dir", dir)
-	}
-	args = append(args, "--append-system-prompt", system, "--", prompt)
-	cmd := exec.CommandContext(ctx, bin[0], args...)
-	cmd.Dir = worktreePath(p, t)
-	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		name, _, _ := strings.Cut(kv, "=")
-		return slices.Contains(inheritedSessionVars, name) || strings.HasPrefix(name, "HERD_")
-	}), "HERD_RUN_DIR="+runDir)
-	return cmd
-}
-
 // explainSystemPrompt is the system prompt of the Claude run that explains a
 // PR: what it works on, then the Claims prompt and the Rules.
 func (a *App) explainSystemPrompt(t store.Task, p settings.Project) string {
-	return a.withRules(fmt.Sprintf("# herd\nYou explain the changes of the task %s (project %s) in its worktree %s. The run directory %s holds TASK.md and every artifact.", t.ID, p.Name, worktreePath(p, t), a.runDir(p, t)))
-}
-
-// withRules follows a headless run's system prompt with the Claims prompt
-// and the Rules.
-func (a *App) withRules(sys string) string {
+	sys := fmt.Sprintf("# herd\nYou explain the changes of the task %s (project %s) in its worktree %s. The run directory %s holds TASK.md and every artifact.", t.ID, p.Name, worktreePath(p, t), a.runDir(p, t))
 	if claims := strings.TrimSpace(a.settings.Prompt(settings.PromptClaims)); claims != "" {
 		sys += "\n\n# Claims\n" + claims
 	}

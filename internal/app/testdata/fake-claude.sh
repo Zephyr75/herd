@@ -15,6 +15,7 @@ if [ -n "$resume" ] && [ -z "$prompted" ]; then
   exit 0
 fi
 if [ -n "$CLAUDE_CODE_CHILD_SESSION$CLAUDECODE" ]; then echo "inherited Claude Code session markers" >&2; exit 3; fi
+if [ -z "$HERD_ARTIFACT" ] && [ -n "$FAKE_ANSWER" ]; then printf '%b\n' "$FAKE_ANSWER"; exit 0; fi # a headless check
 post SessionStart '{"source":"startup"}'
 post UserPromptSubmit '{}'
 echo "fake claude: ${@: -1}"

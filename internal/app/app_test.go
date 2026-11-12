@@ -1207,6 +1207,31 @@ func TestRenameArtifacts(t *testing.T) {
 	}
 }
 
+// The outdated check asks Claude whether the code now handles an outdated
+// thread's comment, and keeps the answer for the PR tab.
+func TestCheckOutdated(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, _ := a.CreateTask("core", "", "outdated", "", false, nil)
+	a.checksMu.Lock()
+	a.feedback[tv.ID] = []github.Feedback{{ID: "t1", Path: "a.go", Line: 3, Outdated: true, Body: "nil check", Hunk: "@@ -1 +1 @@\n+x := f()"}}
+	a.checksMu.Unlock()
+	t.Setenv("FAKE_ANSWER", "**NOT RESOLVED**\nf() can still return nil.")
+	c, err := a.CheckOutdated(tv.ID, "t1")
+	if err != nil || c.Resolved || c.Why != "f() can still return nil." {
+		t.Fatalf("check: %+v %v", c, err)
+	}
+	if v, _ := a.GetTask(tv.ID); v.Checked["t1"].Why != c.Why {
+		t.Fatalf("not in the task view: %+v", v.Checked)
+	}
+	t.Setenv("FAKE_ANSWER", "Hmm, let me look.")
+	if _, err := a.CheckOutdated(tv.ID, "t1"); err == nil {
+		t.Fatal("an answer without a verdict passed")
+	}
+	if got, _ := parseOutdated("RESOLVED\nThe nil check is in."); !got.Resolved || got.Why != "The nil check is in." {
+		t.Fatalf("parse: %+v", got)
+	}
+}
+
 func TestCISummary(t *testing.T) {
 	for want, buckets := range map[string][]string{"": nil, "CI passed": {"pass", "skipping"}, "CI running": {"pass", "pending"}, "CI failed": {"pending", "fail"}} {
 		var cs []github.Check

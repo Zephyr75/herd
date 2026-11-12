@@ -199,6 +199,13 @@ function pick(id: string) {
           <textarea class="area mono" rows="7" :value="A.instructions" @input="set('instructions', val($event))"></textarea>
           <span class="hint flat">Placeholders: {{ '{pr} {base} {file}' }} (the file to write, which becomes {{ A.writes.replace('{n}', 'n') }}). herd's Diagrams prompt follows them.</span>
         </label>
+        <div class="field">
+          <span>Model of the outdated check</span>
+          <div class="segs">
+            <button v-for="[v, l] in models" :key="v" class="seg" :class="{ on: (A.checkModel || 'haiku') === v }" @click="set('checkModel', v)">{{ l }}</button>
+          </div>
+          <span class="hint flat">The search button on an outdated review comment (PR tab) asks it whether the current code handles the comment.</span>
+        </div>
         <ContextPreview :agent="A" />
       </template>
       <template v-else>

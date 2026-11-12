@@ -333,6 +333,7 @@ type Feedback struct {
 	ResolvedBy string  `json:"resolvedBy"` // who resolved the thread; "" while open
 	Body       string  `json:"body"`
 	URL        string  `json:"url"`
+	Hunk       string  `json:"hunk,omitempty"` // the diff it was left on
 	Replies    []Reply `json:"replies"`
 }
 
@@ -342,7 +343,7 @@ const feedbackQuery = `query($owner: String!, $name: String!, $n: Int!) {
       headRefOid
       reviewThreads(first: 100) {
         nodes { id isResolved resolvedBy { login } isOutdated path line originalLine
-          comments(first: 30) { nodes { author { login } body url } } }
+          comments(first: 30) { nodes { author { login } body url diffHunk } } }
       }
       reviews(last: 30) {
         nodes { id author { login } body url commit { oid } }
@@ -382,8 +383,8 @@ func parseFeedback(out string) ([]Feedback, error) {
 							Line, OriginalLine     *int
 							Comments               struct {
 								Nodes []struct {
-									Author    author
-									Body, URL string
+									Author              author
+									Body, URL, DiffHunk string
 								}
 							}
 						}
@@ -410,7 +411,7 @@ func parseFeedback(out string) ([]Feedback, error) {
 			continue
 		}
 		first := th.Comments.Nodes[0]
-		f := Feedback{ID: th.ID, Author: first.Author.Login, Path: th.Path, Outdated: th.IsOutdated, Body: strings.TrimSpace(first.Body), URL: first.URL, Replies: []Reply{}}
+		f := Feedback{ID: th.ID, Author: first.Author.Login, Path: th.Path, Outdated: th.IsOutdated, Body: strings.TrimSpace(first.Body), URL: first.URL, Hunk: first.DiffHunk, Replies: []Reply{}}
 		if th.IsResolved {
 			f.ResolvedBy = "someone"
 			if th.ResolvedBy != nil && th.ResolvedBy.Login != "" {

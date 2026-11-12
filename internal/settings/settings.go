@@ -75,7 +75,8 @@ type Agent struct {
 	Name         string   `toml:"name" json:"name"`
 	Command      string   `toml:"command" json:"command"`
 	Model        string   `toml:"model" json:"model"`
-	Trigger      string   `toml:"trigger" json:"trigger"` // manual | after:<agent id> (when that step succeeds)
+	CheckModel   string   `toml:"check_model,omitempty" json:"checkModel,omitempty"` // Copilot: the model that checks an outdated review comment
+	Trigger      string   `toml:"trigger" json:"trigger"`                            // manual | after:<agent id> (when that step succeeds)
 	Writes       string   `toml:"writes" json:"writes"`
 	Commit       bool     `toml:"commit,omitempty" json:"commit"`            // herd commits when it succeeds: its artifact's title line and body are the message
 	Push         bool     `toml:"push,omitempty" json:"push"`                // then pushes the branch (needs Commit)
@@ -453,7 +454,7 @@ const CopilotID = "copilot"
 // Copilot is the built-in agent with its fixed parts; the user sets its
 // trigger and its next steps.
 func Copilot() Agent {
-	return Agent{ID: CopilotID, Name: "Copilot", Trigger: "manual", Writes: "COPILOT-{n}.md", Builtin: true, Model: "opus", Instructions: CopilotInstructions}
+	return Agent{ID: CopilotID, Name: "Copilot", Trigger: "manual", Writes: "COPILOT-{n}.md", Builtin: true, Model: "opus", CheckModel: "haiku", Instructions: CopilotInstructions}
 }
 
 // CopilotInstructions is what the Claude run of a Copilot step does: explain
@@ -479,6 +480,9 @@ func normalize(agents []Agent) []Agent {
 			c.Trigger, c.Next, c.OnFail = a.Trigger, a.Next, a.OnFail
 			if a.Model != "" {
 				c.Model = a.Model
+			}
+			if a.CheckModel != "" {
+				c.CheckModel = a.CheckModel
 			}
 			if strings.TrimSpace(a.Instructions) != "" {
 				c.Instructions = a.Instructions

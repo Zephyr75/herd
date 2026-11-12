@@ -18,6 +18,7 @@ export interface Agent {
   name: string
   command: string
   model: string
+  checkModel?: string // Copilot: the model that checks an outdated review comment
   trigger: string // manual | after:<id> (when that step succeeds)
   writes: string
   commit: boolean // herd commits when it succeeds: its artifact's title line and body are the message
@@ -214,6 +215,7 @@ export interface Task {
   draft: boolean // the open PR is a draft (herd opens them so)
   conflicting: boolean // the open PR conflicts with its base: GitHub runs no checks
   feedback: Feedback[] // what reviewers still ask for on the open PR
+  checked: Record<string, OutdatedCheck> // what the outdated check found, by thread id
   behind: number // commits of origin/<base> the branch lacks
   notes: Note[] // the user's comments on the diff, until sent to a step
 }
@@ -290,7 +292,15 @@ export interface Feedback {
   resolvedBy: string // who resolved the thread; '' while open (resolved ones are only shown)
   body: string
   url: string
+  hunk?: string // the diff it was left on
   replies: { author: string; body: string }[]
+}
+
+/** Whether the current code handles an outdated thread's comment, as a quick Claude run found. */
+export interface OutdatedCheck {
+  resolved: boolean
+  why: string
+  at: string
 }
 
 /** The user's comment on lines of a diff, kept with the task until sent to a step. */

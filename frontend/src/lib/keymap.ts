@@ -84,6 +84,7 @@ export const actions: { id: string; action: string; where: string }[] = [
   { id: 'openDiff', action: 'Open the focused step diff in Zed', where: 'board' },
   { id: 'toggleLeft', action: 'Show or hide the task list', where: 'board' },
   { id: 'toggleRight', action: 'Show or hide the steps and preview', where: 'board' },
+  { id: 'todos', action: 'Todo lists', where: 'anywhere' },
   { id: 'settings', action: 'Settings', where: 'anywhere' },
   { id: 'close', action: 'Close popup or settings', where: 'popups' },
 ]

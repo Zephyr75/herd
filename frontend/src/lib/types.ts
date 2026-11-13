@@ -217,6 +217,7 @@ export interface Task {
   rejected: Record<string, { step: string; name: string }> // open threads a step found wrong or unnecessary, by thread id
   behind: number // commits of origin/<base> the branch lacks
   notes: Note[] // the user's comments on the diff, until sent to a step
+  todos: Todo[] // the user's todo list for the task
 }
 
 
@@ -273,6 +274,7 @@ export interface Bootstrap {
   tasks: Task[]
   tabs: { tabs: TabRef[]; active: number } | null
   os: string
+  todos: Todo[] // Others: the todos of no task
 }
 
 /** afterOf is the agent id a trigger starts after ("after:review" is review), or "". */
@@ -303,6 +305,14 @@ export interface Note {
   to: number
   code: string // the lines it is about
   text: string
+}
+
+/** One item of the user's todo lists: a task's, or Others. */
+export interface Todo {
+  id: string
+  text: string
+  done: boolean
+  urgent?: boolean
 }
 
 /** One part of what an agent's session gets (Settings > Agents > Preview full context). */

@@ -47,6 +47,9 @@
   --del: #5b4343;
   --del-bg: #f6cfcb;
 
+  /* todos marked urgent */
+  --urgent: #c0392b;
+
   --ansi-black: #605a52;
   --ansi-red: #b24c4c;
   --ansi-green: #525643;

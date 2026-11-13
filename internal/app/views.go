@@ -89,6 +89,7 @@ type TaskView struct {
 	Rejected    map[string]Rejection `json:"rejected"`    // open threads a step found wrong or unnecessary, by thread id
 	Behind      int                  `json:"behind"`      // commits of origin/<base> the branch lacks
 	Notes       []Note               `json:"notes"`       // the user's comments on the diff, until sent to a step
+	Todos       []Todo               `json:"todos"`       // the user's todo list for the task
 }
 
 func (a *App) runDir(p settings.Project, t store.Task) string {
@@ -211,6 +212,7 @@ func (a *App) view(t store.Task) (TaskView, error) {
 	v.Rejected = a.rejections(v.Feedback)
 	v.Behind = a.behindOf(t.ID)
 	v.Notes = a.notesOf(t.ID)
+	v.Todos = a.todosOf(t.ID)
 	v.Checks = a.checksOf(t.ID)
 	if v.Checks == nil {
 		v.Checks = []github.Check{}

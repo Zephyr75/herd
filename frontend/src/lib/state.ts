@@ -6,9 +6,9 @@ import { reactive } from 'vue'
 import { api, errorText, isDesktop, on } from './api'
 import { actionFor } from './keymap'
 import { copyText } from './window'
-import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task, type Agent, type Note, fill } from './types'
+import { unsuccessful, type Option, type Proc, type Settings, type Step, type TabRef, type Task, type Agent, type Note, type Todo, fill } from './types'
 
-export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'views'
+export type Overlay = 'none' | 'palette' | 'scope' | 'new' | 'activity' | 'views' | 'todos'
 export type ScopeMode = 'project' | 'worktree' | 'branch'
 export type SettingsTab = 'agents' | 'context' | 'projects' | 'appearance' | 'shortcuts' | 'about'
 
@@ -59,7 +59,9 @@ class Herd {
   view: 'board' | 'settings' = 'board'
   settingsTab: SettingsTab = 'context'
   overlay: Overlay = 'none'
-  rightTab: 'preview' | 'changes' | 'pr' = 'preview'
+  rightTab: 'preview' | 'changes' | 'pr' | 'todos' = 'preview'
+  todos: Todo[] = [] // Others: the todos of no task
+  hideDone = false // the todo lists hide the done items (Todos tab and pop-up)
   /** Steps whose session another process still runs (the resume guard). */
   elsewhere: Record<string, Proc[]> = {}
   scope: ScopeMode = 'project'
@@ -131,6 +133,7 @@ class Herd {
       this.os = b.os
       this.settings = b.settings
       this.tasks = b.tasks ?? []
+      this.todos = b.todos ?? []
       const saved = b.tabs?.tabs ?? []
       this.tabs = saved.filter((tb) => this.task(tb.task)?.steps.some((s) => s.id === tb.step))
       this.active = Math.min(b.tabs?.active ?? -1, this.tabs.length - 1)
@@ -154,6 +157,7 @@ class Herd {
       if (d.file.endsWith('.html')) this.diagramRev++ // a diagram page: the embedded ones reload
       else if (d.taskId === this.sel) this.artifactRev++
     })
+    on('todos:changed', (ts: Todo[]) => (this.todos = ts ?? []))
     on('toast', (d: { title: string; body: string; error: boolean }) => this.toast(d.title, d.body, d.error))
     on('menu', (what: string) => this.command(what))
     if (isDesktop) {
@@ -190,8 +194,8 @@ class Herd {
     const scope = q.get('scope')
     if (scope === 'project' || scope === 'worktree' || scope === 'branch') this.scope = scope
     const overlay = q.get('overlay')
-    if (overlay === 'palette' || overlay === 'scope' || overlay === 'new' || overlay === 'activity') this.overlay = overlay
-    if (q.get('right') === 'changes' || q.get('right') === 'pr') this.rightTab = q.get('right') as 'changes' | 'pr'
+    if (overlay === 'palette' || overlay === 'scope' || overlay === 'new' || overlay === 'activity' || overlay === 'todos') this.overlay = overlay
+    if (q.get('right') === 'changes' || q.get('right') === 'pr' || q.get('right') === 'todos') this.rightTab = q.get('right') as 'changes' | 'pr' | 'todos'
     this.previewQuery = q.get('q') ?? ''
     this.previewNew = q.get('new') ?? ''
   }
@@ -573,6 +577,13 @@ class Herd {
     await this.attempt('Could not save the comments', () => api.SetNotes(t.id, JSON.parse(JSON.stringify(notes))))
   }
 
+  /** setTodos saves a task's todo list, or Others when task is null. */
+  async setTodos(t: Task | null, todos: Todo[]) {
+    if (t) t.todos = todos
+    else this.todos = todos
+    await this.attempt('Could not save the todos', () => api.SetTodos(t?.id ?? '', JSON.parse(JSON.stringify(todos))))
+  }
+
   /** prompt is one of herd's prompts (Settings > Context > Prompts), filled with vars. */
   prompt(id: string, vars: Record<string, string>): string {
     return fill(this.settings?.prompts.find((p) => p.id === id)?.text ?? '', vars)
@@ -658,6 +669,8 @@ class Herd {
         return this.togglePanel('right')
       case 'newTask':
         return this.openOverlay('new')
+      case 'todos':
+        return this.openOverlay(this.overlay === 'todos' ? 'none' : 'todos')
       case 'settings':
         this.overlay = 'none'
         this.view = this.view === 'settings' ? 'board' : 'settings'

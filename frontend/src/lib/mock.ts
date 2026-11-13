@@ -3,7 +3,7 @@
 // every screen; it never touches git, gh or Claude Code.
 
 import type { Api } from './api'
-import { afterOf, unsuccessful, type CICheck, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind, type Note } from './types'
+import { afterOf, unsuccessful, type CICheck, type Agent, type Artifact, type Context, type Next, type Project, type Settings, type Step, type Task, type StatusKind, type Note, type Todo } from './types'
 
 type Handler = (data: any) => void
 const listeners = new Map<string, Set<Handler>>()
@@ -46,6 +46,7 @@ const context: Record<string, Context> = {
 }
 
 let mockSynced = false
+let others: Todo[] = [{ id: 'o1', text: 'Update the Slack profile picture', done: false }]
 
 const settings: Settings = {
   config: {
@@ -64,7 +65,7 @@ interface Fx {
   diff?: [string, string][]; changes?: string[]; findings?: string[]; copilot?: string[]; options?: boolean // the plan lists options
 }
 interface MockStep { key: string; agent: string; n: number; state: Step['state']; guide?: string; session: string; sha?: string; verdict?: string; manual?: boolean }
-interface MockTask { notes?: Note[]; labels?: string[]; draft?: boolean; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
+interface MockTask { notes?: Note[]; todos?: Todo[]; labels?: string[]; draft?: boolean; checks?: CICheck[]; id: string; project: string; issue: string; slug: string; title: string; description: string; branch?: string; archived?: boolean; pr?: number; prState?: string; archivedOn?: string; steps: MockStep[]; fx: Fx; removed?: boolean }
 
 const T: MockTask[] = [
   { id: 'core:4356', project: 'core', issue: '4356', slug: '4356', title: 'Retry BLE unlock on flaky connections', description: '',
@@ -256,7 +257,7 @@ function derive(t: MockTask): Task {
     projectName: p.name, repo: p.repo, issueRepo: '', sisters: [], baseBranch: p.baseBranch, worktree: `${p.path}/.worktrees/${t.slug}`, worktreeRel: `.worktrees/${t.slug}`,
     branch: t.branch ?? 'ar-' + t.slug, runDir: `~/.herd/runs/${p.name}/${t.slug}`,
     source: t.issue && t.description ? `GitHub issue #${t.issue} + description · ${p.repo}` : t.issue ? `GitHub issue #${t.issue} · ${p.repo}` : 'LOCAL · description only, no GitHub issue',
-    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false, conflicting: false, feedback: [], rejected: {}, behind: 0, notes: t.notes ?? [],
+    status, steps, next, projectGone: !projects.some((x) => x.id === t.project), checks: t.checks ?? [], labels: t.labels ?? [], draft: t.draft ?? false, conflicting: false, feedback: [], rejected: {}, behind: 0, notes: t.notes ?? [], todos: t.todos ?? [],
   }
 }
 
@@ -342,7 +343,7 @@ const ok = <T>(v: T) => Promise.resolve(v)
 
 export const api: Api = {
   Bootstrap: () => ok({
-    settings, tasks: T.map(derive), os: navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'linux',
+    settings, tasks: T.map(derive), todos: others, os: navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'linux',
     tabs: { tabs: [{ task: 'core:4356', step: 'core:4356/impl-2' }, { task: 'infra:214', step: 'infra:214/review-1' }, { task: 'rider:1188', step: 'rider:1188/plan-1' }, { task: 'core:4370', step: 'core:4370/impl-1' }], active: 0 },
   }),
   SaveTabs: () => ok(undefined),
@@ -462,6 +463,7 @@ export const api: Api = {
   GetSettings: () => ok(settings),
   SaveAgents: (a) => { settings.agents = a; agents.splice(0, agents.length, ...a); emit('settings:changed', settings); T.forEach(changed); return ok(undefined) },
   SetNotes: (id, notes) => { const t = find(id); t.notes = notes; changed(t); return ok(undefined) },
+  SetTodos: (id, todos) => { if (!id) { others = todos; emit('todos:changed', others); return ok(undefined) } const t = find(id); t.todos = todos; changed(t); return ok(undefined) },
   SetPrompt: (id, text) => { const p = settings.prompts.find((x) => x.id === id); if (p) p.text = text || p.default; emit('settings:changed', settings); return ok(undefined) },
   AgentContext: (a) => ok([
     { title: 'System prompt', where: "Appended to Claude Code's own system prompt", text: '# herd step\n- task: core:1234 (Example task), project core\n\n# Claims\nHighlight each claim you have not verified.' },

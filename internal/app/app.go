@@ -354,6 +354,7 @@ type Bootstrap struct {
 	Tasks    []TaskView        `json:"tasks"`
 	Tabs     json.RawMessage   `json:"tabs"`
 	OS       string            `json:"os"`
+	Todos    []Todo            `json:"todos"` // Others: the todos of no task
 }
 
 // Bootstrap returns settings, tasks and the open tabs.
@@ -366,7 +367,7 @@ func (a *App) Bootstrap() (Bootstrap, error) {
 	if tabs == "" {
 		tabs = "null"
 	}
-	return Bootstrap{Settings: a.settings.Snapshot(), Tasks: tasks, Tabs: json.RawMessage(tabs), OS: runtime.GOOS}, nil
+	return Bootstrap{Settings: a.settings.Snapshot(), Tasks: tasks, Tabs: json.RawMessage(tabs), OS: runtime.GOOS, Todos: a.todosOf("")}, nil
 }
 
 // SaveTabs persists the open tabs (opaque JSON from the frontend).

@@ -2,7 +2,7 @@
 // herd's icons, from Lucide (lucide.dev), by the names herd uses.
 import { computed, type Component } from 'vue'
 import {
-  Archive, Check, ChevronDown, ChevronRight, Copy, Diff, ExternalLink, Eye, File, Folder, FolderGit2, GitBranch, GitMerge, GitPullRequestArrow, Maximize2, Menu, Minus,
+  Archive, Check, ChevronDown, ChevronRight, Copy, Diff, ExternalLink, Eye, File, Folder, FolderGit2, GitBranch, GitMerge, GitPullRequestArrow, GripVertical, ListTodo, Maximize2, Menu, Minus,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Play, Plus, RotateCw, Search, Settings, Square, SquareTerminal, TriangleAlert, Undo2, X,
 } from '@lucide/vue'
 
@@ -36,6 +36,8 @@ const icons: Record<string, Component> = {
   maximize: Maximize2,
   menu: Menu,
   gear: Settings,
+  todo: ListTodo,
+  grip: GripVertical,
   // window controls
   'win-min': Minus,
   'win-max': Square,

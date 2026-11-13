@@ -11,6 +11,7 @@ import Palette from './components/popups/Palette.vue'
 import ScopePicker from './components/popups/ScopePicker.vue'
 import NewTask from './components/popups/NewTask.vue'
 import Activity from './components/popups/Activity.vue'
+import Todos from './components/popups/Todos.vue'
 import ViewPopups from './components/popups/ViewPopups.vue'
 
 watchEffect(() => {
@@ -47,6 +48,7 @@ watchEffect(() => {
     <ScopePicker v-if="herd.overlay === 'scope'" />
     <NewTask v-if="herd.overlay === 'new'" />
     <Activity v-if="herd.overlay === 'activity'" />
+    <Todos v-if="herd.overlay === 'todos'" />
     <ViewPopups v-if="herd.overlay === 'views' && (herd.diffOf || herd.artifactOf || herd.diagramOf)" />
   </div>
 </template>

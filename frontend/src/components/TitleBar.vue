@@ -4,12 +4,15 @@
 // the controls are drawn here; macOS keeps its traffic lights.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { herd } from '../lib/state'
+import { label } from '../lib/keymap'
 import { isMaximised, minimise, quit, toggleMaximise } from '../lib/window'
 import Icon from './ui/Icon.vue'
 
 const t = computed(() => herd.selTask)
 const scopeOpen = (m: string) => herd.overlay === 'scope' && herd.scope === m
 const controls = computed(() => herd.os !== 'darwin')
+const openTodos = computed(() => herd.todos.filter((x) => !x.done).length + herd.tasks.reduce((n, x) => n + x.todos.filter((y) => !y.done).length, 0))
+const todosKey = computed(() => label(herd.settings?.keymap.todos?.[0]))
 
 const maximised = ref(false)
 const sync = async () => (maximised.value = await isMaximised())
@@ -47,6 +50,9 @@ function dblclick(e: MouseEvent) {
     </template>
     <span v-else-if="herd.view === 'settings'" class="muted label">Settings</span>
     <span class="grow"></span>
+    <button class="todos" :class="{ on: herd.overlay === 'todos' }" :title="`Todo lists${todosKey ? ' (' + todosKey + ')' : ''}`" @click="herd.command('todos')">
+      <Icon name="todo" :size="15" /><span v-if="openTodos" class="tcount">{{ openTodos }}</span>
+    </button>
     <button class="search" @click="herd.openOverlay('palette')">
       <Icon name="search" /><span class="grow stext">Search tasks</span>
     </button>
@@ -139,6 +145,28 @@ button {
 }
 .grow {
   flex: 1;
+}
+.todos {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  margin-right: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.todos:hover,
+.todos.on {
+  background: var(--hover);
+  color: var(--text);
+}
+.tcount {
+  font-family: var(--mono);
+  font-size: 11px;
 }
 .search {
   display: flex;

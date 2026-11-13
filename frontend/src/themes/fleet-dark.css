@@ -47,6 +47,9 @@
   --del: #f87c88;
   --del-bg: #452d31;
 
+  /* todos marked urgent */
+  --urgent: #f87c88;
+
   /* terminal ANSI palette */
   --ansi-black: #18191b;
   --ansi-red: #f87c88;

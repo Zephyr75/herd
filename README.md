@@ -50,7 +50,8 @@ make test    # Go tests, with a fake claude
 - **Edits outside the worktree** by mistake are spotted: Next step warns before any step that commits.
 - **Skip a step:** its ✓ and ✕ buttons in the Steps panel end it at once as succeeded or failed (herd doesn't commit for it), and the task moves on from there.
 - **Quitting herd** keeps working steps alive: the next herd reattaches them, and catches up on what they did while it was closed.
-- **Shortcuts:** Alt+E and Alt+A hide the side panels, Esc closes pop-ups.
+- **Todos:** each task has its own todo list (the **Todos** tab under the steps), and **Others** holds what belongs to no task. The list icon in the top bar (or Alt+T) opens every list in a pop-up.
+- **Shortcuts:** Alt+E and Alt+A hide the side panels, Alt+T opens the todos, Esc closes pop-ups.
 
 ## 🗺️ Where things are
 

@@ -1499,6 +1499,29 @@ func TestDiffNotes(t *testing.T) {
 	}
 }
 
+func TestTodos(t *testing.T) {
+	a, _ := newTestApp(t)
+	tv, err := a.CreateTask("core", "", "todos", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetTodos(tv.ID, []Todo{{ID: "t1", Text: "merge"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetTodos("", []Todo{{ID: "o1", Text: "slack", Done: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := a.GetTask(tv.ID); len(v.Todos) != 1 || v.Todos[0].Text != "merge" {
+		t.Fatalf("task todos = %+v", v.Todos)
+	}
+	if got := a.Todos(); len(got) != 1 || !got[0].Done {
+		t.Fatalf("others = %+v", got)
+	}
+	if err := a.SetTodos("nope", nil); err == nil {
+		t.Fatal("todos of an unknown task saved")
+	}
+}
+
 func TestBehindBase(t *testing.T) {
 	a, repo := newTestApp(t)
 	origin := filepath.Join(filepath.Dir(repo), "origin.git")

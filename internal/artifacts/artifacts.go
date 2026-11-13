@@ -113,7 +113,8 @@ func (a Artifact) Outcome() (finished, failed bool) {
 }
 
 // Watch calls onWrite(path) for each markdown file written under root,
-// including run directories created later.
+// including run directories created later. Hidden folders (archify's
+// .archify, where it renames its working folders) are left out.
 func Watch(ctx context.Context, root string, onWrite func(path string)) error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -121,9 +122,13 @@ func Watch(ctx context.Context, root string, onWrite func(path string)) error {
 	}
 	add := func(dir string) {
 		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-			if err == nil && d.IsDir() {
-				_ = w.Add(p)
+			if err != nil || !d.IsDir() {
+				return nil
 			}
+			if p != root && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			_ = w.Add(p)
 			return nil
 		})
 	}

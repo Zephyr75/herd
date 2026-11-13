@@ -24,6 +24,7 @@ const (
 	PromptFixChecks = "fixChecks"
 	PromptFeedback  = "fixFeedback"
 	PromptNotes     = "diffNotes"
+	PromptTodo      = "todo"
 )
 
 // DefaultPrompts lists every prompt, in the order Settings shows them.
@@ -62,6 +63,9 @@ Leave out repositories that already have a sister task (listed in the herd step 
 		{ID: PromptNotes, Name: "Diff comments", Where: "The guidance of the step that Send to starts, from your comments on the diff (Changes)", Vars: "{comments}: your comments, each with its file, lines and code", Default: `Address my comments on the diff, one by one. Each gives the file, the lines and their code, then what I want. List in your artifact what you changed for each.
 
 {comments}`},
+		{ID: PromptTodo, Name: "Todo", Where: "The guidance of the step a todo's play button starts (Implement by default)", Vars: "{todo}: the todo's text", Default: `Do this todo of the task:
+
+{todo}`},
 	}
 }
 

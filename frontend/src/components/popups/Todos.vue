@@ -41,7 +41,7 @@ function go(t: Task) {
           <span class="name">{{ t.title }}</span>
           <span class="muted small">{{ t.projectName }}{{ t.archived ? ' · archived' : '' }}</span>
         </button>
-        <TodoList :todos="t.todos" :hide-done="herd.hideDone" @change="herd.setTodos(t, $event)" />
+        <TodoList :todos="t.todos" :hide-done="herd.hideDone" @change="herd.setTodos(t, $event)" :run="herd.todoAgent()?.name ?? 'Implement'" :blocked="herd.todoBlocked(t)" @run="herd.runTodo(t, $event)" />
       </section>
       <section>
         <span class="task static"><span class="name">Others</span><span class="muted small">not related to a task</span></span>

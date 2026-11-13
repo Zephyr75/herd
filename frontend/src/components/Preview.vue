@@ -104,7 +104,7 @@ const tab = computed(() =>
           <span class="grow"></span>
           <label class="hide-done"><input v-model="herd.hideDone" type="checkbox" />Hide done</label>
         </div>
-        <TodoList :todos="task.todos" :hide-done="herd.hideDone" @change="herd.setTodos(task, $event)" />
+        <TodoList :todos="task.todos" :hide-done="herd.hideDone" @change="herd.setTodos(task, $event)" :run="herd.todoAgent()?.name ?? 'Implement'" :blocked="herd.todoBlocked(task)" @run="herd.runTodo(task, $event)" />
       </template>
       <PRTracker v-else-if="tab === 'pr' && task" :task="task" />
       <ChangesView v-else-if="tab === 'changes'" :changes="changes" />

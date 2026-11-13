@@ -1,13 +1,16 @@
 <script setup lang="ts">
 // A todo list: tick an item, click its text to edit it (Enter saves,
 // Shift+Enter breaks the line, Escape cancels), drag its grip to move it,
-// mark it urgent with the warning icon (its text turns red), add one at the bottom.
+// mark it urgent with the warning icon (its text turns red), start a step on it
+// with the play button (when run names the agent; disabled with the reason in
+// blocked), add one at the bottom.
 import { nextTick, ref } from 'vue'
 import type { Todo } from '../lib/types'
 import Icon from './ui/Icon.vue'
 
-const props = defineProps<{ todos: Todo[]; hideDone?: boolean }>()
-const emit = defineEmits<{ change: [todos: Todo[]] }>()
+const props = defineProps<{ todos: Todo[]; hideDone?: boolean; run?: string; blocked?: string }>()
+const goTitle = (t: Todo) => props.blocked || (t.done ? 'Already done' : 'Start ' + props.run + ' on it')
+const emit = defineEmits<{ change: [todos: Todo[]]; run: [todo: Todo] }>()
 
 const save = (todos: Todo[]) => emit('change', todos)
 const patch = (id: string, p: Partial<Todo>) => save(props.todos.map((x) => (x.id === id ? { ...x, ...p } : x)))
@@ -95,7 +98,7 @@ const dropCls = (t: Todo) => (over.value?.id === t.id && dragging.value !== t.id
 </script>
 
 <template>
-  <ul ref="list" class="todos" :class="{ sorting: dragging }">
+  <ul ref="list" class="todos" :class="{ sorting: dragging, runnable: run }">
     <template v-for="t in todos" :key="t.id">
       <li v-if="shown(t)" class="item" :data-id="t.id" :class="[{ done: t.done, lifted: dragging === t.id, urgent: t.urgent }, dropCls(t)]">
         <span class="grip" title="Drag to move" @pointerdown="startDrag($event, t)"><Icon name="grip" :size="13" /></span>
@@ -114,6 +117,9 @@ const dropCls = (t: Todo) => (over.value?.id === t.id && dragging.value !== t.id
           @blur="commit"
         ></textarea>
         <span v-else class="text" title="Click to edit" @click="edit(t)">{{ t.text }}</span>
+        <button v-if="run" class="go" :disabled="t.done || !!blocked" :aria-label="'Start ' + run + ' on it'" :title="goTitle(t)" @click="emit('run', t)">
+          <Icon name="play" :size="11" />
+        </button>
         <button class="urg" :aria-pressed="!!t.urgent" :aria-label="t.urgent ? 'Urgent: unmark it' : 'Mark as urgent'" :title="t.urgent ? 'Urgent: click to unmark' : 'Mark as urgent'" @click="patch(t.id, { urgent: !t.urgent })">
           <Icon name="warn" :size="13" />
         </button>
@@ -165,6 +171,10 @@ const dropCls = (t: Todo) => (over.value?.id === t.id && dragging.value !== t.id
   right: 62px; /* where it ends: the urgent and delete buttons */
   height: 1px;
   background: var(--text);
+}
+.runnable .item.drop-before::before,
+.runnable .item.drop-after::after {
+  right: 90px; /* and the play button */
 }
 .item.drop-before::before {
   top: 0;
@@ -224,6 +234,7 @@ const dropCls = (t: Todo) => (over.value?.id === t.id && dragging.value !== t.id
   outline: none;
   overflow: hidden;
 }
+.go,
 .urg,
 .x {
   flex: none;
@@ -244,8 +255,14 @@ const dropCls = (t: Todo) => (over.value?.id === t.id && dragging.value !== t.id
 .urgent .urg {
   color: var(--urgent);
 }
-.todos:not(.sorting) .item:hover :is(.grip, .urg, .x) {
+.todos:not(.sorting) .item:hover :is(.grip, .go, .urg, .x) {
   visibility: visible;
+}
+.go:not(:disabled):hover {
+  color: var(--accent);
+}
+.go:disabled {
+  opacity: 0.4;
 }
 .urg:hover {
   color: var(--urgent);

@@ -571,6 +571,25 @@ class Herd {
     return true
   }
 
+  /** todoAgent: the agent a todo's play button starts, Implement or else the first fixer. */
+  todoAgent(): Agent | undefined {
+    return this.settings?.agents.find((a) => a.id === 'impl') ?? this.fixers()[0]
+  }
+
+  /** todoBlocked: why a todo's play button can't start a step on the task now, or ''. */
+  todoBlocked(t: Task): string {
+    if (t.archived) return 'The task is archived'
+    if (t.worktreeRemoved) return 'The worktree was removed'
+    if (!this.todoAgent()) return 'No Implement agent'
+    if (this.busy(t)) return 'A step of this task is still working or waiting for you'
+    return ''
+  }
+
+  /** runTodo starts the todo agent on the task, with the todo as guidance. */
+  runTodo(t: Task, todo: Todo) {
+    return this.fixWith(t, this.prompt('todo', { todo: todo.text }) || todo.text, this.todoAgent())
+  }
+
   /** setNotes saves the task's comments on the diff. */
   async setNotes(t: Task, notes: Note[]) {
     t.notes = notes
